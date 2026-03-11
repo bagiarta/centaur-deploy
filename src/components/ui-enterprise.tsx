@@ -1,3 +1,4 @@
+import React from "react";
 import { cn } from "@/lib/utils";
 import { DeviceStatus, DeployStatus, AgentJobStatus } from "@/data/mockData";
 
