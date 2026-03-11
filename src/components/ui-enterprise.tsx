@@ -50,7 +50,6 @@ interface StatCardProps {
   className?: string;
 }
 
-import React from "react";
 
 export function StatCard({ label, value, sub, icon, variant = "default", className }: StatCardProps) {
   const variantStyles = {
