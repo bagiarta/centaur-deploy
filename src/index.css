@@ -1,9 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
 /* =========================================================
    CENTRAL DEPLOY ULTIMATE — Design System
    Enterprise dark theme. All colors HSL.
@@ -70,15 +69,15 @@
 
     --radius: 0.5rem;
 
-    /* ── Sidebar ───────────────────────────────────────── */
-    --sidebar-background:    220 25% 6%;
-    --sidebar-foreground:    210 25% 75%;
-    --sidebar-primary:       213 90% 55%;
+    /* ── Sidebar (Vibrant Green with Amber Orange highlight) ─ */
+    --sidebar-background:    142 80% 15%;
+    --sidebar-foreground:    142 40% 90%;
+    --sidebar-primary:       38 95% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent:        220 20% 12%;
-    --sidebar-accent-foreground: 210 30% 94%;
-    --sidebar-border:        220 18% 12%;
-    --sidebar-ring:          213 90% 55%;
+    --sidebar-accent:        142 80% 20%;
+    --sidebar-accent-foreground: 38 95% 65%;
+    --sidebar-border:        142 80% 20%;
+    --sidebar-ring:          38 95% 55%;
 
     /* ── Gradients ─────────────────────────────────────── */
     --gradient-hero:    linear-gradient(135deg, hsl(213 90% 55% / 0.15), hsl(195 85% 50% / 0.08));
@@ -138,7 +137,7 @@
   .status-warning { background: hsl(var(--warning)); color: hsl(var(--warning-foreground)); }
 
   .card-enterprise {
-    background: var(--gradient-card);
+    background: hsl(var(--card));
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
     box-shadow: var(--shadow-md);
@@ -208,9 +207,9 @@
   }
 
   .nav-item-active {
-    background: hsl(var(--primary) / 0.12);
-    color: hsl(var(--primary));
-    border-left: 2px solid hsl(var(--primary));
+    background: hsl(var(--sidebar-primary) / 0.12);
+    color: hsl(var(--sidebar-primary));
+    border-left: 2px solid hsl(var(--sidebar-primary));
   }
 }
 

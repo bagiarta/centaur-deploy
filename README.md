@@ -1,4 +1,4 @@
-# Welcome to your Lovable project
+# Welcome to your pepinetupdater project
 
 ## Project info
 

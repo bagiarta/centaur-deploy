@@ -1,17 +1,83 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Monitor, Package, Rocket, Download, Activity, Clock, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { StatCard, StatusBadge, SectionCard, PageHeader, DeployProgressSummary } from "@/components/ui-enterprise";
-import { mockDevices, mockDeployments, mockPackages, mockActivityLog } from "@/data/mockData";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function OverviewPage() {
-  const online    = mockDevices.filter(d => d.status === "online").length;
-  const offline   = mockDevices.filter(d => d.status === "offline").length;
-  const deploying = mockDevices.filter(d => d.status === "deploying").length;
-  const errored   = mockDevices.filter(d => d.status === "error").length;
-  const activeDeployments = mockDeployments.filter(d => d.status === "running").length;
-  const scheduledDeployments = mockDeployments.filter(d => d.status === "scheduled").length;
+  const { user } = useAuth();
+  const userKey = user?.id || user?.username;
+  const [devices, setDevices] = useState<any[]>([]);
+  const [deployments, setDeployments] = useState<any[]>([]);
+  const [packages, setPackages] = useState<any[]>([]);
+  const [activityLog, setActivityLog] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  return (
+  useEffect(() => {
+    if (!userKey) {
+      setLoading(false);
+      return;
+    }
+
+    async function loadData() {
+      try {
+        const [devResult, depResult, pkgResult, actResult] = await Promise.allSettled([
+          fetch('/api/devices'),
+          fetch('/api/deployments'),
+          fetch('/api/packages'),
+          fetch('/api/activity-log', {
+            headers: { 'X-User-Id': userKey }
+          })
+        ]);
+
+        const loadJsonArray = async (result: PromiseSettledResult<Response>, label: string) => {
+          if (result.status !== "fulfilled") {
+            console.error(`Failed to load ${label}:`, result.reason);
+            return [];
+          }
+
+          const payload = await result.value.json().catch(() => null);
+          if (!result.value.ok) {
+            console.error(`Failed to load ${label}:`, payload?.error || result.value.statusText);
+            return [];
+          }
+
+          return Array.isArray(payload) ? payload : [];
+        };
+
+        const [devicesData, deploymentsData, packagesData, activityData] = await Promise.all([
+          loadJsonArray(devResult, "devices"),
+          loadJsonArray(depResult, "deployments"),
+          loadJsonArray(pkgResult, "packages"),
+          loadJsonArray(actResult, "activity log"),
+        ]);
+
+        setDevices(devicesData);
+        setDeployments(deploymentsData);
+        setPackages(packagesData);
+        setActivityLog(activityData);
+      } catch (err) {
+        console.error("Failed to fetch overview data:", err);
+        setDevices([]);
+        setDeployments([]);
+        setPackages([]);
+        setActivityLog([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, [userKey]);
+
+  const online    = devices.filter(d => d.status === "online").length;
+  const offline   = devices.filter(d => d.status === "offline").length;
+  const deploying = devices.filter(d => d.status === "deploying").length;
+  const errored   = devices.filter(d => d.status === "error").length;
+  const activeDeployments = deployments.filter(d => d.status === "running").length;
+  const scheduledDeployments = deployments.filter(d => d.status === "scheduled").length;
+
+  if (loading) {
+    return <div className="p-6 flex items-center justify-center min-h-[50vh]"><Activity className="w-8 h-8 text-primary animate-pulse" /></div>;
+  }  return (
     <div className="p-6 space-y-6 animate-fade-up">
       <PageHeader
         title="Overview"
@@ -37,7 +103,7 @@ export default function OverviewPage() {
           <div>
             <h2 className="text-lg font-bold text-foreground">System Operational</h2>
             <p className="text-sm text-foreground-muted mt-0.5">
-              {mockDevices.length} devices enrolled · {activeDeployments} active deployment{activeDeployments !== 1 ? "s" : ""} · {mockPackages.length} packages in repository
+              {devices.length} devices enrolled · {activeDeployments} active deployment{activeDeployments !== 1 ? "s" : ""} · {packages.length} packages in repository
             </p>
           </div>
           {activeDeployments > 0 && (
@@ -54,7 +120,7 @@ export default function OverviewPage() {
         <StatCard
           label="Devices Online"
           value={online}
-          sub={`of ${mockDevices.length} enrolled`}
+          sub={`of ${devices.length} enrolled`}
           icon={<Monitor className="w-5 h-5" />}
           variant="success"
         />
@@ -67,7 +133,7 @@ export default function OverviewPage() {
         />
         <StatCard
           label="Packages"
-          value={mockPackages.length}
+          value={packages.length}
           sub="in repository"
           icon={<Package className="w-5 h-5" />}
           variant="default"
@@ -86,11 +152,11 @@ export default function OverviewPage() {
         <SectionCard title="Device Status Breakdown" className="col-span-1">
           <div className="p-5 space-y-3">
             {[
-              { label: "Online",    count: online,    total: mockDevices.length, color: "bg-success" },
-              { label: "Deploying", count: deploying, total: mockDevices.length, color: "bg-primary" },
-              { label: "Idle",      count: mockDevices.filter(d => d.status === "idle").length, total: mockDevices.length, color: "bg-foreground-subtle" },
-              { label: "Offline",   count: offline,   total: mockDevices.length, color: "bg-muted-foreground" },
-              { label: "Error",     count: errored,   total: mockDevices.length, color: "bg-danger" },
+              { label: "Online",    count: online,    total: devices.length, color: "bg-success" },
+              { label: "Deploying", count: deploying, total: devices.length, color: "bg-primary" },
+              { label: "Idle",      count: devices.filter(d => d.status === "idle").length, total: devices.length, color: "bg-foreground-subtle" },
+              { label: "Offline",   count: offline,   total: devices.length, color: "bg-muted-foreground" },
+              { label: "Error",     count: errored,   total: devices.length, color: "bg-danger" },
             ].map(row => (
               <div key={row.label} className="space-y-1">
                 <div className="flex justify-between text-xs">
@@ -99,7 +165,7 @@ export default function OverviewPage() {
                 </div>
                 <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                   <div className={`h-full rounded-full ${row.color} transition-all duration-700`}
-                    style={{ width: `${(row.count / row.total) * 100}%` }} />
+                    style={{ width: `${row.total > 0 ? (row.count / row.total) * 100 : 0}%` }} />
                 </div>
               </div>
             ))}
@@ -109,7 +175,7 @@ export default function OverviewPage() {
         {/* Active Deployments */}
         <SectionCard title="Recent Deployments" className="col-span-1 lg:col-span-2">
           <div className="divide-y divide-border">
-            {mockDeployments.slice(0, 4).map(dep => (
+            {deployments.slice(0, 4).map(dep => (
               <div key={dep.id} className="px-5 py-3 hover:bg-surface/40 transition-colors">
                 <div className="flex items-center justify-between mb-2">
                   <div className="min-w-0 flex-1">
@@ -133,7 +199,7 @@ export default function OverviewPage() {
       {/* Activity Log */}
       <SectionCard title="Activity Log" subtitle="Real-time system events">
         <div className="divide-y divide-border max-h-64 overflow-y-auto">
-          {mockActivityLog.map((entry, i) => (
+          {activityLog.map((entry, i) => (
             <div key={i} className="flex items-start gap-3 px-5 py-2.5 hover:bg-surface/40 transition-colors">
               <span className="text-xs font-mono text-foreground-subtle shrink-0 mt-0.5 w-10">{entry.time}</span>
               <span className="text-xs text-foreground-muted font-mono text-primary shrink-0">{entry.user}</span>

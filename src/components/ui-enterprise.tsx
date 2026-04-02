@@ -1,6 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
-import { DeviceStatus, DeployStatus, AgentJobStatus } from "@/data/mockData";
+import { DeviceStatus, DeployStatus, AgentJobStatus } from "@/types/inventory";
 
 // ── Status Badge ─────────────────────────────────────────
 type AnyStatus = DeviceStatus | DeployStatus | AgentJobStatus | string;

@@ -1,6 +1,5 @@
-import { useState } from "react";
-import { Upload, Search, Package2, CheckCircle2, Download } from "lucide-react";
-import { mockPackages, Package } from "@/data/mockData";
+import { useState, useEffect } from "react";
+import { Upload, Search, Package2, CheckCircle2, Download, Activity } from "lucide-react";
 import { PageHeader, SectionCard, StatusBadge } from "@/components/ui-enterprise";
 import { cn } from "@/lib/utils";
 
@@ -18,12 +17,123 @@ export default function PackagesPage() {
   const [search, setSearch] = useState("");
   const [uploading, setUploading] = useState(false);
   const [typeFilter, setTypeFilter] = useState("all");
+  
+  const [packages, setPackages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const types = ["all", ...Array.from(new Set(mockPackages.map(p => p.type)))];
-  const filtered = mockPackages.filter(p =>
-    (p.name.toLowerCase().includes(search.toLowerCase()) || p.version.includes(search))
+  // New package form state
+  const [newName, setNewName] = useState("");
+  const [newVersion, setNewVersion] = useState("");
+  const [newType, setNewType] = useState("msi");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const handleFileSelect = (file: File) => {
+    setSelectedFile(file);
+    if (!newName) {
+      const nameParts = file.name.split('.');
+      nameParts.pop(); // remove extension
+      setNewName(nameParts.join('.'));
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileSelect(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!newName || !selectedFile) return;
+    
+    setUploading(true);
+    const id = `pkg-${Date.now()}`;
+    
+    // Create FormData for file upload
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('id', id);
+    formData.append('name', newName);
+    formData.append('version', newVersion || "1.0.0");
+    formData.append('type', newType);
+    formData.append('uploaded_by', "admin");
+
+    try {
+      const res = await fetch('/api/packages', {
+        method: "POST",
+        body: formData // Fetch automatically sets Content-Type to multipart/form-data
+      });
+      if (res.ok) {
+        const result = await res.json();
+        const newPackage = {
+          id,
+          name: newName,
+          version: newVersion || "1.0.0",
+          type: newType,
+          checksum: `sha256:temp`,
+          file_path: result.file_path,
+          size: `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB`,
+          uploaded_at: new Date().toISOString().slice(0, 16).replace('T', ' '),
+          uploaded_by: "admin"
+        };
+        setPackages(prev => [newPackage, ...prev]);
+        setUploading(false);
+        setNewName("");
+        setNewVersion("");
+        setNewType("msi");
+        setSelectedFile(null);
+      } else {
+        const errText = await res.text();
+        console.error("Upload failed", errText);
+        alert("Upload failed: " + errText);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error: " + (err as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this package?")) return;
+    try {
+      const res = await fetch(`/api/packages/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setPackages(prev => prev.filter(p => p.id !== id));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const res = await fetch('/api/packages');
+        setPackages(await res.json());
+      } catch (err) {
+        console.error("Failed to fetch packages:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  const types = ["all", ...Array.from(new Set(packages.map(p => p.type)))];
+  const filtered = packages.filter(p =>
+    ((p.name || "").toLowerCase().includes(search.toLowerCase()) || (p.version || "").includes(search))
     && (typeFilter === "all" || p.type === typeFilter)
   );
+
+  if (loading) {
+    return <div className="p-6 flex items-center justify-center min-h-[50vh]"><Activity className="w-8 h-8 text-primary animate-pulse" /></div>;
+  }
 
   return (
     <div className="p-6 space-y-4 animate-fade-up">
@@ -43,10 +153,10 @@ export default function PackagesPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Packages", value: mockPackages.length, color: "text-foreground" },
-          { label: "MSI / EXE",      value: mockPackages.filter(p => p.type === "msi" || p.type === "exe").length, color: "text-primary" },
-          { label: "Archives (ZIP)",  value: mockPackages.filter(p => p.type === "zip").length, color: "text-warning" },
-          { label: "Config Files",   value: mockPackages.filter(p => ["json","xml","config"].includes(p.type)).length, color: "text-success" },
+          { label: "Total Packages", value: packages.length, color: "text-foreground" },
+          { label: "MSI / EXE",      value: packages.filter(p => p.type === "msi" || p.type === "exe").length, color: "text-primary" },
+          { label: "Archives (ZIP)",  value: packages.filter(p => p.type === "zip").length, color: "text-warning" },
+          { label: "Config Files",   value: packages.filter(p => ["json","xml","config"].includes(p.type)).length, color: "text-success" },
         ].map(s => (
           <div key={s.label} className="card-enterprise p-4">
             <p className="text-xs text-foreground-muted uppercase tracking-wider mb-1">{s.label}</p>
@@ -113,21 +223,22 @@ export default function PackagesPage() {
                       {pkg.type}
                     </span>
                   </td>
-                  <td><span className="font-mono text-xs text-foreground-muted">{pkg.size}</span></td>
+                  <td><span className="font-mono text-xs text-foreground-muted">{pkg.size || '-'}</span></td>
                   <td>
-                    <span className="font-mono text-xs text-foreground-subtle truncate max-w-40 block" title={pkg.checksum}>
-                      {pkg.checksum.slice(0, 20)}…
+                    <span className="font-mono text-xs text-foreground-subtle truncate max-w-40 block" title={pkg.checksum || 'No checksum'}>
+                      {pkg.checksum ? pkg.checksum.slice(0, 20) + '…' : '-'}
                     </span>
                   </td>
                   <td><span className="text-xs text-foreground-muted">{pkg.uploaded_by}</span></td>
                   <td><span className="text-xs text-foreground-muted font-mono">{pkg.uploaded_at}</span></td>
                   <td>
                     <div className="flex items-center gap-2">
-                      <button className="text-xs text-primary hover:underline flex items-center gap-1">
-                        <Rocket2 className="w-3 h-3" /> Deploy
-                      </button>
-                      <button className="text-xs text-foreground-muted hover:text-foreground">
+                       {/* Temporarily skipping deploy link here, users can use Deployments page */}
+                      <button className="text-xs text-foreground-muted hover:text-foreground" title="Download">
                         <Download className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => handleDelete(pkg.id)} className="text-xs text-danger hover:text-danger-foreground transition-colors ml-2" title="Delete Package">
+                        Delete
                       </button>
                     </div>
                   </td>
@@ -137,40 +248,62 @@ export default function PackagesPage() {
           </table>
         </div>
         <div className="px-5 py-2.5 border-t border-border text-xs text-foreground-muted">
-          {filtered.length} of {mockPackages.length} packages
+          {filtered.length} of {packages.length} packages
         </div>
       </SectionCard>
 
       {/* Upload Modal */}
       {uploading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setUploading(false)}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm pt-10 overflow-y-auto pb-10" onClick={() => setUploading(false)}>
           <div className="bg-surface border border-border rounded-xl p-6 w-full max-w-md shadow-lg animate-fade-up" onClick={e => e.stopPropagation()}>
             <h2 className="text-base font-bold text-foreground mb-4">Upload Package</h2>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-foreground-muted mb-1 block">Package Name</label>
-                <input className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary" placeholder="e.g. My Application" />
+                <input 
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary" placeholder="e.g. My Application" 
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-foreground-muted mb-1 block">Version</label>
-                  <input className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary" placeholder="1.0.0" />
+                  <input 
+                    value={newVersion}
+                    onChange={e => setNewVersion(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary" placeholder="1.0.0" 
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-foreground-muted mb-1 block">Type</label>
-                  <select className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary">
-                    {["exe","msi","dll","zip","json","xml","config"].map(t => <option key={t}>{t}</option>)}
+                  <select 
+                    value={newType}
+                    onChange={e => setNewType(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary">
+                    {["exe","msi","dll","zip","json","xml","config"].map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
               </div>
-              <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer">
-                <Upload className="w-8 h-8 text-foreground-muted mx-auto mb-2" />
-                <p className="text-sm text-foreground-muted">Drop file here or <span className="text-primary">browse</span></p>
-                <p className="text-xs text-foreground-subtle mt-1">Max 2 GB · EXE, MSI, DLL, ZIP, JSON, XML, CONFIG</p>
-              </div>
+              <label 
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                className="block border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
+              >
+                <input 
+                  type="file" 
+                  className="hidden" 
+                  onChange={e => e.target.files && handleFileSelect(e.target.files[0])}
+                />
+                <Upload className={cn("w-8 h-8 mx-auto mb-2", selectedFile ? "text-primary" : "text-foreground-muted")} />
+                <p className="text-sm text-foreground-muted">
+                  {selectedFile ? <span className="text-foreground font-medium">{selectedFile.name}</span> : <><span className="text-primary">Browse</span> or drag file here</>}
+                </p>
+                {!selectedFile && <p className="text-xs text-foreground-subtle mt-1">Max 2 GB · EXE, MSI, DLL, ZIP, JSON, XML, CONFIG</p>}
+              </label>
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setUploading(false)} className="flex-1 py-2 text-sm border border-border rounded-md text-foreground-muted hover:text-foreground hover:bg-surface-raised transition-colors">Cancel</button>
-                <button onClick={() => setUploading(false)} className="flex-1 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors font-semibold">Upload</button>
+                <button onClick={handleUpload} className="flex-1 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors font-semibold disabled:opacity-50" disabled={!newName}>Upload</button>
               </div>
             </div>
           </div>
