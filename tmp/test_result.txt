@@ -1,0 +1,37 @@
+[dotenv@17.3.1] injecting env (7) from .env -- tip: ??????  override existing env vars with { override: true }
+Starting Manual Network Detector Test...
+Mocking STORESRVR028 to offline status...
+Checking 224 online devices via Heartbeat & Ping...
+
+[ALERT] Detected 12 newly offline devices!
+
+--- NOTIFICATION CONTENT ---
+???? *NETWORK ALERT (MANUAL TEST)*
+New Tumbang: *12*
+Total Offline Saat Ini: *17 devices*
+
+*Detected Just Now:*
+- *HOSERVER* (192.168.85.18) | Heartbeat Timeout
+- *STORESRVR080* (172.16.12.194) | Ping Failed
+- *S038-C1* (172.16.10.37) | Ping Failed
+- *S038-C2* (172.16.10.38) | Ping Failed
+- *S080-C1* (172.16.12.205) | Ping Failed
+- *S080-C3* (172.16.12.207) | Ping Failed
+- *S078-C4* (172.16.10.148) | Ping Failed
+- *S068-C3* (172.16.11.76) | Heartbeat Timeout
+- *S065-C4* (172.16.10.237) | Ping Failed
+- *STORESRVR075* (172.16.9.98) | Ping Failed
+- *S078-C3* (172.16.10.147) | Ping Failed
+- *S072-C2* (172.16.11.171) | Heartbeat Timeout
+
+*Context (Still Offline):*
+- TESTING-POS (192.168.85.150)
+- S036-C5 (172.16.10.201)
+- DESKTOP-3OL5BLO (192.168.85.30)
+- S033-C5 (172.16.9.154)
+- S076-C4 (172.16.12.145)
+
+----------------------------
+
+WA Sent: 200
+Webhook Sent: 204

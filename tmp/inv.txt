@@ -1,0 +1,45 @@
+{
+    "value":  [
+                  {
+                      "name":  "7-Zip 24.09 (x64)",
+                      "count":  12
+                  },
+                  {
+                      "name":  "Hermes DT Client",
+                      "count":  12
+                  },
+                  {
+                      "name":  "Integration Services",
+                      "count":  12
+                  },
+                  {
+                      "name":  "Manual Tag Generation",
+                      "count":  12
+                  },
+                  {
+                      "name":  "Microsoft Analysis Services OLE DB Provider",
+                      "count":  12
+                  },
+                  {
+                      "name":  "Microsoft Help Viewer 2.3",
+                      "count":  12
+                  },
+                  {
+                      "name":  "Microsoft ODBC Driver 17 for SQL Server",
+                      "count":  12
+                  },
+                  {
+                      "name":  "Microsoft OLE DB Driver for SQL Server",
+                      "count":  12
+                  },
+                  {
+                      "name":  "Microsoft SQL Server 2012 Native Client ",
+                      "count":  12
+                  },
+                  {
+                      "name":  "Offline DT Server Pack",
+                      "count":  12
+                  }
+              ],
+    "Count":  10
+}

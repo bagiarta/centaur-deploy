@@ -1,0 +1,6 @@
+[dotenv@17.3.1] injecting env (7) from .env -- tip: ??????  specify custom .env file path with { path: '/custom/path/.env' }
+[LOG] 3 Dummy Devices created & injected directly with offline status (-40mins).
+
+[LOG] Query returned 3 devices... Preparing SINGLE Summary WhatsApp message.
+[LOG] Sending real WA to Fonnte -> 120363320640576420@g.us
+[FONNTE RESPONSE] 200: {"reason":"insufficient quota","requestid":430435181,"status":false}

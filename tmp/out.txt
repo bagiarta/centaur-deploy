@@ -1,0 +1,122 @@
+[dotenv@17.3.1] injecting env (7) from .env -- tip: ??????  enable debug logging with { debug: true }
+node : (node:824) 
+[DEP0123] 
+DeprecationWarning: 
+Setting the TLS ServerName 
+to an IP address is not 
+permitted by RFC 6066. 
+This will be ignored in a 
+future version.
+At line:1 char:1
++ node 
+tmp/check_software.cjs 
+2>&1 | Out-File 
+tmp/out.txt -Encoding asc 
+...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~
+    + CategoryInfo         
+     : NotSpecified: ((no  
+  de:824) [DEP...future    
+ version.:String) [], R    
+emoteException
+    + FullyQualifiedErrorI 
+   d : NativeCommandError
+ 
+(Use `node 
+--trace-deprecation ...` 
+to show where the warning 
+was created)
+DeviceSoftware rows:
+[
+  {
+    "id": 1124,
+    "device_id": "STORESRVR021",
+    "name": "Manual Tag Generation",
+    "version": "1.0.0",
+    "publisher": "PRIL\\Hermes",
+    "install_date": "20200520",
+    "updated_at": "2026-03-27T10:08:12.547Z"
+  },
+  {
+    "id": 1125,
+    "device_id": "STORESRVR021",
+    "name": "Microsoft Visual C++ 2013 x86 Additional Runtime - 12.0.21005",
+    "version": "12.0.21005",
+    "publisher": "Microsoft Corporation",
+    "install_date": "20200112",
+    "updated_at": "2026-03-27T10:08:12.547Z"
+  },
+  {
+    "id": 1126,
+    "device_id": "STORESRVR021",
+    "name": "Microsoft Visual Studio Tools for Applications 2015 Finalizer",
+    "version": "14.0.23829",
+    "publisher": "Microsoft Corporation",
+    "install_date": "20200112",
+    "updated_at": "2026-03-27T10:08:12.547Z"
+  },
+  {
+    "id": 1113,
+    "device_id": "STORESRVR021",
+    "name": "Microsoft Visual Studio Tools for Applications 2015 Language Support",
+    "version": "14.0.23107.20",
+    "publisher": "Microsoft Corporation",
+    "install_date": "20200112",
+    "updated_at": "2026-03-27T10:08:12.530Z"
+  },
+  {
+    "id": 1114,
+    "device_id": "STORESRVR021",
+    "name": "Microsoft Visual Studio Tools for Applications 2017 x86 Hosting Support",
+    "version": "15.0.27520",
+    "publisher": "Microsoft Corporation",
+    "install_date": "20200112",
+    "updated_at": "2026-03-27T10:08:12.530Z"
+  },
+  {
+    "id": 1115,
+    "device_id": "STORESRVR021",
+    "name": "Visual Studio 2017 Isolated Shell for SSMS",
+    "version": "15.0.28307.421",
+    "publisher": "Microsoft Corporation",
+    "install_date": "20200112",
+    "updated_at": "2026-03-27T10:08:12.530Z"
+  },
+  {
+    "id": 1116,
+    "device_id": "STORESRVR021",
+    "name": "Microsoft Visual Studio Tools for Applications 2015",
+    "version": "14.0.23829",
+    "publisher": "Microsoft Corporation",
+    "install_date": "",
+    "updated_at": "2026-03-27T10:08:12.530Z"
+  },
+  {
+    "id": 1117,
+    "device_id": "STORESRVR021",
+    "name": "Microsoft Visual Studio Tools for Applications 2015 Language Support Finalizer",
+    "version": "14.0.23107.20",
+    "publisher": "Microsoft Corporation",
+    "install_date": "20200112",
+    "updated_at": "2026-03-27T10:08:12.530Z"
+  },
+  {
+    "id": 1118,
+    "device_id": "STORESRVR021",
+    "name": "Browser for SQL Server 2017",
+    "version": "14.0.1000.169",
+    "publisher": "Microsoft Corporation",
+    "install_date": "20200112",
+    "updated_at": "2026-03-27T10:08:12.530Z"
+  },
+  {
+    "id": 1119,
+    "device_id": "STORESRVR021",
+    "name": "Microsoft SQL Server Management Studio - 18.2",
+    "version": "15.0.18142.0",
+    "publisher": "Microsoft Corporation",
+    "install_date": "",
+    "updated_at": "2026-03-27T10:08:12.530Z"
+  }
+]
