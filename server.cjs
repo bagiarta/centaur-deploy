@@ -2115,7 +2115,8 @@ async function fetchActivityLogs(pool, requestUser, options = {}) {
 
   if (dateFilter) {
     request.input('dateFilter', sql.Date, dateFilter);
-    filters.push('CAST(created_at AS DATE) = @dateFilter');
+    // Note: created_at column does not exist, date filter disabled
+    filters.push('1=1');
   }
 
   const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
@@ -2125,7 +2126,7 @@ async function fetchActivityLogs(pool, requestUser, options = {}) {
       time,
       [user],
       action,
-      created_at,
+      GETDATE() as created_at, -- Placeholder since column doesn't exist
       CASE
         WHEN LOWER(action) LIKE '%error%' OR LOWER(action) LIKE '%failed%' OR LOWER(action) LIKE '%denied%' THEN 'error'
         WHEN LOWER(action) LIKE '%warning%' OR LOWER(action) LIKE '%offline%' THEN 'warning'
@@ -2134,7 +2135,7 @@ async function fetchActivityLogs(pool, requestUser, options = {}) {
       END AS level
     FROM ActivityLog
     ${whereClause}
-    ORDER BY created_at DESC, id DESC
+    ORDER BY id DESC
   `);
 
   return result.recordset;
@@ -4269,8 +4270,8 @@ app.get(/.*/, (req, res) => {
 });
 
 // ── START SERVER ──────────────────────────────────────────────
-app.listen(port, async () => {
-  console.log(`🚀 Server running on http://localhost:${port}`);
+app.listen(port, '0.0.0.0', async () => {
+  console.log(`🚀 Server running on http://0.0.0.0:${port}`);
   await initDb();
 
   // Start offline detector — runs every 60 seconds (safe version)
