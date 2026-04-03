@@ -389,11 +389,11 @@ async function seedData(pool) {
   if (devRes.recordset[0].count === 0) {
     console.log('Seeding Devices with starter inventory...');
     await pool.request().query(`
-      INSERT INTO Devices (id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen)
-      VALUES
-      ('dev-1', 'WORKSTATION-01', '192.168.1.11', 'Windows 10', 'Intel i5', '16GB', '512GB', '2.6.0', 'online', 'g1', GETDATE()),
-      ('dev-2', 'WORKSTATION-02', '192.168.1.12', 'Windows 10', 'Intel i7', '16GB', '1TB', '2.6.0', 'offline', 'g1', GETDATE()),
-      ('dev-3', 'SERVER-01', '192.168.1.20', 'Windows Server 2019', 'Xeon', '32GB', '2TB', '2.5.8', 'online', 'g2', GETDATE())
+     --NSERT INTO Devices (id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen)
+      --LUES
+      --dev-1', 'WORKSTATION-01', '192.168.1.11', 'Windows 10', 'Intel i5', '16GB', '512GB', '2.6.0', 'online', 'g1', GETDATE()),
+      --dev-2', 'WORKSTATION-02', '192.168.1.12', 'Windows 10', 'Intel i7', '16GB', '1TB', '2.6.0', 'offline', 'g1', GETDATE()),
+      --dev-3', 'SERVER-01', '192.168.1.20', 'Windows Server 2019', 'Xeon', '32GB', '2TB', '2.5.8', 'online', 'g2', GETDATE())
     `);
   }
 
