@@ -13,6 +13,38 @@ const mammoth = require('mammoth');
 const PDFDocument = require('pdfkit');
 const cron = require('node-cron');
 
+// ── TIMEZONE HELPER FUNCTIONS ──────────────────────────────
+function getCurrentTimestamp() {
+  // Return timestamp in configured timezone
+  return new Date().toLocaleString('id-ID', {
+    timeZone: process.env.TZ || 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
+function getCurrentTimeHHMM() {
+  // Return HH:MM format in configured timezone
+  return new Date().toLocaleString('id-ID', {
+    timeZone: process.env.TZ || 'Asia/Jakarta',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+}
+
+function getISOTimestamp() {
+  // Return ISO string but adjusted to configured timezone
+  const now = new Date();
+  const tzOffset = now.getTimezoneOffset() * 60000; // offset in milliseconds
+  const localISOTime = (new Date(now - tzOffset)).toISOString().slice(0, -1);
+  return localISOTime;
+}
+
 // Multer Config for Workflows
 const workflowStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'uploads/workflows/'),
@@ -647,11 +679,33 @@ app.get('/api/devices', async (req, res) => {
     const pool = await poolPromise;
     const result = await pool.request().query('SELECT * FROM Devices');
     
-    // Parse the group_ids back into arrays for the frontend mapping
-    const devices = result.recordset.map(row => ({
-      ...row,
-      group_ids: row.group_ids ? row.group_ids.split(',').filter(Boolean) : []
-    }));
+    // Parse the group_ids back into arrays and convert last_seen to local timezone
+    const devices = result.recordset.map(row => {
+      let lastSeenLocal = 'Never';
+      if (row.last_seen) {
+        try {
+          // Parse UTC time and convert to local timezone
+          const utcDate = new Date(row.last_seen);
+          lastSeenLocal = utcDate.toLocaleString('id-ID', {
+            timeZone: process.env.TZ || 'Asia/Makassar',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+        } catch (e) {
+          lastSeenLocal = row.last_seen; // fallback to raw value
+        }
+      }
+      
+      return {
+        ...row,
+        group_ids: row.group_ids ? row.group_ids.split(',').filter(Boolean) : [],
+        last_seen: lastSeenLocal
+      };
+    });
     
     res.json(devices);
   } catch (err) {
@@ -670,7 +724,7 @@ app.post('/api/remote-commands', async (req, res) => {
     }
 
     // Log the execution in ActivityLog
-    const timestamp = new Date().toISOString().slice(11,16); // HH:mm
+    const timestamp = getCurrentTimeHHMM(); // HH:mm in configured timezone
     const actionDesc = `Command executed on ${devices.length} device(s): ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`;
     
     await pool.request()
@@ -2593,7 +2647,7 @@ app.post('/api/test-notification', async (req, res) => {
         title: '🔔 Test Notification',
         description: 'This is a test notification from **Centaur Deploy**. Your webhook is working correctly!',
         color: 0x10b981,
-        timestamp: new Date().toISOString(),
+        timestamp: getISOTimestamp(),
         footer: { text: 'Centaur Deploy Monitoring System' }
       }]
     });
@@ -2974,7 +3028,7 @@ async function sendWebhook(title, description, color = 0x5865F2) {
     if (!settings || !settings.webhook_url) return;
 
     const payload = JSON.stringify({
-      embeds: [{ title, description, color, timestamp: new Date().toISOString() }]
+      embeds: [{ title, description, color, timestamp: getISOTimestamp() }]
     });
     const url = new URL(settings.webhook_url);
     const options = {
@@ -3077,7 +3131,7 @@ async function runOfflineDetector() {
       await pool.request().input('id', sql.NVarChar, dev.id)
         .query("UPDATE Devices SET status = 'offline', last_offline_alert_at = GETDATE() WHERE id = @id");
       
-      const ts = new Date().toISOString().slice(11, 16);
+      const ts = getCurrentTimeHHMM();
       await pool.request()
         .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
         .input('action', sql.NVarChar, `⚠️ Device offline (${dev.reason}): ${dev.hostname} (${dev.ip})`)
@@ -3114,7 +3168,7 @@ async function runOfflineDetector() {
         await pool.request().input('id', sql.NVarChar, dev.id)
           .query("UPDATE Devices SET status = 'online', last_offline_alert_at = NULL WHERE id = @id");
         
-        const ts = now.toISOString().slice(11, 16);
+        const ts = getCurrentTimeHHMM();
         await pool.request()
           .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
           .input('action', sql.NVarChar, `✅ Device recovered: ${dev.hostname} (${dev.ip})`)
