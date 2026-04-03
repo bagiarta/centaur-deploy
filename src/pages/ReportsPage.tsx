@@ -18,6 +18,8 @@ export default function ReportsPage() {
   const [healthData, setHealthData] = useState<any[]>([]);
   const [inventoryData, setInventoryData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDevice, setSelectedDevice] = useState<any>(null);
+  const [drawerPosition, setDrawerPosition] = useState<{ top: number; right: number; show: boolean }>({ top: 0, right: 0, show: false });
 
   useEffect(() => {
     async function fetchData() {
@@ -58,6 +60,37 @@ export default function ReportsPage() {
   const needsUpgrade = healthData.filter(d => d.needsUpgrade);
   const lowRam = healthData.filter(d => d.isLowRam).length;
   const lowDisk = healthData.filter(d => d.isLowDisk).length;
+
+  const handleShowDetails = (e: React.MouseEvent, device: any) => {
+    e.stopPropagation();
+    const button = e.currentTarget as HTMLButtonElement;
+    const rect = button.getBoundingClientRect();
+    
+    // Calculate optimal position based on available space
+    const drawerWidth = 384; // w-96 = 384px
+    const spacing = 20;
+    
+    // Prefer right side, fallback to left if no space
+    let rightPos = window.innerWidth - rect.right - spacing;
+    if (rect.right + drawerWidth + spacing > window.innerWidth) {
+      rightPos = spacing;
+    }
+    
+    // Position drawer below button with some offset
+    const topPosition = rect.bottom + spacing;
+    
+    setDrawerPosition({ 
+      top: topPosition, 
+      right: rightPos,
+      show: true 
+    });
+    setSelectedDevice(device);
+  };
+
+  const closeDrawer = () => {
+    setSelectedDevice(null);
+    setDrawerPosition({ top: 0, right: 0, show: false });
+  };
 
   return (
     <div className="p-6 space-y-6 animate-fade-up">
@@ -210,7 +243,9 @@ export default function ReportsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <button className="text-primary hover:text-primary-hover flex items-center gap-1 text-xs font-semibold">
+                      <button 
+                        onClick={(e) => handleShowDetails(e, d)}
+                        className="text-primary hover:text-primary-hover flex items-center gap-1 text-xs font-semibold">
                         Details <ArrowUpRight className="w-3 h-3" />
                       </button>
                     </td>
@@ -221,6 +256,113 @@ export default function ReportsPage() {
           </table>
         </div>
       </SectionCard>
+
+      {/* Device Details Drawer */}
+      {selectedDevice && (
+        <div className="fixed inset-0 z-40 flex" onClick={closeDrawer}>
+          <div className="flex-1 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="w-96 bg-surface border border-border rounded-lg shadow-xl overflow-y-auto flex flex-col max-h-[90vh] animate-fade-up"
+            style={{
+              position: "fixed",
+              top: `${drawerPosition.top}px`,
+              right: `${drawerPosition.right}px`,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-5 border-b border-border flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-foreground font-mono">{selectedDevice.hostname}</p>
+                <p className="text-xs text-foreground-muted">{selectedDevice.ip}</p>
+              </div>
+              <button 
+                onClick={closeDrawer}
+                className="text-foreground-muted hover:text-foreground ml-2 text-lg"
+              >
+                ×
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div className="p-5 space-y-4 flex-1">
+              {/* Hardware Information */}
+              <div className="space-y-3">
+                <p className="text-xs text-foreground-muted uppercase tracking-wider font-semibold">Hardware Information</p>
+                
+                <div className="flex items-center gap-3">
+                  <div className="text-foreground-muted shrink-0"><Cpu className="w-4 h-4" /></div>
+                  <div>
+                    <p className="text-xs text-foreground-muted">RAM</p>
+                    <p className={cn("text-sm font-medium", selectedDevice.isLowRam ? "text-warning font-bold" : "text-foreground")}>
+                      {selectedDevice.ram || "Unknown"}
+                      {selectedDevice.isLowRam && " ⚠️ Low RAM"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="text-foreground-muted shrink-0"><HardDrive className="w-4 h-4" /></div>
+                  <div>
+                    <p className="text-xs text-foreground-muted">Disk (Free)</p>
+                    <p className={cn("text-sm font-medium", selectedDevice.isLowDisk ? "text-danger font-bold" : "text-foreground")}>
+                      {selectedDevice.disk ? selectedDevice.disk.split('/')[0].replace('Free: ', '') : "Unknown"}
+                      {selectedDevice.isLowDisk && " ⚠️ Low Disk"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recommendation */}
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs text-foreground-muted uppercase tracking-wider font-semibold mb-2">Upgrade Recommendation</p>
+                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-warning/10 text-warning border border-warning/20">
+                  <AlertTriangle className="w-3 h-3" />
+                  {selectedDevice.isLowRam && selectedDevice.isLowDisk ? "Upgrade RAM & Disk" : selectedDevice.isLowRam ? "Upgrade RAM" : "Upgrade Disk"}
+                </div>
+              </div>
+
+              {/* Device Details */}
+              <div className="pt-2 border-t border-border space-y-2">
+                <p className="text-xs text-foreground-muted uppercase tracking-wider font-semibold">Device Details</p>
+                <div className="text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-foreground-muted">Hostname:</span>
+                    <span className="font-mono text-foreground">{selectedDevice.hostname}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-foreground-muted">IP Address:</span>
+                    <span className="font-mono text-foreground">{selectedDevice.ip}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-foreground-muted">OS Version:</span>
+                    <span className="font-mono text-foreground">{selectedDevice.os_version || "Unknown"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-foreground-muted">Agent Version:</span>
+                    <span className="font-mono text-foreground">{selectedDevice.agent_version || "Unknown"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="p-5 border-t border-border bg-surface-raised flex gap-3">
+              <button 
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md hover:bg-surface hover:text-foreground text-foreground-muted transition-colors"
+              >
+                <Monitor className="w-4 h-4" /> View Full Details
+              </button>
+              <button 
+                onClick={closeDrawer}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md hover:bg-surface-raised text-foreground-muted transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
