@@ -229,7 +229,7 @@ export default function SettingsPage() {
     alert_offline: true,
     alert_deployment_success: false,
     alert_deployment_failed: true,
-    offline_timeout_mins: 30
+    offline_timeout_mins: 5
   });
   const [agentConfig, setAgentConfig] = useState({
     LATEST_AGENT_VERSION: "1.0.0",
