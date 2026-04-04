@@ -17,7 +17,7 @@ const cron = require('node-cron');
 function getCurrentTimestamp() {
   // Return timestamp in configured timezone
   return new Date().toLocaleString('id-ID', {
-    timeZone: process.env.TZ || 'Asia/Jakarta',
+    timeZone: process.env.TZ || 'Asia/Makassar',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -30,7 +30,7 @@ function getCurrentTimestamp() {
 function getCurrentTimeHHMM() {
   // Return HH:MM format in configured timezone
   return new Date().toLocaleString('id-ID', {
-    timeZone: process.env.TZ || 'Asia/Jakarta',
+    timeZone: process.env.TZ || 'Asia/Makassar',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false
@@ -341,7 +341,34 @@ async function initDb() {
          publisher NVARCHAR(200),
          updated_at DATETIME DEFAULT GETDATE()
        )`,
-      ];
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TroubleTickets' AND xtype='U')
+       CREATE TABLE TroubleTickets (
+         id NVARCHAR(50) PRIMARY KEY,
+         title NVARCHAR(200) NOT NULL,
+         description NVARCHAR(MAX) NOT NULL,
+         category NVARCHAR(100),
+         priority NVARCHAR(50),
+         status NVARCHAR(50),
+         outlet_name NVARCHAR(150),
+         hostname NVARCHAR(100),
+         created_by NVARCHAR(100),
+         created_at DATETIME DEFAULT GETDATE(),
+         resolved_by NVARCHAR(100),
+         resolved_at DATETIME,
+         resolution_note NVARCHAR(MAX),
+         closed_by NVARCHAR(100),
+         closed_at DATETIME,
+         updated_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TicketLogs' AND xtype='U')
+       CREATE TABLE TicketLogs (
+         id INT IDENTITY(1,1) PRIMARY KEY,
+         ticket_id NVARCHAR(50) NOT NULL,
+         action NVARCHAR(MAX) NOT NULL,
+         performed_by NVARCHAR(100) NOT NULL,
+         created_at DATETIME DEFAULT GETDATE()
+       )`
+    ];
 
     for (let query of tables) {
       await pool.request().query(query);
@@ -363,7 +390,7 @@ async function initDb() {
       SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
       WHERE TABLE_NAME = 'DeploymentTargets' AND COLUMN_NAME IN ('retry_count', 'last_error')
     `);
-    
+
     if (!checkColumns.recordset.find(c => c.COLUMN_NAME === 'retry_count')) {
       await pool.request().query('ALTER TABLE DeploymentTargets ADD retry_count INT DEFAULT 0');
     }
@@ -379,7 +406,7 @@ async function initDb() {
     if (checkGroupCols.recordset.length === 0) {
       await pool.request().query('ALTER TABLE DeviceGroups ADD description NVARCHAR(500)');
     }
-    
+
     // Workflows table extra columns expansion
     const checkWfCols = await pool.request().query(`
       SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
@@ -392,8 +419,8 @@ async function initDb() {
       await pool.request().query('ALTER TABLE Workflows ADD file_path NVARCHAR(MAX)');
     }
 
-    await pool.request().query('ALTER TABLE AgentJobs ALTER COLUMN ip_range NVARCHAR(MAX)').catch(() => {});
-    
+    await pool.request().query('ALTER TABLE AgentJobs ALTER COLUMN ip_range NVARCHAR(MAX)').catch(() => { });
+
     // Seed initial mock data if tables are empty
     await seedData(pool);
     console.log('✅ Database fully initialized (DBWH_8529)');
@@ -477,7 +504,7 @@ async function seedData(pool) {
       ('wf-2', 'Buat Deployment', '1. Buka halaman Deployments\n2. Pilih paket\n3. Pilih target\n4. Klik Submit', 'Deploy', NULL, NULL, 'admin', GETDATE(), GETDATE())
     `);
   }
-  
+
   // AgentJobs
   const ajRes = await pool.request().query('SELECT COUNT(*) as count FROM AgentJobs');
   if (ajRes.recordset[0].count === 0) {
@@ -519,7 +546,7 @@ async function seedData(pool) {
       ('role-admin', 'Administrator', '*', 1),
       ('role-user', 'Standard User', '["overview", "devices"]', 0)
     `);
-    
+
     await pool.request().query(`
       INSERT INTO Users (id, username, password_hash, full_name, role_id) VALUES 
       ('user-admin', 'admin', 'admin123', 'System Administrator', 'role-admin')
@@ -544,7 +571,7 @@ async function seedData(pool) {
       DELETE FROM ActivityLog 
       WHERE action LIKE 'Command %' AND user = 'system'
     `);
-    
+
     // Note: AgentInstallTargets are NOT purged based on Devices 
     // because they represent new installations that aren't devices yet.
 
@@ -579,7 +606,7 @@ app.post('/api/deployments/:id/targets', async (req, res) => {
           .input('deployment_id', sql.NVarChar, id)
           .input('device_id', sql.NVarChar, t.device_id)
           .query('SELECT 1 FROM DeploymentTargets WHERE deployment_id = @deployment_id AND device_id = @device_id');
-        
+
         if (check.recordset.length > 0) continue;
 
         await transaction.request()
@@ -631,7 +658,7 @@ app.get('/api/devices/:id/db-connection', async (req, res) => {
     const result = await pool.request()
       .input('device_id', sql.NVarChar, id)
       .query('SELECT * FROM DeviceDbConnections WHERE device_id = @device_id');
-    
+
     if (result.recordset.length > 0) {
       res.json(result.recordset[0]);
     } else {
@@ -646,7 +673,7 @@ app.get('/api/devices/:id/db-connection', async (req, res) => {
 app.post('/api/devices/:id/db-connection', async (req, res) => {
   const { id } = req.params;
   const { db_name, db_user, db_password } = req.body;
-  
+
   try {
     const pool = await poolPromise;
     await pool.request()
@@ -678,7 +705,7 @@ app.get('/api/devices', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query('SELECT * FROM Devices');
-    
+
     // Parse the group_ids back into arrays and convert last_seen to local timezone
     const devices = result.recordset.map(row => {
       let lastSeenLocal = 'Never';
@@ -687,7 +714,7 @@ app.get('/api/devices', async (req, res) => {
           // Parse UTC time and convert to local timezone
           const utcDate = new Date(row.last_seen);
           lastSeenLocal = utcDate.toLocaleString('id-ID', {
-            timeZone: process.env.TZ || 'Asia/Makassar',
+            timeZone: process.env.TZ || 'Asia/Ma',
             year: 'numeric',
             month: '2-digit',
             day: '2-digit',
@@ -699,14 +726,14 @@ app.get('/api/devices', async (req, res) => {
           lastSeenLocal = row.last_seen; // fallback to raw value
         }
       }
-      
+
       return {
         ...row,
         group_ids: row.group_ids ? row.group_ids.split(',').filter(Boolean) : [],
         last_seen: lastSeenLocal
       };
     });
-    
+
     res.json(devices);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -718,7 +745,7 @@ app.post('/api/remote-commands', async (req, res) => {
   try {
     const { devices, command } = req.body;
     const pool = await poolPromise;
-    
+
     if (!devices || !command || devices.length === 0) {
       return res.status(400).json({ error: 'Missing devices or command' });
     }
@@ -726,7 +753,7 @@ app.post('/api/remote-commands', async (req, res) => {
     // Log the execution in ActivityLog
     const timestamp = getCurrentTimeHHMM(); // HH:mm in configured timezone
     const actionDesc = `Command executed on ${devices.length} device(s): ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`;
-    
+
     await pool.request()
       .input('time', sql.NVarChar, timestamp)
       .input('user', sql.NVarChar, 'admin')
@@ -740,11 +767,11 @@ app.post('/api/remote-commands', async (req, res) => {
     const output = [];
     devices.forEach((hostname, i) => {
       // Small simulated delay time strings
-      const timeStr = new Date(Date.now() + i * 1000).toISOString().slice(11,19);
+      const timeStr = new Date(Date.now() + i * 1000).toISOString().slice(11, 19);
       output.push(`[${timeStr}] ${hostname.padEnd(15)} → OK`);
     });
-    output.push(`[${new Date().toISOString().slice(11,19)}] ✓ Command completed on ${devices.length}/${devices.length} selected devices`);
-    
+    output.push(`[${new Date().toISOString().slice(11, 19)}] ✓ Command completed on ${devices.length}/${devices.length} selected devices`);
+
     res.json({ success: true, output });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -757,7 +784,7 @@ app.post('/api/devices', async (req, res) => {
     const { id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen } = req.body;
     const pool = await poolPromise;
     const gids = Array.isArray(group_ids) ? group_ids.join(',') : '';
-    
+
     await pool.request()
       .input('id', sql.NVarChar, id)
       .input('hostname', sql.NVarChar, hostname)
@@ -774,7 +801,7 @@ app.post('/api/devices', async (req, res) => {
         INSERT INTO Devices (id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen)
         VALUES (@id, @hostname, @ip, @os_version, @cpu, @ram, @disk, @agent_version, @status, @group_ids, @last_seen)
       `);
-      
+
     res.status(201).json({ message: 'Device created completely' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -787,7 +814,7 @@ app.put('/api/devices/:id', async (req, res) => {
     const { hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen } = req.body;
     const pool = await poolPromise;
     const gids = Array.isArray(group_ids) ? group_ids.join(',') : '';
-    
+
     await pool.request()
       .input('id', sql.NVarChar, req.params.id)
       .input('hostname', sql.NVarChar, hostname)
@@ -807,7 +834,7 @@ app.put('/api/devices/:id', async (req, res) => {
           status = @status, group_ids = @group_ids, last_seen = @last_seen
         WHERE id = @id
       `);
-      
+
     res.status(200).json({ message: 'Device updated completely' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -819,12 +846,12 @@ app.delete('/api/devices/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
     const deviceId = req.params.id;
-    
+
     // Get hostname before deleting
     const devRes = await pool.request()
       .input('id', sql.NVarChar, deviceId)
       .query('SELECT hostname FROM Devices WHERE id = @id');
-      
+
     const hostname = devRes.recordset[0]?.hostname;
 
     const transaction = new sql.Transaction(pool);
@@ -834,12 +861,12 @@ app.delete('/api/devices/:id', async (req, res) => {
       await transaction.request()
         .input('id', sql.NVarChar, deviceId)
         .query('DELETE FROM DeploymentTargets WHERE device_id = @id');
-        
+
       if (hostname) {
         await transaction.request()
           .input('hostname', sql.NVarChar, hostname)
           .query('DELETE FROM AgentInstallTargets WHERE hostname = @hostname');
-          
+
         await transaction.request()
           .input('hostnamePattern', sql.NVarChar, '%' + hostname + '%')
           .query('DELETE FROM ActivityLog WHERE action LIKE @hostnamePattern');
@@ -866,12 +893,12 @@ app.post('/api/devices/register', async (req, res) => {
   try {
     const { id, hostname, ip, os, status, last_seen } = req.body;
     const pool = await poolPromise;
-    
+
     // Check if device already exists by hostname
     const existing = await pool.request()
       .input('hostname', sql.NVarChar, hostname)
       .query('SELECT * FROM Devices WHERE hostname = @hostname');
-      
+
     if (existing.recordset.length > 0) {
       await pool.request()
         .input('hostname', sql.NVarChar, hostname)
@@ -896,7 +923,7 @@ app.post('/api/devices/register', async (req, res) => {
           VALUES (@id, @hostname, @ip, @os, @status, @last_seen)
         `);
     }
-    
+
     res.status(200).json({ message: 'Device registered successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -975,11 +1002,11 @@ app.delete('/api/groups/:id', async (req, res) => {
     // Optional: Remove group association from devices instead of cascading?
     // For now, simple delete. If Devices table uses a comma-separated list, 
     // we might need more complex logic to clean up Devices.group_ids.
-    
+
     await pool.request()
       .input('id', sql.NVarChar, groupId)
       .query('DELETE FROM DeviceGroups WHERE id = @id');
-      
+
     res.json({ message: 'Group deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1001,7 +1028,7 @@ app.get('/api/packages', async (req, res) => {
 app.get('/api/packages/download/:filename', async (req, res) => {
   const { filename } = req.params;
   const filePath = path.join(REPO_PATH, filename);
-  
+
   if (fs.existsSync(filePath)) {
     res.download(filePath);
   } else {
@@ -1087,13 +1114,13 @@ app.post('/api/sql/test-connection', async (req, res) => {
 // ── POST /api/sql/execute ──────────────────────────────
 app.post('/api/sql/execute', async (req, res) => {
   const { script, target_device_ids } = req.body;
-  
+
   try {
     const pool = await poolPromise;
     // 1. Fetch connection details for all targets
     const connRes = await pool.request().query('SELECT * FROM DeviceDbConnections');
     const allConns = connRes.recordset;
-    
+
     // 2. Fetch device IPs (Server addresses)
     const devRes = await pool.request().query('SELECT id, ip, hostname FROM Devices');
     const allDevs = devRes.recordset;
@@ -1126,19 +1153,19 @@ app.post('/api/sql/execute', async (req, res) => {
         await remotePool.connect();
         const result = await remotePool.request().query(script);
         await remotePool.close();
-        results[deviceId] = { 
-          status: 'success', 
+        results[deviceId] = {
+          status: 'success',
           hostname: dev.hostname,
           ip: dev.ip,
           recordset: result.recordset,
-          rowsAffected: result.rowsAffected 
+          rowsAffected: result.rowsAffected
         };
       } catch (err) {
-        results[deviceId] = { 
-          status: 'error', 
+        results[deviceId] = {
+          status: 'error',
           hostname: dev.hostname,
           ip: dev.ip,
-          error: err.message 
+          error: err.message
         };
       }
     });
@@ -1234,7 +1261,7 @@ app.post('/api/agent-jobs', async (req, res) => {
 
     let serverUrl = `${req.protocol}://${req.get('host')}`;
     if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
-    const psScript      = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
+    const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
     const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
 
     // ── MODE A: device_targets (per-device, from device list) ──
@@ -1254,7 +1281,7 @@ app.post('/api/agent-jobs', async (req, res) => {
       // Background sequential execution per device
       (async () => {
         for (const target of device_targets) {
-          const tIp   = target.ip   || '0.0.0.0';
+          const tIp = target.ip || '0.0.0.0';
           const tHost = target.hostname || `UNKNOWN-${tIp.split('.').pop()}`;
           const tUser = target.username || username || 'Administrator';
           const tPass = target.password || password || '';
@@ -1295,7 +1322,7 @@ app.post('/api/agent-jobs', async (req, res) => {
           await pool.request()
             .input('id', sql.NVarChar, id)
             .input('s', sql.Int, statusResult === 'success' ? 1 : 0)
-            .input('f', sql.Int, statusResult === 'failed'  ? 1 : 0)
+            .input('f', sql.Int, statusResult === 'failed' ? 1 : 0)
             .query(`UPDATE AgentJobs SET success_count=success_count+@s, failed_count=failed_count+@f, pending_count=pending_count-1 WHERE id=@id`);
         }
       })();
@@ -1350,7 +1377,7 @@ app.post('/api/agent-jobs', async (req, res) => {
             await pool.request()
               .input('id', sql.NVarChar, id)
               .input('s', sql.Int, statusResult === 'success' ? 1 : 0)
-              .input('f', sql.Int, statusResult === 'failed'  ? 1 : 0)
+              .input('f', sql.Int, statusResult === 'failed' ? 1 : 0)
               .query(`UPDATE AgentJobs SET success_count=success_count+@s, failed_count=failed_count+@f, pending_count=pending_count-1 WHERE id=@id`);
           } catch (err) {
             console.error(`Worker error for ${ip}:`, err.message);
@@ -1369,12 +1396,12 @@ app.post('/api/agent-jobs', async (req, res) => {
 app.post('/api/agent-jobs/retry', async (req, res) => {
   const { job_id, device_ip, username, password } = req.body;
   console.log(`[AGENT] Retry requested for Job: ${job_id}, IP: ${device_ip}, User: ${username}`);
-  
+
   if (!job_id || !device_ip) return res.status(400).json({ error: "Missing job_id or device_ip" });
 
   try {
     const pool = await poolPromise;
-    
+
     // 1. Get job and target info
     const jobRes = await pool.request().input('id', sql.NVarChar, job_id).query("SELECT * FROM AgentJobs WHERE id = @id");
     const tarRes = await pool.request()
@@ -1402,50 +1429,50 @@ app.post('/api/agent-jobs/retry', async (req, res) => {
 
     // 3. Adjust counts
     if (target.status === 'success') {
-       await pool.request().input('id', sql.NVarChar, job_id).query("UPDATE AgentJobs SET success_count = success_count - 1, pending_count = pending_count + 1 WHERE id = @id");
+      await pool.request().input('id', sql.NVarChar, job_id).query("UPDATE AgentJobs SET success_count = success_count - 1, pending_count = pending_count + 1 WHERE id = @id");
     } else if (target.status === 'failed') {
-       await pool.request().input('id', sql.NVarChar, job_id).query("UPDATE AgentJobs SET failed_count = failed_count - 1, pending_count = pending_count + 1 WHERE id = @id");
+      await pool.request().input('id', sql.NVarChar, job_id).query("UPDATE AgentJobs SET failed_count = failed_count - 1, pending_count = pending_count + 1 WHERE id = @id");
     }
 
     res.json({ success: true, message: "Retry initiated" });
 
     // 4. Run installation in background (reusing the logic from POST /api/agent-jobs)
     (async () => {
-       const psScript      = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
-       const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
-       let serverUrl = `${req.protocol}://${req.get('host')}`;
-       if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
+      const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
+      const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
+      let serverUrl = `${req.protocol}://${req.get('host')}`;
+      if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
 
-       let statusResult = 'failed';
-       let logMsg = '';
-       try {
-         // Using default credentials from job if available or relying on script defaults
-         // Note: we don't store passwords, so we might need them passed in or use fallback
-         // Using provided credentials
-         const cmd = `powershell.exe -ExecutionPolicy Bypass -File "${psScript}" -TargetIP "${device_ip}" -Username "${username || 'Administrator'}" -Password "${password || ''}" -InstallerPath "${installerPath}" -ServerUrl "${serverUrl}"`;
-         const { stdout, stderr } = await execPromise(cmd, { timeout: 60000 }).catch(e => ({ stdout: '', stderr: e.message }));
-         
-         logMsg = (stdout + '\n' + stderr).trim();
-         if (stdout.includes('STATUS:SUCCESS')) {
-           statusResult = 'success';
-           logMsg = stdout.split('|LOG:')[1]?.trim() || 'Success';
-         } else {
-           logMsg = stdout.split('|LOG:')[1]?.trim() || logMsg.substring(0, 500) || 'Retry failed';
-         }
-       } catch (err) {
-         logMsg = err.message || 'Execution error during retry';
-       }
+      let statusResult = 'failed';
+      let logMsg = '';
+      try {
+        // Using default credentials from job if available or relying on script defaults
+        // Note: we don't store passwords, so we might need them passed in or use fallback
+        // Using provided credentials
+        const cmd = `powershell.exe -ExecutionPolicy Bypass -File "${psScript}" -TargetIP "${device_ip}" -Username "${username || 'Administrator'}" -Password "${password || ''}" -InstallerPath "${installerPath}" -ServerUrl "${serverUrl}"`;
+        const { stdout, stderr } = await execPromise(cmd, { timeout: 60000 }).catch(e => ({ stdout: '', stderr: e.message }));
 
-       await pool.request()
-         .input('job_id', sql.NVarChar, job_id).input('ip', sql.NVarChar, device_ip)
-         .input('status', sql.NVarChar, statusResult).input('log', sql.NVarChar, logMsg.substring(0, 500))
-         .query(`UPDATE AgentInstallTargets SET status=@status, log=@log, updated_at=LEFT(CONVERT(VARCHAR,GETDATE(),108),5) WHERE job_id=@job_id AND device_ip=@ip`);
+        logMsg = (stdout + '\n' + stderr).trim();
+        if (stdout.includes('STATUS:SUCCESS')) {
+          statusResult = 'success';
+          logMsg = stdout.split('|LOG:')[1]?.trim() || 'Success';
+        } else {
+          logMsg = stdout.split('|LOG:')[1]?.trim() || logMsg.substring(0, 500) || 'Retry failed';
+        }
+      } catch (err) {
+        logMsg = err.message || 'Execution error during retry';
+      }
 
-       await pool.request()
-         .input('id', sql.NVarChar, job_id)
-         .input('s', sql.Int, statusResult === 'success' ? 1 : 0)
-         .input('f', sql.Int, statusResult === 'failed'  ? 1 : 0)
-         .query(`UPDATE AgentJobs SET success_count=success_count+@s, failed_count=failed_count+@f, pending_count=pending_count-1 WHERE id=@id`);
+      await pool.request()
+        .input('job_id', sql.NVarChar, job_id).input('ip', sql.NVarChar, device_ip)
+        .input('status', sql.NVarChar, statusResult).input('log', sql.NVarChar, logMsg.substring(0, 500))
+        .query(`UPDATE AgentInstallTargets SET status=@status, log=@log, updated_at=LEFT(CONVERT(VARCHAR,GETDATE(),108),5) WHERE job_id=@job_id AND device_ip=@ip`);
+
+      await pool.request()
+        .input('id', sql.NVarChar, job_id)
+        .input('s', sql.Int, statusResult === 'success' ? 1 : 0)
+        .input('f', sql.Int, statusResult === 'failed' ? 1 : 0)
+        .query(`UPDATE AgentJobs SET success_count=success_count+@s, failed_count=failed_count+@f, pending_count=pending_count-1 WHERE id=@id`);
     })();
 
   } catch (err) {
@@ -1556,7 +1583,7 @@ app.delete('/api/deployments/:id', async (req, res) => {
       await transaction.request()
         .input('id', sql.NVarChar, req.params.id)
         .query('DELETE FROM DeploymentTargets WHERE deployment_id = @id');
-        
+
       await transaction.request()
         .input('id', sql.NVarChar, req.params.id)
         .query('DELETE FROM Deployments WHERE id = @id');
@@ -1590,8 +1617,8 @@ app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
       .input('id', sql.NVarChar, id)
       .input('name', sql.NVarChar, name)
       .input('version', sql.NVarChar, version || '')
-      .input('checksum', sql.NVarChar, 'sha256:temp') 
-      .input('file_path', sql.NVarChar, fileName) 
+      .input('checksum', sql.NVarChar, 'sha256:temp')
+      .input('file_path', sql.NVarChar, fileName)
       .input('size', sql.NVarChar, fileSize)
       .input('type', sql.NVarChar, type || path.extname(fileName).replace('.', ''))
       .input('uploaded_at', sql.NVarChar, new Date().toISOString())
@@ -1600,7 +1627,7 @@ app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
         INSERT INTO Packages (id, name, version, checksum, file_path, size, type, uploaded_at, uploaded_by)
         VALUES (@id, @name, @version, @checksum, @file_path, @size, @type, @uploaded_at, @uploaded_by)
       `);
-    
+
     res.json({ success: true, id, file_path: fileName });
   } catch (err) {
     console.error('Package upload error:', err);
@@ -1611,12 +1638,12 @@ app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
 // ── POST /api/deployments ──────────────────────────────────
 app.post('/api/deployments', async (req, res) => {
   try {
-    const { 
-      id, package_id, package_name, package_version, 
-      target_path, schedule_time, created_by, created_at, 
-      status, targets 
+    const {
+      id, package_id, package_name, package_version,
+      target_path, schedule_time, created_by, created_at,
+      status, targets
     } = req.body;
-    
+
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
     await transaction.begin();
@@ -1701,7 +1728,7 @@ app.post('/api/devices', async (req, res) => {
         VALUES 
         (@id, @hostname, @ip, @os_version, @cpu, @ram, @disk, @agent_version, @status, @last_seen, @group_ids)
       `);
-      
+
     res.status(201).json({ message: 'Device created successfully', device: req.body });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1735,7 +1762,7 @@ app.put('/api/devices/:id', async (req, res) => {
             last_seen=@last_seen, group_ids=@group_ids
         WHERE id=@id
       `);
-      
+
     res.json({ message: 'Device updated successfully', device: { ...req.body, id } });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1750,7 +1777,7 @@ app.delete('/api/devices/:id', async (req, res) => {
     await pool.request()
       .input('id', sql.NVarChar, id)
       .query('DELETE FROM Devices WHERE id=@id');
-      
+
     res.json({ message: 'Device deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1765,7 +1792,7 @@ app.post('/api/agent/heartbeat', async (req, res) => {
 
     const pool = await poolPromise;
     const now = new Date().toISOString();
-    
+
     // Deterministic ID based on hostname to avoid collisions
     const safeId = `dev-${hostname.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 
@@ -1830,7 +1857,7 @@ app.post('/api/agent/config', async (req, res) => {
   const { LATEST_AGENT_VERSION, AGENT_UPDATE_URL } = req.body;
   try {
     const pool = await poolPromise;
-    
+
     if (LATEST_AGENT_VERSION !== undefined) {
       await pool.request()
         .input('key', sql.NVarChar, 'LATEST_AGENT_VERSION')
@@ -1856,7 +1883,7 @@ app.post('/api/agent/config', async (req, res) => {
           WHEN NOT MATCHED THEN INSERT ([key], [value]) VALUES (@key, @val);
         `);
     }
-    
+
     res.json({ success: true });
   } catch (err) {
     console.error("Config save error:", err.message);
@@ -2020,16 +2047,16 @@ app.post('/api/agent/deploy-status', async (req, res) => {
   const { deployment_id, device_id, status, progress, log } = req.body;
   try {
     const pool = await poolPromise;
-    
+
     // 1. Update target
     const currentStatusRes = await pool.request()
       .input('dep_id', sql.NVarChar, deployment_id)
       .input('dev_id', sql.NVarChar, device_id)
       .query('SELECT status, retry_count FROM DeploymentTargets WHERE deployment_id = @dep_id AND device_id = @dev_id');
-    
+
     const currentTarget = currentStatusRes.recordset[0];
     let newRetryCount = currentTarget ? (currentTarget.retry_count || 0) : 0;
-    
+
     if (status === 'failed') {
       newRetryCount += 1;
     } else if (status === 'success') {
@@ -2064,7 +2091,7 @@ app.post('/api/agent/deploy-status', async (req, res) => {
         FROM DeploymentTargets
         WHERE deployment_id = @dep_id
       `);
-    
+
     const stats = statsResult.recordset[0];
     const overallStatus = stats.pending === 0 ? (stats.failed > 0 ? 'failed' : 'success') : 'running';
 
@@ -2100,12 +2127,12 @@ app.post('/api/auth/login', async (req, res) => {
         JOIN Roles r ON u.role_id = r.id
         WHERE u.username = @username
       `);
-    
+
     const user = result.recordset[0];
     if (user && user.password_hash === password) {
       const { password_hash, ...userSafe } = user;
       // Ensure ID is present in userSafe
-      userSafe.id = user.id; 
+      userSafe.id = user.id;
       console.log('[DEBUG] Login Success. User ID:', userSafe.id);
       res.json({ success: true, user: userSafe });
     } else {
@@ -2248,7 +2275,7 @@ app.put('/api/users/:id', async (req, res) => {
       .input('username', sql.NVarChar, username)
       .input('full_name', sql.NVarChar, full_name)
       .input('role_id', sql.NVarChar, role_id);
-    
+
     if (password) {
       request.input('password', sql.NVarChar, password);
     }
@@ -2745,24 +2772,24 @@ app.post('/api/sql/templates', async (req, res) => {
   try {
     const pool = await poolPromise;
     if (id) {
-       // Update
-       await pool.request()
+      // Update
+      await pool.request()
         .input('id', sql.NVarChar, id)
         .input('name', sql.NVarChar, name)
         .input('description', sql.NVarChar, description || '')
         .input('script', sql.NVarChar, script)
         .query(`UPDATE SqlTemplates SET name=@name, description=@description, script=@script WHERE id=@id`);
-       res.json({ success: true, message: 'Template updated' });
+      res.json({ success: true, message: 'Template updated' });
     } else {
-       // Create
-       await pool.request()
+      // Create
+      await pool.request()
         .input('id', sql.NVarChar, `tpl-${Date.now()}`)
         .input('name', sql.NVarChar, name)
         .input('description', sql.NVarChar, description || '')
         .input('script', sql.NVarChar, script)
         .input('created_by', sql.NVarChar, created_by || 'admin')
         .query(`INSERT INTO SqlTemplates (id, name, description, script, created_by) VALUES (@id, @name, @description, @script, @created_by)`);
-       res.json({ success: true, message: 'Template created' });
+      res.json({ success: true, message: 'Template created' });
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2815,22 +2842,22 @@ app.post('/api/remote-commands/scripts', async (req, res) => {
   try {
     const pool = await poolPromise;
     if (id) {
-       await pool.request()
+      await pool.request()
         .input('id', sql.NVarChar, id)
         .input('name', sql.NVarChar, name)
         .input('description', sql.NVarChar, description || '')
         .input('script', sql.NVarChar, script)
         .query(`UPDATE RemoteCommandScripts SET name=@name, description=@description, script=@script WHERE id=@id`);
-       res.json({ success: true, message: 'Script updated' });
+      res.json({ success: true, message: 'Script updated' });
     } else {
-       await pool.request()
+      await pool.request()
         .input('id', sql.NVarChar, `rcs-${Date.now()}`)
         .input('name', sql.NVarChar, name)
         .input('description', sql.NVarChar, description || '')
         .input('script', sql.NVarChar, script)
         .input('created_by', sql.NVarChar, created_by || 'admin')
         .query(`INSERT INTO RemoteCommandScripts (id, name, description, script, created_by) VALUES (@id, @name, @description, @script, @created_by)`);
-       res.json({ success: true, message: 'Script created' });
+      res.json({ success: true, message: 'Script created' });
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2911,13 +2938,13 @@ async function executeRemoteCommand(targets, command, res) {
 
 app.post('/api/remote-commands/run', async (req, res) => {
   const { device_ids, command, admin_user, admin_pass } = req.body;
-  
+
   try {
     const pool = await poolPromise;
     // 1. Fetch devices to get IPs
     const result = await pool.request().query('SELECT id, hostname, ip FROM Devices');
     const allDevs = result.recordset;
-    
+
     const targets = device_ids.map(id => {
       const dev = allDevs.find(d => d.id === id);
       return dev ? { id: dev.id, hostname: dev.hostname, ip: dev.ip } : null;
@@ -3036,7 +3063,7 @@ async function sendWebhook(title, description, color = 0x5865F2) {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
     };
     const req = https.request(options);
-    req.on('error', () => {});
+    req.on('error', () => { });
     req.write(payload);
     req.end();
   } catch (err) {
@@ -3060,7 +3087,7 @@ async function sendWhatsapp(message) {
       headers: { 'Authorization': settings.whatsapp_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
     };
     const req = https.request(options);
-    req.on('error', () => {});
+    req.on('error', () => { });
     req.write(payload);
     req.end();
   } catch (err) {
@@ -3083,12 +3110,12 @@ async function runOfflineDetector() {
     await pool.request().query(`
       IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='Devices' AND COLUMN_NAME='last_offline_alert_at')
         ALTER TABLE Devices ADD last_offline_alert_at DATETIME NULL
-    `).catch(() => {});
+    `).catch(() => { });
 
     // 1. Get all Online devices to verify their status
     const devicesToCheckRes = await pool.request().query("SELECT id, hostname, ip, last_seen, last_offline_alert_at FROM Devices WHERE status = 'online'");
     const devicesToCheck = devicesToCheckRes.recordset || [];
-    
+
     let newlyOffline = [];
 
     // 2. Perform Ping-Check and Heartbeat-Check (Sequential/Batch to avoid shell spam)
@@ -3121,22 +3148,22 @@ async function runOfflineDetector() {
           newlyOffline.push({ ...dev, alertNeeded: true, reason: isHeartbeatStale ? "Heartbeat Timeout" : "Ping Failed" });
         }
       }
-      
+
       // Small pause to prevent terminal spamming
-      await new Promise(resolve => setTimeout(resolve, 50)); 
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     // 3. Mark newly offline devices in DB
     for (const dev of newlyOffline) {
       await pool.request().input('id', sql.NVarChar, dev.id)
         .query("UPDATE Devices SET status = 'offline', last_offline_alert_at = GETDATE() WHERE id = @id");
-      
+
       const ts = getCurrentTimeHHMM();
       await pool.request()
         .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
         .input('action', sql.NVarChar, `⚠️ Device offline (${dev.reason}): ${dev.hostname} (${dev.ip})`)
         .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
-        .catch(() => {});
+        .catch(() => { });
     }
 
     // 4. Recovery Detection: Find devices that were offline but are now responding
@@ -3148,12 +3175,12 @@ async function runOfflineDetector() {
         AND ISDATE(last_seen) = 1
         AND DATEDIFF(MINUTE, CAST(last_seen AS DATETIME2), GETDATE()) <= @timeout
     `);
-    
+
     const recovered = recoveredRes.recordset || [];
     if (recovered.length > 0) {
       let recoveryWA = `✅ *NET RECOVERY: ${recovered.length} DEVICES ONLINE*\n`;
       const now = new Date();
-      
+
       for (const dev of recovered) {
         let durationStr = "";
         if (dev.last_offline_alert_at) {
@@ -3164,16 +3191,16 @@ async function runOfflineDetector() {
         }
 
         recoveryWA += `- *${dev.hostname}* (${dev.ip})${durationStr}\n`;
-        
+
         await pool.request().input('id', sql.NVarChar, dev.id)
           .query("UPDATE Devices SET status = 'online', last_offline_alert_at = NULL WHERE id = @id");
-        
+
         const ts = getCurrentTimeHHMM();
         await pool.request()
           .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
           .input('action', sql.NVarChar, `✅ Device recovered: ${dev.hostname} (${dev.ip})`)
           .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
-          .catch(() => {});
+          .catch(() => { });
       }
 
       console.log(`[NOTIF] Sending recovery summary for ${recovered.length} devices.`);
@@ -3189,7 +3216,7 @@ async function runOfflineDetector() {
 
       let summaryWA = `🚨 *NETWORK ALERT: ${newlyOffline.length} NEW OFFLINE*\n`;
       summaryWA += `Total currently offline: *${allOffline.length} devices*\n\n`;
-      
+
       summaryWA += `*Detected Just Now:*\n`;
       newlyOffline.forEach(d => {
         summaryWA += `- *${d.hostname}* (${d.ip}) | ${d.reason}\n`;
@@ -3245,7 +3272,7 @@ async function generateWeeklyReportPDF() {
     const totalDevices = (await pool.request().query("SELECT COUNT(*) as count FROM Devices")).recordset[0].count;
     const offlineDevices = (await pool.request().query("SELECT COUNT(*) as count FROM Devices WHERE status = 'offline'")).recordset[0].count;
     const uptime = totalDevices > 0 ? (((totalDevices - offlineDevices) / totalDevices) * 100).toFixed(1) : 0;
-    
+
     // Top problematic devices (from ActivityLog)
     const problematicRes = await pool.request().query(`
       SELECT TOP 5 action, COUNT(*) as fail_count 
@@ -3257,7 +3284,7 @@ async function generateWeeklyReportPDF() {
     // 2. Create PDF
     const reportsDir = path.join(__dirname, 'reports', 'weekly');
     if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive: true });
-    
+
     const fileName = `weekly-report-${new Date().toISOString().split('T')[0]}.pdf`;
     const filePath = path.join(reportsDir, fileName);
     const doc = new PDFDocument({ margin: 50 });
@@ -3294,12 +3321,12 @@ async function generateWeeklyReportPDF() {
     stream.on('finish', async () => {
       console.log(`[REPORT] Weekly PDF saved: ${filePath}`);
       const summary = `📊 *WEEKLY SYSTEM REPORT IS READY*\n` +
-                      `Period: Last 7 Days\n` +
-                      `Avg Uptime: *${uptime}%*\n` +
-                      `Total Devices: ${totalDevices}\n` +
-                      `Critical Incidents: ${problematicRes.recordset.length}\n\n` +
-                      `_Weekly PDF has been archived on the server._`;
-      
+        `Period: Last 7 Days\n` +
+        `Avg Uptime: *${uptime}%*\n` +
+        `Total Devices: ${totalDevices}\n` +
+        `Critical Incidents: ${problematicRes.recordset.length}\n\n` +
+        `_Weekly PDF has been archived on the server._`;
+
       await sendWebhook(`📊 Weekly Performance Report`, summary.replace(/\*/g, '**'), 0x3b82f6);
       await sendWhatsapp(summary);
     });
@@ -3310,13 +3337,13 @@ async function generateWeeklyReportPDF() {
 
 // Schedule Cron: Every Sunday at 00:00
 cron.schedule('0 0 * * 0', () => {
-    generateWeeklyReportPDF();
+  generateWeeklyReportPDF();
 });
 
 // Manual trigger API (for testing)
 app.post('/api/reports/trigger-weekly', async (req, res) => {
-    await generateWeeklyReportPDF();
-    res.json({ message: "Weekly report generation triggered." });
+  await generateWeeklyReportPDF();
+  res.json({ message: "Weekly report generation triggered." });
 });
 
 // Serve Weekly Reports Folder
@@ -3367,10 +3394,10 @@ app.get('/api/workflows/:id/download', async (req, res) => {
     const pool = await poolPromise;
     const result = await pool.request().input('id', sql.NVarChar, req.params.id).query("SELECT file_name, file_path FROM Workflows WHERE id = @id");
     if (!result.recordset[0] || !result.recordset[0].file_path) return res.status(404).send('File not found');
-    
+
     const filePath = path.resolve(result.recordset[0].file_path);
     if (!fs.existsSync(filePath)) return res.status(404).send('File not found on disk');
-    
+
     res.download(filePath, result.recordset[0].file_name);
   } catch (err) {
     res.status(500).send(err.message);
@@ -3379,27 +3406,27 @@ app.get('/api/workflows/:id/download', async (req, res) => {
 
 app.post('/api/workflows/upload', workflowUpload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-  
+
   try {
     let extractedText = "";
     const ext = path.extname(req.file.originalname).toLowerCase();
-    
+
     if (ext === '.docx') {
       const result = await mammoth.extractRawText({ path: req.file.path });
       extractedText = result.value;
     } else if (ext === '.txt') {
       extractedText = fs.readFileSync(req.file.path, 'utf8');
     } else if (ext === '.pdf') {
-       // PDF parsing would need another lib, for now just note it
-       extractedText = "PDF Uploaded. (Text extraction for PDF not yet implemented)";
+      // PDF parsing would need another lib, for now just note it
+      extractedText = "PDF Uploaded. (Text extraction for PDF not yet implemented)";
     } else {
       extractedText = `File ${req.file.originalname} uploaded, but auto-text extraction is not supported for this format.`;
     }
-    
-    res.json({ 
-      text: extractedText, 
-      fileName: req.file.originalname, 
-      filePath: req.file.path.replace(/\\/g, '/') 
+
+    res.json({
+      text: extractedText,
+      fileName: req.file.originalname,
+      filePath: req.file.path.replace(/\\/g, '/')
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to parse file: " + err.message });
@@ -3906,8 +3933,8 @@ app.post('/api/chat', async (req, res) => {
     // Helper: sanitize prompt to avoid accidental tool call leaks
     let sanitizedPrompt = prompt;
     if (prompt.includes("<function") || prompt.includes("executeRemoteHostQuery")) {
-       console.log("[SECURITY] Sanitizing potential prompt injection/leak in prompt");
-       sanitizedPrompt = prompt.replace(/<function[\s\S]*?>/gi, '[filtered]').replace(/executeRemoteHostQuery/gi, '[filtered-tool]');
+      console.log("[SECURITY] Sanitizing potential prompt injection/leak in prompt");
+      sanitizedPrompt = prompt.replace(/<function[\s\S]*?>/gi, '[filtered]').replace(/executeRemoteHostQuery/gi, '[filtered-tool]');
     }
 
     const tools = [
@@ -4158,7 +4185,7 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
               let sqlQuery = "SELECT id, title, category FROM Workflows WHERE ";
               let conditions = words.map((w, i) => `(title LIKE @w${i} OR category LIKE @w${i} OR content LIKE @w${i})`).join(" OR ");
               sqlQuery += conditions;
-              
+
               const request = pool.request();
               words.forEach((w, i) => request.input(`w${i}`, sql.NVarChar, `%${w}%`));
               result = await request.query(sqlQuery);
@@ -4169,8 +4196,8 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
                 .query("SELECT id, title, category FROM Workflows WHERE title LIKE @q OR category LIKE @q");
             }
 
-            toolResultText = result.recordset.length > 0 
-              ? JSON.stringify(result.recordset) 
+            toolResultText = result.recordset.length > 0
+              ? JSON.stringify(result.recordset)
               : `No matching tutorials found for '${query}'. Ask the user for closer keywords.`;
             sources.push({ type: 'workflow-search', label: 'Knowledge Base Search', detail: `${result.recordset.length} workflow match(es)` });
           } else if (functionName === 'getWorkflowDetail') {
@@ -4178,7 +4205,7 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
             const resDb = await pool.request()
               .input('id', sql.NVarChar, id)
               .query("SELECT title, content FROM Workflows WHERE id = @id");
-            toolResultText = resDb.recordset[0] 
+            toolResultText = resDb.recordset[0]
               ? `TITLE: ${resDb.recordset[0].title}\n\nCONTENT:\n${resDb.recordset[0].content}`
               : "Document not found.";
             if (resDb.recordset[0]) {
@@ -4234,7 +4261,7 @@ app.get('/api/reports/deployments', async (req, res) => {
       FROM DeploymentTargets 
       GROUP BY status
     `);
-    
+
     res.json({ targets: result.recordset });
   } catch (err) {
     console.error('Reports Deployments Error:', err);
@@ -4250,20 +4277,20 @@ app.get('/api/reports/health', async (req, res) => {
       SELECT id, hostname, ram, disk 
       FROM Devices
     `);
-    
+
     const healthData = result.recordset.map(row => {
       const rawRam = row.ram || "";
       const rawDisk = row.disk || "";
       let isLowRam = false;
       let isLowDisk = false;
-      
+
       const ramMatch = rawRam.match(/(\d+)\s*(GB|MB)/i);
       if (ramMatch) {
         let val = parseFloat(ramMatch[1]);
         if (ramMatch[2].toUpperCase() === 'MB') val = val / 1024;
         if (val < 8) isLowRam = true;
       }
-      
+
       const diskMatch = rawDisk.match(/(?:Free:\s*)?(\d+(?:\.\d+)?)\s*(GB|TB)/i);
       if (diskMatch) {
         let val = parseFloat(diskMatch[1]);
@@ -4273,12 +4300,12 @@ app.get('/api/reports/health', async (req, res) => {
         // Fallback: parse something like "24 GB / 100 GB" or "Free: 24 GB"
         const numMatch = rawDisk.match(/(\d+(?:\.\d+)?)\s*(GB|TB)/i);
         if (numMatch) {
-            let val = parseFloat(numMatch[1]);
-            if (numMatch[2].toUpperCase() === 'TB') val = val * 1024;
-            if (val < 50) isLowDisk = true;
+          let val = parseFloat(numMatch[1]);
+          if (numMatch[2].toUpperCase() === 'TB') val = val * 1024;
+          if (val < 50) isLowDisk = true;
         }
       }
-      
+
       return {
         id: row.id,
         hostname: row.hostname,
@@ -4289,7 +4316,7 @@ app.get('/api/reports/health', async (req, res) => {
         needsUpgrade: isLowRam || isLowDisk
       };
     });
-    
+
     res.json(healthData);
   } catch (err) {
     console.error('Reports Health Error:', err);
@@ -4307,10 +4334,137 @@ app.get('/api/reports/inventory', async (req, res) => {
       GROUP BY name 
       ORDER BY count DESC
     `);
-    
+
     res.json(result.recordset);
   } catch (err) {
     console.error('Reports Inventory Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── HELPDESK TICKETS API ──────────────────────────────────────
+app.get('/api/tickets/updates', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { username, can_manage, since } = req.query;
+    if (!since) return res.json([]);
+
+    let query = `SELECT * FROM TroubleTickets WHERE updated_at > @since ORDER BY created_at DESC`;
+    if (can_manage !== 'true' && username) {
+      query = `SELECT * FROM TroubleTickets WHERE updated_at > @since AND created_by = @username ORDER BY created_at DESC`;
+    }
+
+    const result = await pool.request()
+      .input('since', sql.DateTime, new Date(since))
+      .input('username', sql.NVarChar, username)
+      .query(query);
+
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/tickets', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { username, can_manage } = req.query;
+    let query = 'SELECT * FROM TroubleTickets ORDER BY created_at DESC';
+
+    if (can_manage !== 'true' && username) {
+      query = `SELECT * FROM TroubleTickets WHERE created_by = '${username}' ORDER BY created_at DESC`;
+    }
+
+    const result = await pool.request().query(query);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tickets', async (req, res) => {
+  try {
+    const { id, title, description, category, priority, outlet_name, hostname, created_by } = req.body;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('title', sql.NVarChar, title)
+      .input('description', sql.NVarChar, description)
+      .input('category', sql.NVarChar, category)
+      .input('priority', sql.NVarChar, priority)
+      .input('status', sql.NVarChar, 'Open')
+      .input('outlet_name', sql.NVarChar, outlet_name)
+      .input('hostname', sql.NVarChar, hostname)
+      .input('created_by', sql.NVarChar, created_by)
+      .input('now', sql.NVarChar, getISOTimestamp())
+      .query(`
+        INSERT INTO TroubleTickets 
+        (id, title, description, category, priority, status, outlet_name, hostname, created_by, created_at, updated_at)
+        VALUES (@id, @title, @description, @category, @priority, @status, @outlet_name, @hostname, @created_by, @now, @now)
+      `);
+
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, 'Ticket created')
+      .input('performed_by', sql.NVarChar, created_by)
+      .input('now', sql.NVarChar, getISOTimestamp())
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.status(201).json({ message: 'Ticket created successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/tickets/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, resolved_by, resolution_note, closed_by } = req.body;
+    const pool = await poolPromise;
+
+    const nowStr = getISOTimestamp();
+    const request = pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('status', sql.NVarChar, status)
+      .input('resolution_note', sql.NVarChar, resolution_note || null)
+      .input('resolved_by', sql.NVarChar, resolved_by || null)
+      .input('closed_by', sql.NVarChar, closed_by || null)
+      .input('now', sql.NVarChar, nowStr);
+
+    let updateQuery = `UPDATE TroubleTickets SET status = @status, updated_at = @now`;
+
+    if (status === 'Resolved') {
+      updateQuery += `, resolved_at = @now, resolved_by = @resolved_by, resolution_note = @resolution_note`;
+    } else if (status === 'Closed') {
+      updateQuery += `, closed_at = @now, closed_by = @closed_by`;
+    }
+    updateQuery += ` WHERE id = @id`;
+
+    await request.query(updateQuery);
+
+    const actor = resolved_by || closed_by || 'System';
+    const actionDesc = status === 'Resolved' ? 'Ticket marked as Resolved' : (status === 'Closed' ? 'Ticket Closed & Confirmed' : `Status changed to ${status}`);
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, actionDesc)
+      .input('performed_by', sql.NVarChar, actor)
+      .input('now', sql.NVarChar, nowStr)
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.json({ message: 'Status updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/tickets/:id/logs', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('ticket_id', sql.NVarChar, req.params.id)
+      .query('SELECT * FROM TicketLogs WHERE ticket_id = @ticket_id ORDER BY created_at ASC');
+    res.json(result.recordset);
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
