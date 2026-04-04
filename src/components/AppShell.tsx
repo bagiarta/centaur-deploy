@@ -9,9 +9,13 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { SmartAssistantWidget } from "./SmartAssistantWidget";
+import { ReportTroubleModal } from "./ReportTroubleModal";
+import { Ticket, LifeBuoy } from "lucide-react";
+import { toast } from "sonner";
 
 export const navItems = [
   { id: "overview", to: "/", icon: LayoutDashboard, label: "Overview", group: "main" },
+  { id: "tickets", to: "/tickets", icon: Ticket, label: "Helpdesk Tickets", group: "main" },
   { id: "reports", to: "/reports", icon: Activity, label: "Reports", group: "main" },
   { id: "devices", to: "/devices", icon: Monitor, label: "Devices", group: "main" },
   { id: "network", to: "/network", icon: Globe, label: "Network Map", group: "main" },
@@ -26,6 +30,7 @@ export const navItems = [
   { id: "users", to: "/users", icon: UserCog, label: "User Management", group: "system", adminOnly: true },
   { id: "roles", to: "/roles", icon: ShieldCheck, label: "Roles & Access", group: "system", adminOnly: true },
   { id: "settings", to: "/settings", icon: Settings, label: "Settings", group: "system" },
+  { id: "manage_all_tickets", to: "#manage_tickets", icon: Ticket, label: "Manage All Tickets (Resolve)", group: "system", hidden: true },
   { id: "assistant", to: "#", icon: Bot, label: "AI Smart Assistant", group: "system", hidden: true },
 ];
 
@@ -166,6 +171,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [customLogo, setCustomLogo] = useState<string | null>(null);
   const [logoSize, setLogoSize] = useState(32);
   const [appName, setAppName] = useState("pepinetupdater");
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   const applyThemeToShell = (rawTheme?: Partial<ThemeSettings> | null) => {
     const theme = normalizeTheme(rawTheme);
@@ -249,6 +255,52 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
+
+  const canManageTickets = user?.is_admin || hasPermission("manage_all_tickets");
+
+  useEffect(() => {
+    let active = true;
+    let lastCheckedTime = localStorage.getItem('pepi_last_ticket_poll') || new Date().toISOString();
+    localStorage.setItem('pepi_last_ticket_poll', new Date().toISOString());
+
+    const checkTicketUpdates = async () => {
+      try {
+        if (!user) return;
+        const now = new Date().toISOString();
+        const qs = new URLSearchParams({
+          username: user.username || "",
+          can_manage: canManageTickets ? "true" : "false",
+          since: lastCheckedTime
+        });
+        
+        const res = await fetch(`/api/tickets/updates?${qs}`);
+        if (!res.ok || !active) return;
+        
+        const updates = await res.json();
+        
+        if (updates.length > 0) {
+           for (const t of updates) {
+              if (canManageTickets && t.status === "Open" && t.created_by !== user.username) {
+                 toast('New Trouble Ticket!', { description: `New issue reported at ${t.outlet_name || "a device"}` });
+              } else if (!canManageTickets && t.status === "Resolved" && t.created_by === user.username) {
+                 toast.success('Your Ticket is Resolved!', { description: `Your issue '${t.title}' has been resolved by IT. Check your Helpdesk menu.` });
+              }
+           }
+        }
+        
+        lastCheckedTime = now;
+        localStorage.setItem('pepi_last_ticket_poll', now);
+      } catch (err) {
+        // fail silently to avoid console spam in polling
+      }
+    };
+
+    const intervalId = setInterval(checkTicketUpdates, 20000);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [user, canManageTickets]);
 
   const handleLogout = () => {
     if (confirm("Are you sure you want to log out?")) {
@@ -386,6 +438,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setIsReportModalOpen(true)}
+              title="Report an Issue"
+              className="px-3 py-1.5 rounded-md hover:bg-danger/10 text-danger hover:text-danger-foreground font-medium text-xs flex items-center gap-2 transition-colors border border-danger/20"
+            >
+              <LifeBuoy className="w-3.5 h-3.5" />
+              <span>Report Issue</span>
+            </button>
             <button className="relative p-2 rounded-md hover:bg-surface-raised text-foreground-muted hover:text-foreground transition-colors">
               <Bell className="w-4 h-4" />
               <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-danger rounded-full" />
@@ -410,6 +470,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      <ReportTroubleModal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} />
 
       {/* Smart AI Assistant (Only renders if user has permission) */}
       {hasPermission("assistant") && <SmartAssistantWidget />}

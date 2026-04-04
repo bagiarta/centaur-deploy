@@ -19,6 +19,7 @@ import RemoteSqlPage from "@/pages/RemoteSqlPage";
 import WorkflowsPage from "@/pages/WorkflowsPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import RoleManagementPage from "./pages/RoleManagementPage";
+import TicketsPage from "./pages/TicketsPage";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/LoginPage";
@@ -68,6 +69,13 @@ const App = () => (
               <ProtectedRoute>
                 <AppShell>
                   <ReportsPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/tickets" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <TicketsPage />
                 </AppShell>
               </ProtectedRoute>
             } />
