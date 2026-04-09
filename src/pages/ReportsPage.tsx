@@ -15,6 +15,7 @@ const COLORS = ['#10b981', '#ef4444', '#f59e0b', '#3b82f6'];
 
 export default function ReportsPage() {
   const [deploymentStats, setDeploymentStats] = useState<any>(null);
+  const [ticketStats, setTicketStats] = useState<any[]>([]);
   const [healthData, setHealthData] = useState<any[]>([]);
   const [inventoryData, setInventoryData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,15 +25,17 @@ export default function ReportsPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [depRes, healthRes, invRes] = await Promise.all([
+        const [depRes, healthRes, invRes, ticketRes] = await Promise.all([
           fetch('/api/reports/deployments'),
           fetch('/api/reports/health'),
-          fetch('/api/reports/inventory')
+          fetch('/api/reports/inventory'),
+          fetch('/api/reports/tickets')
         ]);
         
         setDeploymentStats(await depRes.json());
         setHealthData(await healthRes.json());
         setInventoryData(await invRes.json());
+        setTicketStats(await ticketRes.json());
       } catch (err) {
         console.error("Failed to fetch report data:", err);
       } finally {
@@ -56,6 +59,13 @@ export default function ReportsPage() {
     name: t.status.charAt(0).toUpperCase() + t.status.slice(1),
     value: t.count
   })) || [];
+
+  const ticketChartData = ticketStats?.map((t: any) => ({
+    name: t.status,
+    value: t.count
+  })) || [];
+
+  const TICKET_COLORS = ['#ef4444', '#f59e0b', '#eb0cd8ff', '#02f737ff']; // Matches Ticket Colors in Dashboard
 
   const needsUpgrade = healthData.filter(d => d.needsUpgrade);
   const lowRam = healthData.filter(d => d.isLowRam).length;
@@ -129,18 +139,18 @@ export default function ReportsPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Deployment Performance Chart */}
-        <SectionCard title="Deployment Target Status" subtitle="Success vs Failure Distribution">
-          <div className="h-[300px] w-full p-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Deployment Performance Chart - SHRUNK */}
+        <SectionCard title="Deployments" subtitle="Success vs Failure">
+          <div className="h-[240px] w-full p-2">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={depChartData}
                   cx="50%"
                   cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
+                  innerRadius={45}
+                  outerRadius={65}
                   paddingAngle={5}
                   dataKey="value"
                 >
@@ -152,45 +162,74 @@ export default function ReportsPage() {
                   contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', borderRadius: '8px' }}
                   itemStyle={{ color: 'var(--foreground)' }}
                 />
-                <Legend verticalAlign="bottom" height={36}/>
+                <Legend iconSize={8} wrapperStyle={{ fontSize: '10px' }} verticalAlign="bottom" height={24}/>
               </PieChart>
             </ResponsiveContainer>
           </div>
         </SectionCard>
 
-        {/* Software Inventory Chart */}
-        <SectionCard title="Top Software Inventory" subtitle="Most common applications installed">
-          <div className="h-[500px] w-full p-4">
+        {/* Ticket Distribution Chart - NEW */}
+        <SectionCard title="Ticket Status" subtitle="Helpdesk Overview">
+          <div className="h-[240px] w-full p-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={inventoryData} layout="vertical" margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                <XAxis type="number" hide />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
-                  width={220} 
-                  tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
-                  tickFormatter={(val) => val.length > 32 ? val.substring(0, 32) + '...' : val}
-                />
+              <PieChart>
+                <Pie
+                  data={ticketChartData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={45}
+                  outerRadius={65}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {ticketChartData.map((entry: any, index: number) => (
+                    <Cell key={`cell-t-${index}`} fill={TICKET_COLORS[index % TICKET_COLORS.length]} />
+                  ))}
+                </Pie>
                 <Tooltip 
-                  cursor={{ fill: 'hsl(var(--surface-raised))' }}
-                  contentStyle={{ backgroundColor: 'hsl(var(--surface))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                  itemStyle={{ color: 'hsl(var(--foreground))' }}
-                  formatter={(value: number) => [value, "Installations"]}
-                  labelFormatter={(label: string) => `Software: ${label}`}
+                  contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', borderRadius: '8px' }}
+                  itemStyle={{ color: 'var(--foreground)' }}
                 />
-                <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} barSize={16}>
-                  <LabelList dataKey="count" position="right" fill="hsl(var(--foreground))" fontSize={11} fontWeight={600} />
-                </Bar>
-              </BarChart>
+                <Legend iconSize={8} wrapperStyle={{ fontSize: '10px' }} verticalAlign="bottom" height={24}/>
+              </PieChart>
             </ResponsiveContainer>
           </div>
         </SectionCard>
+
+        {/* Software Inventory Chart - Spans 2 columns */}
+        <div className="lg:col-span-2">
+          <SectionCard title="Software Inventory" subtitle="Most common applications">
+            <div className="h-[240px] w-full p-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={inventoryData.slice(0, 8)} layout="vertical" margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                  <XAxis type="number" hide />
+                  <YAxis 
+                    dataKey="name" 
+                    type="category" 
+                    width={120} 
+                    tick={{ fontSize: 10, fill: 'hsl(var(--foreground))' }}
+                    tickFormatter={(val) => val.length > 18 ? val.substring(0, 18) + '...' : val}
+                  />
+                  <Tooltip 
+                    cursor={{ fill: 'hsl(var(--surface-raised))' }}
+                    contentStyle={{ backgroundColor: 'hsl(var(--surface))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                    itemStyle={{ color: 'hsl(var(--foreground))' }}
+                    formatter={(value: number) => [value, "Installs"]}
+                  />
+                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} barSize={12}>
+                    <LabelList dataKey="count" position="right" fill="hsl(var(--foreground))" fontSize={9} fontWeight={600} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </SectionCard>
+        </div>
       </div>
 
       {/* Hardware Health Alerts Table */}
       <SectionCard title="Hardware Health & Upgrade Recommendations" subtitle="Devices with low RAM or Disk space">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[500px] overflow-y-auto pr-1">
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-border bg-surface/30">

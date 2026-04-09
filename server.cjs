@@ -100,6 +100,13 @@ const dbConfig = {
     encrypt: false, // For local dev, usually false
     trustServerCertificate: true,
   },
+  pool: {
+    max: 20,
+    min: 5,
+    idleTimeoutMillis: 30000
+  },
+  connectionTimeout: 15000,
+  requestTimeout: 30000
 };
 
 // Application State
@@ -110,6 +117,15 @@ async function initDb() {
   try {
     poolPromise = sql.connect(dbConfig);
     const pool = await poolPromise;
+    
+    // Connectivity Event listener
+    pool.on('error', err => {
+      console.error('⚠️ [SQL POOL ERROR]:', err.message);
+      if (err.message.includes('broken') || err.message.includes('Connection loss')) {
+         console.warn('-- Possible Network Instability detected with ' + dbConfig.server + ' --');
+      }
+    });
+
     console.log('✅ Connected to SQL Server:', dbConfig.server);
 
     const tables = [
@@ -367,6 +383,22 @@ async function initDb() {
          action NVARCHAR(MAX) NOT NULL,
          performed_by NVARCHAR(100) NOT NULL,
          created_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TicketGroups' AND xtype='U')
+       CREATE TABLE TicketGroups (
+         id INT IDENTITY(1,1) PRIMARY KEY,
+         ticket_id NVARCHAR(50) NOT NULL,
+         group_id NVARCHAR(50) NOT NULL,
+         created_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TicketTargets' AND xtype='U')
+       CREATE TABLE TicketTargets (
+         id INT IDENTITY(1,1) PRIMARY KEY,
+         ticket_id NVARCHAR(50) NOT NULL,
+         hostname NVARCHAR(100) NOT NULL,
+         status NVARCHAR(50) DEFAULT 'Pending',
+         remark NVARCHAR(MAX),
+         updated_at DATETIME DEFAULT GETDATE()
        )`
     ];
 
@@ -1834,7 +1866,70 @@ app.post('/api/agent/heartbeat', async (req, res) => {
     });
 
   } catch (err) {
-    console.error(`[AGENT] Heartbeat error for ${hostname}:`, err.message);
+    console.error(`[AGENT] Heartbeat error for ${req.body?.hostname || 'unknown'}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/devices/:id/software ──────────────────────────
+app.get('/api/devices/:id/software', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('device_id', sql.NVarChar, id)
+      .query(`SELECT name, version, publisher, updated_at FROM DeviceSoftware WHERE device_id = @device_id ORDER BY name ASC`);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/agent/software-inventory ─────────────────────
+app.post('/api/agent/software-inventory', async (req, res) => {
+  try {
+    const { hostname, software } = req.body;
+    if (!hostname) return res.status(400).json({ error: "Hostname is required" });
+    if (!Array.isArray(software)) return res.status(400).json({ error: "Software array is required" });
+
+    const pool = await poolPromise;
+    const safeId = `dev-${hostname.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      await transaction.request()
+        .input('device_id', sql.NVarChar, safeId)
+        .query(`DELETE FROM DeviceSoftware WHERE device_id = @device_id`);
+
+      if (software.length > 0) {
+        const chunkSize = 100;
+        for (let i = 0; i < software.length; i += chunkSize) {
+          const chunk = software.slice(i, i + chunkSize);
+          const reqBatch = transaction.request();
+          reqBatch.input('device_id', sql.NVarChar, safeId);
+          
+          let insertValues = [];
+          chunk.forEach((app, idx) => {
+            reqBatch.input(`n${idx}`, sql.NVarChar, (app.name || 'Unknown').substring(0, 490));
+            reqBatch.input(`v${idx}`, sql.NVarChar, (app.version || '').substring(0, 90));
+            reqBatch.input(`p${idx}`, sql.NVarChar, (app.publisher || '').substring(0, 190));
+            insertValues.push(`(@device_id, @n${idx}, @v${idx}, @p${idx}, GETDATE())`);
+          });
+          
+          await reqBatch.query(`INSERT INTO DeviceSoftware (device_id, name, version, publisher, updated_at) VALUES ${insertValues.join(', ')}`);
+        }
+      }
+
+      await transaction.commit();
+      res.json({ message: "Inventory updated" });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error(`[AGENT] Software inventory error for ${req.body?.hostname}:`, err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2550,7 +2645,7 @@ app.post('/api/notification-settings', async (req, res) => {
       .input('alert_offline', sql.Bit, alert_offline ? 1 : 0)
       .input('alert_dep_success', sql.Bit, alert_deployment_success ? 1 : 0)
       .input('alert_dep_failed', sql.Bit, alert_deployment_failed ? 1 : 0)
-      .input('timeout_mins', sql.Int, offline_timeout_mins || 30)
+      .input('timeout_mins', sql.Int, offline_timeout_mins || 5)
       .query(`
         IF EXISTS (SELECT 1 FROM NotificationSettings WHERE id = 'global')
           UPDATE NotificationSettings SET
@@ -3281,6 +3376,27 @@ async function generateWeeklyReportPDF() {
       GROUP BY action ORDER BY fail_count DESC
     `);
 
+    // 1.5. Gather Ticket Stats (Last 7 Days)
+    const ticketStatsRes = await pool.request().query(`
+      SELECT status, COUNT(*) as count 
+      FROM TroubleTickets 
+      WHERE created_at >= DATEADD(day, -7, GETDATE())
+      GROUP BY status
+    `);
+    const ticketSummary = {
+      Total: 0,
+      Open: 0,
+      'In Progress': 0,
+      Resolved: 0,
+      Closed: 0
+    };
+    ticketStatsRes.recordset.forEach(row => {
+      ticketSummary.Total += row.count;
+      if (ticketSummary.hasOwnProperty(row.status)) {
+        ticketSummary[row.status] = row.count;
+      }
+    });
+
     // 2. Create PDF
     const reportsDir = path.join(__dirname, 'reports', 'weekly');
     if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive: true });
@@ -3314,7 +3430,19 @@ async function generateWeeklyReportPDF() {
       problematicRes.recordset.forEach((row, i) => {
         doc.text(`${i + 1}. ${row.action.split(':')[1]?.trim() || row.action} (${row.fail_count} incidents)`);
       });
+      doc.moveDown();
     }
+
+    // Ticket Summary Section
+    doc.fontSize(16).fillColor('#8b5cf6').font('Helvetica-Bold').text('Helpdesk Ticket Summary (Last 7 Days)');
+    doc.moveDown(0.5);
+    doc.fontSize(12).fillColor('#000000').font('Helvetica');
+    doc.text(`• Total Tickets Created: ${ticketSummary.Total}`);
+    doc.text(`• Open: ${ticketSummary.Open}`);
+    doc.text(`• In Progress: ${ticketSummary['In Progress']}`);
+    doc.text(`• Resolved: ${ticketSummary.Resolved}`);
+    doc.text(`• Closed: ${ticketSummary.Closed}`);
+    doc.moveDown();
 
     doc.end();
 
@@ -3325,6 +3453,10 @@ async function generateWeeklyReportPDF() {
         `Avg Uptime: *${uptime}%*\n` +
         `Total Devices: ${totalDevices}\n` +
         `Critical Incidents: ${problematicRes.recordset.length}\n\n` +
+        `🎟️ *Helpdesk Tickets (7d):*\n` +
+        `- Created: ${ticketSummary.Total}\n` +
+        `- Resolved/Closed: ${ticketSummary.Resolved + ticketSummary.Closed}\n` +
+        `- Active (Open/IP): ${ticketSummary.Open + ticketSummary['In Progress']}\n\n` +
         `_Weekly PDF has been archived on the server._`;
 
       await sendWebhook(`📊 Weekly Performance Report`, summary.replace(/\*/g, '**'), 0x3b82f6);
@@ -4342,6 +4474,23 @@ app.get('/api/reports/inventory', async (req, res) => {
   }
 });
 
+// ── GET /api/reports/tickets ──────────────────────────────
+app.get('/api/reports/tickets', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT status, COUNT(*) as count 
+      FROM TroubleTickets 
+      GROUP BY status
+    `);
+
+    res.json(result.recordset);
+  } catch (err) {
+    console.error('Reports Tickets Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── HELPDESK TICKETS API ──────────────────────────────────────
 app.get('/api/tickets/updates', async (req, res) => {
   try {
@@ -4376,7 +4525,57 @@ app.get('/api/tickets', async (req, res) => {
     }
 
     const result = await pool.request().query(query);
-    res.json(result.recordset);
+    const tickets = result.recordset;
+
+    if (tickets.length > 0) {
+      const ticketIds = tickets.map(t => `'${t.id}'`).join(',');
+
+      // Fetch individual targets
+      const targetsResult = await pool.request().query(`SELECT * FROM TicketTargets WHERE ticket_id IN (${ticketIds})`);
+      const allTargets = targetsResult.recordset;
+
+      // Fetch linked groups
+      const groupsResult = await pool.request().query(`SELECT * FROM TicketGroups WHERE ticket_id IN (${ticketIds})`);
+      const allLinkedGroups = groupsResult.recordset;
+
+      // Fetch all devices to resolve groups
+      const devicesResult = await pool.request().query('SELECT hostname, group_ids FROM Devices');
+      const allDevices = devicesResult.recordset;
+
+      tickets.forEach(ticket => {
+        // Individual/Manual targets
+        const ticketTargets = allTargets.filter(target => target.ticket_id === ticket.id);
+        
+        // Group targets
+        const ticketGroups = allLinkedGroups.filter(tg => tg.ticket_id === ticket.id).map(tg => tg.group_id);
+        const groupMembers = allDevices.filter(dev => {
+          if (!dev.group_ids) return false;
+          const gids = dev.group_ids.split(',');
+          return ticketGroups.some(tgid => gids.includes(tgid));
+        }).map(dev => ({
+          hostname: dev.hostname,
+          isFromGroup: true
+        }));
+
+        // Merge hosts ensuring uniqueness by hostname
+        const mergedHosts = [...ticketTargets];
+        groupMembers.forEach(gm => {
+          if (!mergedHosts.find(mh => mh.hostname === gm.hostname)) {
+            mergedHosts.push({
+              hostname: gm.hostname,
+              status: 'Pending',
+              remark: null,
+              isFromGroup: true
+            });
+          }
+        });
+
+        ticket.targets = mergedHosts;
+        ticket.linked_group_ids = ticketGroups;
+      });
+    }
+
+    res.json(tickets);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4384,8 +4583,10 @@ app.get('/api/tickets', async (req, res) => {
 
 app.post('/api/tickets', async (req, res) => {
   try {
-    const { id, title, description, category, priority, outlet_name, hostname, created_by } = req.body;
+    const { id, title, description, category, priority, outlet_name, hostname, created_by, assigned_to, selected_group_ids } = req.body;
     const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
     await pool.request()
       .input('id', sql.NVarChar, id)
       .input('title', sql.NVarChar, title)
@@ -4396,22 +4597,49 @@ app.post('/api/tickets', async (req, res) => {
       .input('outlet_name', sql.NVarChar, outlet_name)
       .input('hostname', sql.NVarChar, hostname)
       .input('created_by', sql.NVarChar, created_by)
-      .input('now', sql.NVarChar, getISOTimestamp())
+      .input('assigned_to', sql.NVarChar, assigned_to || null)
+      .input('now', sql.NVarChar, nowStr)
       .query(`
         INSERT INTO TroubleTickets 
-        (id, title, description, category, priority, status, outlet_name, hostname, created_by, created_at, updated_at)
-        VALUES (@id, @title, @description, @category, @priority, @status, @outlet_name, @hostname, @created_by, @now, @now)
+        (id, title, description, category, priority, status, outlet_name, hostname, created_by, assigned_to, created_at, updated_at)
+        VALUES (@id, @title, @description, @category, @priority, @status, @outlet_name, @hostname, @created_by, @assigned_to, @now, @now)
       `);
+
+    // Handle Manual/Individual hostnames
+    if (hostname && hostname.trim()) {
+      const hosts = hostname.split(',').map(h => h.trim()).filter(h => h.length > 0);
+      for (const host of hosts) {
+        await pool.request()
+          .input('ticket_id', sql.NVarChar, id)
+          .input('hostname', sql.NVarChar, host)
+          .input('now', sql.DateTime, new Date())
+          .query(`INSERT INTO TicketTargets (ticket_id, hostname, status, updated_at) VALUES (@ticket_id, @hostname, 'Pending', @now)`);
+      }
+    }
+
+    // Handle Linked Groups
+    if (selected_group_ids && Array.isArray(selected_group_ids)) {
+      for (const gid of selected_group_ids) {
+        await pool.request()
+          .input('ticket_id', sql.NVarChar, id)
+          .input('group_id', sql.NVarChar, gid)
+          .query(`INSERT INTO TicketGroups (ticket_id, group_id) VALUES (@ticket_id, @group_id)`);
+      }
+    }
+
+    let logMsg = 'Ticket created';
+    if (assigned_to) logMsg += ` and assigned to ${assigned_to}`;
 
     await pool.request()
       .input('ticket_id', sql.NVarChar, id)
-      .input('action', sql.NVarChar, 'Ticket created')
+      .input('action', sql.NVarChar, logMsg)
       .input('performed_by', sql.NVarChar, created_by)
-      .input('now', sql.NVarChar, getISOTimestamp())
+      .input('now', sql.NVarChar, nowStr)
       .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
 
     res.status(201).json({ message: 'Ticket created successfully' });
   } catch (err) {
+    console.error("POST /api/tickets Error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -4421,6 +4649,45 @@ app.put('/api/tickets/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status, resolved_by, resolution_note, closed_by } = req.body;
     const pool = await poolPromise;
+
+    // Validation: Block Resolve if multi-target and not all solved
+    if (status === 'Resolved') {
+      const targetsRes = await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .query(`SELECT hostname, status FROM TicketTargets WHERE ticket_id = @ticket_id`);
+      const staticTargets = targetsRes.recordset;
+
+      const groupsRes = await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .query(`SELECT group_id FROM TicketGroups WHERE ticket_id = @ticket_id`);
+      const linkedGroups = groupsRes.recordset.map(g => g.group_id);
+
+      if (linkedGroups.length > 0) {
+        // Resolve dynamic group members
+        const devicesRes = await pool.request().query('SELECT hostname, group_ids FROM Devices');
+        const allDevices = devicesRes.recordset;
+
+        const groupMembersHostnames = allDevices.filter(dev => {
+          if (!dev.group_ids) return false;
+          const gids = dev.group_ids.split(',');
+          return linkedGroups.some(tgid => gids.includes(tgid));
+        }).map(dev => dev.hostname);
+
+        // Check if every group member is solved (must have a TicketTargets entry with status 'Solved')
+        for (const hostname of groupMembersHostnames) {
+          const isSolved = staticTargets.find(t => t.hostname === hostname && t.status === 'Solved');
+          if (!isSolved) {
+            return res.status(400).json({ error: `Cannot resolve: Device ${hostname} (from group) is still pending.` });
+          }
+        }
+      }
+
+      // Check static targets
+      const unsolvedStatic = staticTargets.filter(t => t.status !== 'Solved');
+      if (unsolvedStatic.length > 0) {
+        return res.status(400).json({ error: `Cannot resolve: ${unsolvedStatic[0].hostname} is still pending.` });
+      }
+    }
 
     const nowStr = getISOTimestamp();
     const request = pool.request()
@@ -4452,6 +4719,195 @@ app.put('/api/tickets/:id/status', async (req, res) => {
       .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
 
     res.json({ message: 'Status updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── NEW: Bulk update targets and groups ───────────────────────
+app.put('/api/tickets/:id/targets', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { hostname, selected_group_ids, performed_by } = req.body;
+    const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
+    // Start Transaction
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      // Update the main hostname string
+      await transaction.request()
+        .input('id', sql.NVarChar, id)
+        .input('hostname', sql.NVarChar, hostname)
+        .input('now', sql.NVarChar, nowStr)
+        .query('UPDATE TroubleTickets SET hostname = @hostname, updated_at = @now WHERE id = @id');
+
+      // Sync TicketTargets (Manual/Individual)
+      // Keep existing ones that are still in the list, delete removed ones, add new ones
+      const currentTargetsRes = await transaction.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .query('SELECT hostname FROM TicketTargets WHERE ticket_id = @ticket_id');
+      const currentHostnames = currentTargetsRes.recordset.map(r => r.hostname);
+      
+      const newHostnames = (hostname || '').split(',').map(h => h.trim()).filter(h => h.length > 0);
+
+      // Delete removed
+      const toDelete = currentHostnames.filter(h => !newHostnames.includes(h));
+      for (const host of toDelete) {
+        await transaction.request()
+          .input('ticket_id', sql.NVarChar, id)
+          .input('host', sql.NVarChar, host)
+          .query('DELETE FROM TicketTargets WHERE ticket_id = @ticket_id AND hostname = @host');
+      }
+
+      // Add new
+      const toAdd = newHostnames.filter(h => !currentHostnames.includes(h));
+      for (const host of toAdd) {
+        await transaction.request()
+          .input('ticket_id', sql.NVarChar, id)
+          .input('host', sql.NVarChar, host)
+          .query("INSERT INTO TicketTargets (ticket_id, hostname, status) VALUES (@ticket_id, @host, 'Pending')");
+      }
+
+      // Sync TicketGroups
+      await transaction.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .query('DELETE FROM TicketGroups WHERE ticket_id = @ticket_id');
+
+      if (selected_group_ids && Array.isArray(selected_group_ids)) {
+        for (const gid of selected_group_ids) {
+          await transaction.request()
+            .input('ticket_id', sql.NVarChar, id)
+            .input('group_id', sql.NVarChar, gid)
+            .query('INSERT INTO TicketGroups (ticket_id, group_id) VALUES (@ticket_id, @group_id)');
+        }
+      }
+
+      await transaction.commit();
+
+      // Log the update
+      await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .input('action', sql.NVarChar, 'Ticket targets updated')
+        .input('performed_by', sql.NVarChar, performed_by || 'System')
+        .input('now', sql.NVarChar, nowStr)
+        .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+      res.json({ message: 'Targets updated successfully' });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error("PUT /api/tickets/:id/targets Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+// ── Individual Ticket Target Update ──────────────────────────
+app.put('/api/tickets/:id/targets/:targetId', async (req, res) => {
+  try {
+    const { id, targetId } = req.params;
+    const { status, remark, performed_by, hostname: bodyHostname } = req.body;
+    const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
+    let targetRecord = null;
+    let effectiveTargetId = parseInt(targetId);
+
+    // 1. Resolve target (by ID or Hostname)
+    if (effectiveTargetId > 0) {
+      const targetRes = await pool.request()
+        .input('tid', sql.Int, effectiveTargetId)
+        .query('SELECT id, hostname FROM TicketTargets WHERE id = @tid');
+      if (targetRes.recordset.length > 0) {
+        targetRecord = targetRes.recordset[0];
+      }
+    }
+
+    if (!targetRecord && bodyHostname) {
+      const hostRes = await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .input('hostname', sql.NVarChar, bodyHostname)
+        .query('SELECT id, hostname FROM TicketTargets WHERE ticket_id = @ticket_id AND hostname = @hostname');
+      if (hostRes.recordset.length > 0) {
+        targetRecord = hostRes.recordset[0];
+        effectiveTargetId = targetRecord.id;
+      }
+    }
+
+    const finalHostname = targetRecord ? targetRecord.hostname : bodyHostname;
+    if (!finalHostname) {
+      return res.status(400).json({ error: 'Hostname or valid Target ID required' });
+    }
+
+    // 2. Upsert (Update if exists, Insert if doesn't)
+    if (targetRecord) {
+      await pool.request()
+        .input('tid', sql.Int, effectiveTargetId)
+        .input('status', sql.NVarChar, status)
+        .input('remark', sql.NVarChar, remark || null)
+        .input('now', sql.NVarChar, nowStr)
+        .query(`UPDATE TicketTargets SET status = @status, remark = @remark, updated_at = @now WHERE id = @tid`);
+    } else {
+      await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .input('hostname', sql.NVarChar, finalHostname)
+        .input('status', sql.NVarChar, status)
+        .input('remark', sql.NVarChar, remark || null)
+        .input('now', sql.NVarChar, nowStr)
+        .query(`INSERT INTO TicketTargets (ticket_id, hostname, status, remark, updated_at) VALUES (@ticket_id, @hostname, @status, @remark, @now)`);
+    }
+
+    // 3. Log the action
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, `Target ${finalHostname} status updated to ${status}`)
+      .input('performed_by', sql.NVarChar, performed_by || 'System')
+      .input('now', sql.NVarChar, nowStr)
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.json({ message: 'Target status updated' });
+  } catch (err) {
+    console.error("PUT /api/tickets/:id/targets/:targetId Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.put('/api/tickets/:id/assign', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { assigned_to, performed_by } = req.body;
+    const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('user', sql.NVarChar, assigned_to || null)
+      .input('now', sql.NVarChar, nowStr)
+      .query(`UPDATE TroubleTickets SET assigned_to = @user, updated_at = @now WHERE id = @id`);
+
+    const logMsg = assigned_to ? `Ticket assigned to ${assigned_to}` : 'Ticket unassigned';
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, logMsg)
+      .input('performed_by', sql.NVarChar, performed_by || 'System')
+      .input('now', sql.NVarChar, nowStr)
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.json({ message: 'Assignment updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/users', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT id, username, full_name, role_id FROM Users ORDER BY username ASC");
+    res.json(result.recordset);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -1,5 +1,5 @@
 import { useState, FormEvent, useEffect } from "react";
-import { Search, Filter, RefreshCw, Plus, ChevronDown, Cpu, HardDrive, MemoryStick, Wifi, Edit, Trash2, Users, Activity, Database, Play, AlertTriangle, X } from "lucide-react";
+import { Search, Filter, RefreshCw, Plus, ChevronDown, Cpu, HardDrive, MemoryStick, Wifi, Edit, Trash2, Users, Activity, Database, Play, AlertTriangle, X, Package, ChevronRight, Eye } from "lucide-react";
 import { Device } from "@/types/inventory";
 import { StatusBadge, PageHeader, SectionCard } from "@/components/ui-enterprise";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
@@ -37,6 +37,29 @@ export default function DevicesPage() {
   // DB Connection state
   const [dbConnection, setDbConnection] = useState<any>(null);
   const [isTestingConn, setIsTestingConn] = useState(false);
+
+  // Software Inventory state
+  const [selectedSoftware, setSelectedSoftware] = useState<any[]>([]);
+  const [loadingSoftware, setLoadingSoftware] = useState(false);
+  const [showSoftware, setShowSoftware] = useState(false);
+
+  useEffect(() => {
+    if (selected) {
+      setLoadingSoftware(true);
+      setShowSoftware(false);
+      fetch(`/api/devices/${selected.id}/software`)
+        .then(res => res.json())
+        .then(data => setSelectedSoftware(data || []))
+        .catch(err => {
+          console.error("Failed to fetch software:", err);
+          setSelectedSoftware([]);
+        })
+        .finally(() => setLoadingSoftware(false));
+    } else {
+      setSelectedSoftware([]);
+      setShowSoftware(false);
+    }
+  }, [selected]);
 
   // Fetch initial data
   const loadData = async () => {
@@ -291,7 +314,7 @@ export default function DevicesPage() {
 
       {/* Table */}
       <SectionCard>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[600px] overflow-y-auto pr-1">
           <table className="table-enterprise">
             <thead>
               <tr>
@@ -331,6 +354,13 @@ export default function DevicesPage() {
                   <td><StatusBadge status={d.status} /></td>
                   <td><span className="text-xs text-foreground-muted">{d.last_seen}</span></td>
                   <td className="text-right">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setSelected(d); }}
+                      className="p-1.5 hover:bg-surface-raised rounded-md text-foreground-muted hover:text-primary-foreground transition-colors mr-1"
+                      title="View Details"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
                     <button 
                       onClick={(e) => { e.stopPropagation(); handleOpenEditDialog(d); }}
                       className="p-1.5 hover:bg-surface-raised rounded-md text-foreground-muted hover:text-primary transition-colors"
@@ -407,6 +437,40 @@ export default function DevicesPage() {
                     <span className="text-xs text-foreground-muted italic">No groups assigned</span>
                   )}
                 </div>
+              </div>
+
+              <div className="pt-2 border-t border-border">
+                <button
+                  onClick={() => setShowSoftware(!showSoftware)}
+                  className="flex items-center justify-between w-full py-2 text-left group hover:bg-surface-raised -mx-2 px-2 rounded-md transition-all"
+                >
+                  <div className="flex items-center gap-2 text-xs text-foreground-muted uppercase tracking-wider font-semibold group-hover:text-foreground">
+                    <Package className="w-4 h-4" /> Installed Software ({selectedSoftware.length})
+                  </div>
+                  {showSoftware ? <ChevronDown className="w-4 h-4 text-foreground-muted" /> : <ChevronRight className="w-4 h-4 text-foreground-muted" />}
+                </button>
+                
+                {showSoftware && (
+                  <div className="mt-2 space-y-2 max-h-64 overflow-y-auto custom-scrollbar border bg-background rounded-md p-3">
+                    {loadingSoftware ? (
+                      <div className="flex justify-center p-4">
+                        <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+                      </div>
+                    ) : selectedSoftware.length > 0 ? (
+                      selectedSoftware.map((app, i) => (
+                        <div key={i} className="text-xs border-b border-border/50 pb-2 last:border-0 last:pb-0">
+                          <p className="font-medium text-foreground">{app.name}</p>
+                          <div className="flex justify-between items-center mt-1 opacity-70 font-mono text-[10px]">
+                            <span>{app.version || 'No Version'}</span>
+                            <span className="truncate max-w-[120px]" title={app.publisher}>{app.publisher}</span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-foreground-muted italic text-center p-2">No software inventoried.</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="pt-2 border-t border-border space-y-2">

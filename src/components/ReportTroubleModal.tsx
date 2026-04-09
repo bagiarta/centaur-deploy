@@ -20,7 +20,27 @@ export function ReportTroubleModal({ isOpen, onClose }: ReportTroubleModalProps)
     outlet_name: "",
     hostname: "",
     description: "",
+    assigned_to: "",
+    selected_device_ids: [] as string[],
+    selected_group_ids: [] as string[],
   });
+  const [users, setUsers] = useState<any[]>([]);
+  const [devices, setDevices] = useState<any[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      Promise.all([
+        fetch("/api/users").then(res => res.json()),
+        fetch("/api/devices").then(res => res.json()),
+        fetch("/api/groups").then(res => res.json())
+      ]).then(([users, devices, groups]) => {
+        setUsers(users);
+        setDevices(devices);
+        setGroups(groups);
+      }).catch(err => console.error("Failed to fetch data", err));
+    }
+  }, [isOpen]);
 
   // Pre-fill outlet if it's stored in user meta or let them type it.
   // For now, it's just a text input.
@@ -35,12 +55,26 @@ export function ReportTroubleModal({ isOpen, onClose }: ReportTroubleModalProps)
     
     try {
       const dbId = "TKT-" + Math.floor(Math.random() * 1000000).toString().padStart(6, "0");
+
+      // Merge manual hostnames + selected device hostnames into one comma-separated string
+      const deviceHostnames = formData.selected_device_ids
+        .map(id => devices.find((d: any) => d.id === id)?.hostname)
+        .filter(Boolean);
+      
+      const allHostnames = [
+        ...formData.hostname.split(',').map(h => h.trim()).filter(h => h.length > 0),
+        ...deviceHostnames
+      ];
+      // Deduplicate
+      const uniqueHostnames = [...new Set(allHostnames)].join(', ');
+
       const res = await fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: dbId,
           ...formData,
+          hostname: uniqueHostnames,
           created_by: user?.username || "Guest",
         }),
       });
@@ -52,7 +86,8 @@ export function ReportTroubleModal({ isOpen, onClose }: ReportTroubleModalProps)
         setSuccess(false);
         onClose();
         setFormData({
-          title: "", category: "Software", priority: "Medium", outlet_name: "", hostname: "", description: ""
+          title: "", category: "Software", priority: "Medium", outlet_name: "", hostname: "", description: "", assigned_to: "",
+          selected_device_ids: [], selected_group_ids: []
         });
       }, 2000);
     } catch (err) {
@@ -120,21 +155,73 @@ export function ReportTroubleModal({ isOpen, onClose }: ReportTroubleModalProps)
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-foreground-muted uppercase tracking-wider mb-1.5">Outlet / Branch</label>
                 <input required type="text" name="outlet_name" value={formData.outlet_name} onChange={handleChange} placeholder="e.g., HQ Jakarta" className="w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-foreground-muted uppercase tracking-wider mb-1.5">Device Hostname</label>
-                <input type="text" name="hostname" value={formData.hostname} onChange={handleChange} placeholder="Optional (e.g., PC-CASHIER-1)" className="w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all" />
+                 <label className="block text-xs font-semibold text-foreground-muted uppercase tracking-wider mb-1.5 flex justify-between">
+                    Device Hostname
+                    <span className="text-[10px] text-primary lowercase italic">manual entry</span>
+                 </label>
+                 <input type="text" name="hostname" value={formData.hostname} onChange={handleChange} placeholder="e.g., HOST-A, HOST-B (comma separated)" className="w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all" />
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               <div>
+                  <label className="block text-xs font-semibold text-foreground-muted uppercase tracking-wider mb-1.5">Select Registered Devices</label>
+                  <select 
+                     multiple 
+                     className="w-full h-24 bg-surface border border-border rounded-md px-2 py-1 text-xs text-foreground focus:outline-none overflow-y-auto"
+                     value={formData.selected_device_ids}
+                     onChange={(e) => {
+                        const values = Array.from(e.target.selectedOptions, option => option.value);
+                        setFormData(prev => ({ ...prev, selected_device_ids: values }));
+                     }}
+                  >
+                     {devices.map(d => (
+                        <option key={d.id} value={d.id}>{d.hostname} ({d.ip})</option>
+                     ))}
+                  </select>
+                  <p className="text-[9px] text-foreground-muted mt-1 italic">Hold Ctrl (Cmd) to select multiple</p>
+               </div>
+               <div>
+                  <label className="block text-xs font-semibold text-foreground-muted uppercase tracking-wider mb-1.5">Select Device Groups</label>
+                  <select 
+                     multiple 
+                     className="w-full h-24 bg-surface border border-border rounded-md px-2 py-1 text-xs text-foreground focus:outline-none overflow-y-auto"
+                     value={formData.selected_group_ids}
+                     onChange={(e) => {
+                        const values = Array.from(e.target.selectedOptions, option => option.value);
+                        setFormData(prev => ({ ...prev, selected_group_ids: values }));
+                     }}
+                  >
+                     {groups.map(g => (
+                        <option key={g.id} value={g.id}>{g.name} ({g.device_count} devices)</option>
+                     ))}
+                  </select>
+                  <p className="text-[9px] text-foreground-muted mt-1 italic">Ticket will dynamically follow group changes</p>
+               </div>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground-muted uppercase tracking-wider mb-1.5">Details</label>
-              <textarea required name="description" value={formData.description} onChange={handleChange} rows={4} placeholder="Please describe the issue in detail..." className="w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none"></textarea>
+              <textarea required name="description" value={formData.description} onChange={handleChange} rows={3} placeholder="Please describe the issue in detail..." className="w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none"></textarea>
             </div>
+
+            {(user?.is_admin || user?.role_id === 'admin') && (
+              <div>
+                <label className="block text-xs font-semibold text-primary uppercase tracking-wider mb-1.5">Initial Assignment (Optional)</label>
+                <select name="assigned_to" value={formData.assigned_to} onChange={handleChange} className="w-full bg-surface border border-primary/20 rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+                  <option value="">Auto / Unassigned</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.username}>{u.full_name || u.username}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="pt-2 flex justify-end gap-3">
               <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-foreground hover:bg-surface-raised rounded-md transition-colors">

@@ -1,4 +1,4 @@
-# --- Centaur Deploy Agent v2.7.1 ---
+# --- Centaur Deploy Agent v2.7.2 ---
 # Capabilities:
 #   1. Send hardware/resource heartbeat
 #   2. Self-update check (download new version if server has newer)
@@ -8,7 +8,7 @@ param(
     [string]$ServerUrl = "http://192.168.85.30:3001"
 )
 
-$Version    = "2.7.1"
+$Version    = "2.7.2"
 $Hostname   = $env:COMPUTERNAME
 # --- IP Selection Logic (Prioritize Internal IPv4) ---
 $allIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" }
@@ -131,9 +131,13 @@ try {
     }
     $json     = $heartbeatData | ConvertTo-Json
     $response = Invoke-RestMethod -Uri "$ServerUrl/api/agent/heartbeat" -Method Post -Body $json -ContentType "application/json" -TimeoutSec 15 -ErrorAction Stop
-    Write-Log "[Heartbeat] OK: $($response.status)"
+    if ($response.status -eq "ok") {
+        Write-Log "[Heartbeat] OK: Received by server."
+    } else {
+        Write-Log "[Heartbeat] WARNING: Server status: $($response.status)"
+    }
 } catch {
-    Write-Log "[Heartbeat] Failed: $($_.Exception.Message)"
+    Write-Log "[Heartbeat] FAILED: $($_.Exception.Message). Check server connectivity or URL ($ServerUrl)."
 }
 
 # ─────────────────────────────────────────────────────────
