@@ -4,6 +4,13 @@ param(
 )
 
 # 0. Global Setup
+# MANDATORY: Run as Administrator
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Host "ERROR: This script must be run as Administrator." -ForegroundColor Red
+    Write-Output "STATUS:FAILED|LOG:Execution denied. Running without Administrator privileges."
+    exit 1
+}
+
 $AgentDir = "C:\Program Files\PepiUpdaterAgent"
 $AgentFile = "CentaurAgent_v25.ps1"
 $AgentPath = "$AgentDir\$AgentFile"
@@ -83,20 +90,26 @@ try {
 # 4. REGISTER SCHEDULED TASK
 Write-Log "[4/4] Registering Task Scheduler (Every 5 Minutes)..."
 try {
-    $taskRun = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$AgentPath\`" -ServerUrl '$ServerUrl'"
-    $createResult = & schtasks /create /sc minute /mo 5 /tn "$TaskName" /tr "$taskRun" /ru SYSTEM /rl HIGHEST /f 2>&1
+    # Building command string with robust quoting for Paths and URLs
+    $taskRun = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$AgentPath\`" -ServerUrl \`"$ServerUrl\`""
     
-    if ($createResult -match "SUCCESS") {
+    # Use schtasks as primary, check $LASTEXITCODE instead of string matching (to support non-English Windows)
+    & schtasks /create /sc minute /mo 5 /tn "$TaskName" /tr "$taskRun" /ru SYSTEM /rl HIGHEST /f 2>$null | Out-Null
+    
+    if ($LASTEXITCODE -eq 0) {
         Write-Log "Success: Task registered via SchTasks."
         & schtasks /run /tn "$TaskName" | Out-Null
     } else {
-        # Try fallback using PS cmdlets
+        # Try fallback using PS cmdlets if schtasks failed or produced non-zero exit
+        Write-Log "SchTasks returned exit code $LASTEXITCODE. Trying PowerShell Fallback (v4.0+)..."
+        
         $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$AgentPath`" -ServerUrl `"$ServerUrl`""
-        $Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration ([TimeSpan]::Zero) 
+        $Trigger = New-ScheduledTaskTrigger -At (Get-Date).AddSeconds(10) -RepetitionInterval (New-TimeSpan -Minutes 5) 
         $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
         $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances Parallel
-        Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force -ErrorAction Stop
-        Start-ScheduledTask -TaskName $TaskName | Out-Null
+        
+        Register-ScheduledTask -TaskName "$TaskName" -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force -ErrorAction Stop | Out-Null
+        Start-ScheduledTask -TaskName "$TaskName" | Out-Null
         Write-Log "Success: Task registered via PS Fallback."
     }
 } catch {
