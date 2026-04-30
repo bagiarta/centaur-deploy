@@ -454,7 +454,7 @@ export default function RemoteCommandsPage() {
 
           {/* Output terminal */}
           <SectionCard title="Output" subtitle="Real-time execution results">
-            <div className="bg-background font-mono text-xs p-4 min-h-40 max-h-64 overflow-y-auto rounded-b-lg">
+            <div className="bg-background font-mono text-sm p-4 min-h-40 max-h-64 overflow-y-auto rounded-b-lg">
               {output.length === 0 ? (
                 <p className="text-foreground-subtle">Ready. Output will appear here after execution.</p>
               ) : (

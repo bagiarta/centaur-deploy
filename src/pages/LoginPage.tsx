@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Server, Lock, User as UserIcon, Loader2, AlertCircle } from "lucide-react";
+import { Lock, User as UserIcon, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
@@ -54,17 +54,22 @@ export default function LoginPage() {
       <div className="w-full max-w-md p-8 relative z-10 animate-fade-in-up">
         {/* Branding */}
         <div className="flex flex-col items-center mb-10">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-indigo-600 flex items-center justify-center shadow-glow mb-4">
-            <Server className="w-8 h-8 text-white" />
+          <div className="relative mb-4 group transform transition-all duration-500 hover:scale-110">
+            <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            <img
+              src="/pepi-logo.png"
+              alt="PepiNet Logo"
+              className="w-24 h-auto relative z-10 drop-shadow-2xl"
+            />
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">PepiNetUpdater</h1>
-          <p className="text-foreground-muted text-sm mt-2">Enterprise Deployment Management</p>
+          <p className="text-foreground-muted text-sm mt-2">Tools Management & Monitoring</p>
         </div>
 
         {/* Login Card */}
         <div className="bg-surface/40 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl overflow-hidden relative group">
           <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
-          
+
           <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
             <div className="space-y-4">
               <div className="relative">
@@ -110,21 +115,22 @@ export default function LoginPage() {
               disabled={isLoading}
               className={cn(
                 "w-full py-3.5 rounded-xl font-bold text-sm transition-all shadow-glow flex items-center justify-center gap-2",
-                isLoading 
-                  ? "bg-muted text-foreground-muted cursor-not-allowed" 
+                isLoading
+                  ? "bg-muted text-foreground-muted cursor-not-allowed"
                   : "bg-primary text-primary-foreground hover:scale-[1.02] active:scale-[0.98] hover:shadow-primary/30"
               )}
             >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Sign In to Console"}
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "LOGIN"}
             </button>
           </form>
         </div>
 
         {/* Footer */}
         <p className="text-center mt-8 text-foreground-muted text-xs">
-          &copy; {new Date().getFullYear()} PepiNet. Secure Console Access.
+          &copy; {new Date().getFullYear()} 死神  .
         </p>
       </div>
     </div>
   );
 }
+

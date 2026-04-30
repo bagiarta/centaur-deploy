@@ -1,6 +1,7 @@
 import { useState, FormEvent, useEffect } from "react";
-import { Search, Filter, RefreshCw, Plus, ChevronDown, Cpu, HardDrive, MemoryStick, Wifi, Edit, Trash2, Users, Activity, Database, Play, AlertTriangle, X, Package, ChevronRight, Eye } from "lucide-react";
+import { Search, Filter, RefreshCw, Plus, ChevronDown, Cpu, HardDrive, MemoryStick, Wifi, Edit, Trash2, Users, Activity, Database, Play, AlertTriangle, X, Package, ChevronRight, Eye, List, Map as MapIcon } from "lucide-react";
 import { Device } from "@/types/inventory";
+import DeviceMap from "@/components/DeviceMap";
 import { StatusBadge, PageHeader, SectionCard } from "@/components/ui-enterprise";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,10 @@ const defaultDeviceData: Partial<Device> = {
   status: "online",
   group_ids: ["g1"],
   last_seen: "Just now",
+  device_type: "PC",
+  location: "",
+  latitude: 0,
+  longitude: 0
 };
 
 export default function DevicesPage() {
@@ -27,10 +32,14 @@ export default function DevicesPage() {
   
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [groupFilter, setGroupFilter] = useState<string>("all");
   const [selected, setSelected] = useState<Device | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
   // Dialog state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [formData, setFormData] = useState<Partial<Device>>(defaultDeviceData);
 
@@ -95,9 +104,11 @@ export default function DevicesPage() {
   const filtered = [...devices]
     .filter(d => {
       const matchSearch = d.hostname.toLowerCase().includes(search.toLowerCase())
-        || d.ip.includes(search);
+        || d.ip.includes(search)
+        || (d.location && d.location.toLowerCase().includes(search.toLowerCase()));
       const matchStatus = statusFilter === "all" || d.status === statusFilter;
-      return matchSearch && matchStatus;
+      const matchGroup = groupFilter === "all" || (Array.isArray(d.group_ids) && d.group_ids.includes(groupFilter));
+      return matchSearch && matchStatus && matchGroup;
     })
     .sort((a, b) => {
       const subnetCompare = compareSubnetLabels(getSubnetLabel(a.ip), getSubnetLabel(b.ip));
@@ -145,30 +156,40 @@ export default function DevicesPage() {
   const handleSaveDevice = async (e: FormEvent) => {
     e.preventDefault();
     try {
+      const payload = {
+        ...formData,
+        latitude: formData.latitude ? parseFloat(String(formData.latitude)) : 0,
+        longitude: formData.longitude ? parseFloat(String(formData.longitude)) : 0
+      };
+
       if (editingDevice) {
         // Update via API
-        await fetch(`/api/devices/${formData.id}`, {
+        const res = await fetch(`/api/devices/${formData.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData)
+          body: JSON.stringify(payload)
         });
         
+        if (!res.ok) throw new Error(`Failed to update device: ${res.statusText}`);
+
         // Optimistic UI update
-        const updatedList = devices.map(d => d.id === formData.id ? formData as Device : d);
+        const updatedList = devices.map(d => d.id === formData.id ? payload as Device : d);
         setDevices(updatedList);
         if (selected?.id === formData.id) {
-          setSelected(formData as Device); // Update drawer if open
+          setSelected(payload as Device); // Update drawer if open
         }
       } else {
         // Add via API
-        await fetch('/api/devices', {
+        const res = await fetch('/api/devices', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData)
+          body: JSON.stringify(payload)
         });
+
+        if (!res.ok) throw new Error(`Failed to add device: ${res.statusText}`);
         
         // Optimistic UI update
-        setDevices([...devices, formData as Device]);
+        setDevices([...devices, payload as Device]);
       }
 
       // Save DB Connection if visible
@@ -195,24 +216,49 @@ export default function DevicesPage() {
   };
 
   const handleDeleteDevice = async (id: string) => {
-    if (confirm("Are you sure you want to delete this device?")) {
-      try {
-        await fetch(`/api/devices/${id}`, { method: 'DELETE' });
-        
-        // Optimistic UI update
-        const updatedList = devices.filter(d => d.id !== id);
-        setDevices(updatedList);
-        setSelected(null); // Close drawer
-      } catch (err) {
-        console.error("Failed to delete device:", err);
-        alert("Failed to delete device from database");
-      }
+    setDeviceToDelete(id);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteDevice = async () => {
+    if (!deviceToDelete) return;
+    try {
+      const res = await fetch(`/api/devices/${deviceToDelete}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Failed to delete device");
+      
+      // Optimistic UI update
+      const updatedList = devices.filter(d => d.id !== deviceToDelete);
+      setDevices(updatedList);
+      setSelected(null); // Close drawer
+      setIsDeleteDialogOpen(false);
+      setDeviceToDelete(null);
+    } catch (err) {
+      console.error("Failed to delete device:", err);
+      alert("Failed to delete device from database");
     }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => {
+      const updated = { ...prev, [name]: value };
+      
+      // Auto-fill coordinates if location name matches an existing device's location
+      if (name === "location" && value.trim().length > 2) {
+        const existingLoc = devices.find(d => 
+          d.location && 
+          d.location.toLowerCase() === value.toLowerCase() && 
+          d.latitude && 
+          d.longitude
+        );
+        if (existingLoc) {
+          updated.latitude = existingLoc.latitude;
+          updated.longitude = existingLoc.longitude;
+        }
+      }
+      
+      return updated;
+    });
   };
 
   const handleTestConnection = async () => {
@@ -251,12 +297,36 @@ export default function DevicesPage() {
         title="Device Inventory"
         subtitle={`${devices.length} devices enrolled across ${groups.length} groups`}
         actions={
-          <button 
-            onClick={handleOpenAddDialog}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors shadow-glow"
-          >
-            <Plus className="w-3.5 h-3.5" /> Add Device
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 bg-surface p-1 rounded-lg border border-border mr-2">
+              <button 
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  "p-1.5 rounded-md transition-all",
+                  viewMode === 'list' ? "bg-primary text-primary-foreground" : "text-foreground-muted hover:bg-background"
+                )}
+                title="List View"
+              >
+                <List className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                onClick={() => setViewMode('map')}
+                className={cn(
+                  "p-1.5 rounded-md transition-all",
+                  viewMode === 'map' ? "bg-primary text-primary-foreground" : "text-foreground-muted hover:bg-background"
+                )}
+                title="Map View"
+              >
+                <MapIcon className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button 
+              onClick={handleOpenAddDialog}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors shadow-glow"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add Device
+            </button>
+          </div>
         }
       />
 
@@ -265,8 +335,16 @@ export default function DevicesPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {groups.slice(0, 4).map(g => {
           const count = devices.filter(d => Array.isArray(d.group_ids) && d.group_ids.includes(g.id)).length;
+          const isActive = groupFilter === g.id;
           return (
-            <div key={g.id} className="card-enterprise p-4 relative overflow-hidden">
+            <div 
+              key={g.id} 
+              onClick={() => setGroupFilter(isActive ? "all" : g.id)}
+              className={cn(
+                "card-enterprise p-4 relative overflow-hidden cursor-pointer transition-all hover:translate-y-[-2px]",
+                isActive ? "ring-1 ring-primary/50 shadow-md transform translate-y-[-2px]" : "hover:border-primary/30"
+              )}
+            >
               <div 
                 className="absolute left-0 top-0 bottom-0 w-1" 
                 style={{ backgroundColor: g.color || "#3b82f6" }}
@@ -304,16 +382,33 @@ export default function DevicesPage() {
             {s}
           </button>
         ))}
+
+        <div className="relative">
+          <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-foreground-muted" />
+          <select
+            value={groupFilter}
+            onChange={e => setGroupFilter(e.target.value)}
+            className="pl-8 pr-3 py-1.5 text-xs font-medium bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
+          >
+            <option value="all">All Groups</option>
+            {groups.map(g => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-foreground-muted pointer-events-none" />
+        </div>
         <button 
           onClick={loadData}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-foreground-muted border border-border rounded-md hover:text-foreground hover:bg-surface transition-all"
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-foreground-muted border border-border rounded-md hover:text-foreground hover:bg-surface transition-all disabled:opacity-50"
         >
-          <RefreshCw className="w-3 h-3" /> Refresh
+          <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} /> Refresh
         </button>
       </div>
 
-      {/* Table */}
-      <SectionCard>
+      {/* Main Content Area */}
+      {viewMode === 'list' ? (
+        <SectionCard>
         <div className="overflow-x-auto max-h-[600px] overflow-y-auto pr-1">
           <table className="table-enterprise">
             <thead>
@@ -333,24 +428,52 @@ export default function DevicesPage() {
               {filtered.map(d => (
                 <tr key={d.id} className="cursor-pointer" onClick={() => setSelected(d)}>
                   <td>
-                    <div className="flex items-center gap-2">
-                      <div className={cn(
-                        "w-2 h-2 rounded-full shrink-0",
-                        d.status === "online" ? "bg-success" :
-                        d.status === "offline" ? "bg-muted-foreground" :
-                        d.status === "deploying" ? "bg-primary animate-pulse-dot" :
-                        d.status === "error" ? "bg-danger" : "bg-foreground-subtle"
-                      )} />
-                      <span className="font-mono text-sm font-medium">{d.hostname}</span>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <div className={cn(
+                          "w-2 h-2 rounded-full shrink-0",
+                          d.status === "online" ? "bg-success" :
+                          d.status === "offline" ? "bg-muted-foreground" :
+                          d.status === "deploying" ? "bg-primary animate-pulse-dot" :
+                          d.status === "error" ? "bg-danger" : "bg-foreground-subtle"
+                        )} />
+                        <span className="font-mono text-sm font-medium flex items-center gap-2">
+                          {d.device_type === 'Network' ? <Wifi className="w-3.5 h-3.5 text-primary" /> : <HardDrive className="w-3.5 h-3.5 text-foreground-muted" />}
+                          {d.hostname}
+                        </span>
+                      </div>
+                      {d.location && (
+                        <div className="flex items-center gap-1.5 ml-4 text-[10px] text-primary font-bold uppercase tracking-wider">
+                          <Wifi className="w-2.5 h-2.5" /> {d.location}
+                        </div>
+                      )}
+                      {d.device_type === 'Network' && d.network_ports && (
+                        <div className="flex flex-wrap gap-1 ml-4 mt-0.5">
+                          {(() => {
+                            try {
+                              const ports = typeof d.network_ports === 'string' ? JSON.parse(d.network_ports) : d.network_ports;
+                              return (ports || []).map((p: any, i: number) => (
+                                <span key={i} className={cn("text-[8px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border", p.status === 'up' ? "bg-success/10 text-success border-success/20" : "bg-danger/10 text-danger border-danger/20")}>
+                                  {p.name}
+                                </span>
+                              ));
+                            } catch (e) { return null; }
+                          })()}
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td><span className="font-mono text-foreground-muted">{d.ip}</span></td>
-                  <td><span className="text-xs text-foreground-muted">{d.os_version}</span></td>
-                  <td><span className="text-xs text-foreground-muted truncate max-w-32 block">{d.cpu}</span></td>
                   <td>
-                    <span className="text-xs text-foreground-muted">{d.ram} / {d.disk}</span>
+                    <span className="text-xs text-foreground-muted">
+                      {d.device_type === 'Network' ? <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[10px] font-bold border border-primary/20">AGENTLESS</span> : d.os_version}
+                    </span>
                   </td>
-                  <td><span className="font-mono text-xs text-foreground-muted">{d.agent_version}</span></td>
+                  <td><span className="text-xs text-foreground-muted truncate max-w-32 block">{d.device_type === 'Network' ? '-' : d.cpu}</span></td>
+                  <td>
+                    <span className="text-xs text-foreground-muted">{d.device_type === 'Network' ? '-' : `${d.ram} / ${d.disk}`}</span>
+                  </td>
+                  <td><span className="font-mono text-xs text-foreground-muted">{d.device_type === 'Network' ? '-' : d.agent_version}</span></td>
                   <td><StatusBadge status={d.status} /></td>
                   <td><span className="text-xs text-foreground-muted">{d.last_seen}</span></td>
                   <td className="text-right">
@@ -384,7 +507,21 @@ export default function DevicesPage() {
         <div className="px-5 py-2.5 border-t border-border text-xs text-foreground-muted">
           Showing {filtered.length} of {devices.length} devices
         </div>
-      </SectionCard>
+        </SectionCard>
+      ) : (
+        <SectionCard className="p-0 overflow-hidden bg-surface/50 border-primary/20">
+          <div className="h-[650px] w-full relative">
+            <div className="absolute top-4 left-4 z-[1000] bg-background/80 backdrop-blur-md p-2.5 rounded-lg border border-primary/30 shadow-2xl">
+              <h3 className="text-xs font-bold text-foreground flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                Fleet Live Location Map
+              </h3>
+              <p className="text-[9px] text-foreground-muted">Interactive geographic visualization of {filtered.filter(d => d.latitude).length} devices</p>
+            </div>
+            <DeviceMap devices={filtered} />
+          </div>
+        </SectionCard>
+      )}
 
       {/* Device Detail Drawer */}
       {selected && (
@@ -406,31 +543,181 @@ export default function DevicesPage() {
             </div>
             
             <div className="p-5 space-y-4 flex-1">
-              {[
-                { icon: <Wifi className="w-4 h-4" />,        label: "OS Version",    value: selected.os_version },
-                { icon: <Cpu className="w-4 h-4" />,         label: "CPU",           value: selected.cpu },
-                { icon: <MemoryStick className="w-4 h-4" />, label: "RAM",           value: selected.ram },
-                { icon: <HardDrive className="w-4 h-4" />,   label: "Disk",          value: selected.disk },
-                { icon: null,                                  label: "Agent Version", value: selected.agent_version },
-                { icon: null,                                  label: "Last Seen",     value: selected.last_seen },
-              ].map(row => (
-                <div key={row.label} className="flex items-center gap-3">
-                  {row.icon ? <div className="text-foreground-muted shrink-0">{row.icon}</div> : <div className="w-4 h-4 shrink-0" />}
-                  <div>
-                    <p className="text-xs text-foreground-muted">{row.label}</p>
-                    <p className="text-sm font-medium text-foreground">{row.value}</p>
-                  </div>
-                </div>
-              ))}
+              {/* Common Info: Last Seen */}
+              <div className="p-4 bg-primary/5 border border-primary/10 rounded-lg">
+                <p className="text-[10px] text-foreground-muted uppercase tracking-widest font-bold mb-1">Last Connection Status</p>
+                <p className={cn(
+                  "text-lg font-bold",
+                  selected.last_seen?.toLowerCase().includes("invalid") || selected.last_seen === 'Never' 
+                    ? "text-foreground-muted italic" 
+                    : "text-foreground"
+                )}>
+                  {selected.last_seen?.toLowerCase().includes("invalid") || selected.last_seen === 'Never' 
+                    ? "Waiting for first ping..." 
+                    : selected.last_seen}
+                </p>
+              </div>
 
+              {/* Location Info */}
+              {selected.location && (
+                <div className="p-4 bg-info/5 border border-info/10 rounded-lg space-y-3">
+                  <div>
+                    <p className="text-[10px] text-foreground-muted uppercase tracking-widest font-bold mb-1">Store / Location</p>
+                    <p className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <Wifi className="w-3.5 h-3.5 text-info" /> {selected.location}
+                    </p>
+                  </div>
+
+                  {(selected.latitude !== undefined && selected.latitude !== 0 && selected.longitude !== undefined && selected.longitude !== 0) ? (
+                    <div className="space-y-2">
+                      <div className="w-full h-48 rounded-md overflow-hidden border border-border shadow-inner">
+                        <DeviceMap devices={[selected]} singleDeviceMode={true} />
+                      </div>
+                      <a 
+                        href={`https://www.google.com/maps/search/?api=1&query=${selected.latitude},${selected.longitude}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] text-primary hover:underline flex items-center gap-1 font-medium"
+                      >
+                        <Play className="w-2.5 h-2.5" /> Open in Google Maps ({selected.latitude.toFixed(4)}, {selected.longitude.toFixed(4)})
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="p-3 border border-dashed border-border rounded-md text-center bg-background/50">
+                      <p className="text-[10px] text-foreground-muted italic">Coordinates not set. Edit device to add location data.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SPECIFIC VIEW: Network Device */}
+              {selected.device_type === 'Network' ? (
+                <>
+                  <div className="space-y-3">
+                    <p className="text-xs text-foreground-muted uppercase tracking-wider font-bold flex items-center gap-2">
+                       <Wifi className="w-3.5 h-3.5 text-primary" /> Network Interface / ISP Ports
+                    </p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {(() => {
+                        try {
+                          if (!selected.network_ports) {
+                            return (
+                              <div className="p-6 border border-dashed border-border rounded-lg text-center bg-surface-raised/50">
+                                <AlertTriangle className="w-5 h-5 text-warning mx-auto mb-2 opacity-50" />
+                                <p className="text-xs text-foreground-muted">Belum ada data port yang diterima.</p>
+                                <p className="text-[10px] text-foreground-muted/70 mt-1">Pastikan script MikroTik sudah dijalankan.</p>
+                              </div>
+                            );
+                          }
+                          const ports = typeof selected.network_ports === 'string' ? JSON.parse(selected.network_ports) : selected.network_ports;
+                          if (!ports || ports.length === 0) return <p className="text-xs text-foreground-muted italic">No ports reported.</p>;
+                          
+                          return ports.map((p: any, i: number) => (
+                            <div key={i} className="flex items-center justify-between p-3.5 bg-surface-raised rounded-xl border border-border shadow-sm group hover:border-primary/30 transition-all">
+                              <div className="flex items-center gap-3">
+                                <div className={cn(
+                                  "p-2 rounded-lg transition-colors", 
+                                  p.status === 'up' ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+                                )}>
+                                  <Activity className="w-4 h-4" />
+                                </div>
+                                <span className="text-sm font-bold text-foreground">{p.name || `Interface ${i+1}`}</span>
+                              </div>
+                              <span className={cn(
+                                "text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-tighter border shadow-sm",
+                                p.status === 'up' ? "bg-success text-white border-success" : "bg-danger text-white border-danger"
+                              )}>
+                                {p.status || 'OFF'}
+                              </span>
+                            </div>
+                          ));
+                        } catch (e) {
+                          return <p className="text-xs text-danger italic">Error rendering port data</p>;
+                        }
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-border space-y-2">
+                    <p className="text-xs text-foreground-muted uppercase tracking-wider font-bold">Device Info</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 bg-surface-raised rounded-lg border border-border">
+                        <p className="text-[10px] text-foreground-muted uppercase">Type</p>
+                        <p className="text-sm font-bold text-primary">RouterOS / Radio</p>
+                      </div>
+                      <div className="p-3 bg-surface-raised rounded-lg border border-border">
+                        <p className="text-[10px] text-foreground-muted uppercase">Version</p>
+                        <p className="text-sm font-bold">Agentless</p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* SPECIFIC VIEW: PC / Agent */
+                <>
+                  <div className="grid grid-cols-1 gap-3">
+                    {[
+                      { icon: <Wifi className="w-4 h-4" />,        label: "OS Version",    value: selected.os_version },
+                      { icon: <Cpu className="w-4 h-4" />,         label: "CPU",           value: selected.cpu },
+                      { icon: <MemoryStick className="w-4 h-4" />, label: "RAM",           value: selected.ram },
+                      { icon: <HardDrive className="w-4 h-4" />,   label: "Disk",          value: selected.disk },
+                      { icon: <Activity className="w-4 h-4" />,    label: "Agent",         value: selected.agent_version },
+                    ].map(row => (
+                      <div key={row.label} className="flex items-center gap-3 p-3 bg-surface-raised rounded-lg border border-border/50">
+                        <div className="text-foreground-muted shrink-0 bg-background p-1.5 rounded-md border border-border">{row.icon}</div>
+                        <div>
+                          <p className="text-[10px] text-foreground-muted leading-none mb-1 uppercase tracking-tight">{row.label}</p>
+                          <p className="text-sm font-bold text-foreground leading-none">{row.value}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-2 border-t border-border">
+                    <button
+                      onClick={() => setShowSoftware(!showSoftware)}
+                      className="flex items-center justify-between w-full py-2 text-left group hover:bg-surface-raised -mx-2 px-2 rounded-md transition-all"
+                    >
+                      <div className="flex items-center gap-2 text-xs text-foreground-muted uppercase tracking-wider font-bold group-hover:text-foreground">
+                        <Package className="w-4 h-4" /> Installed Software ({selectedSoftware.length})
+                      </div>
+                      {showSoftware ? <ChevronDown className="w-4 h-4 text-foreground-muted" /> : <ChevronRight className="w-4 h-4 text-foreground-muted" />}
+                    </button>
+                    
+                    {showSoftware && (
+                      <div className="mt-2 space-y-2 max-h-64 overflow-y-auto custom-scrollbar border bg-background rounded-md p-3">
+                        {loadingSoftware ? (
+                          <div className="flex justify-center p-4">
+                            <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+                          </div>
+                        ) : selectedSoftware.length > 0 ? (
+                          selectedSoftware.map((app, i) => (
+                            <div key={i} className="text-xs border-b border-border/50 pb-2 last:border-0 last:pb-0">
+                              <p className="font-medium text-foreground">{app.name}</p>
+                              <div className="flex justify-between items-center mt-1 opacity-70 font-mono text-[10px]">
+                                <span>{app.version || 'No Version'}</span>
+                                <span className="truncate max-w-[120px]" title={app.publisher}>{app.publisher}</span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-foreground-muted italic text-center p-2">No software inventoried.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Group Section (Visible to all) */}
               <div className="pt-2 border-t border-border">
-                <p className="text-xs text-foreground-muted mb-2 uppercase tracking-wider font-semibold">Groups</p>
+                <p className="text-xs text-foreground-muted mb-2 uppercase tracking-wider font-bold">Assigned Groups</p>
                 <div className="flex flex-wrap gap-1">
                   {Array.isArray(selected.group_ids) && selected.group_ids.length > 0 ? (
                     selected.group_ids.map(gid => {
                       const g = groups.find(g => g.id === gid);
                       return g ? (
-                        <span key={gid} className="badge-pill text-xs" style={{ backgroundColor: `${g.color}20`, color: g.color }}>{g.name}</span>
+                        <span key={gid} className="badge-pill text-[10px] font-bold" style={{ backgroundColor: `${g.color}20`, color: g.color, borderColor: `${g.color}40` }}>{g.name}</span>
                       ) : null;
                     })
                   ) : (
@@ -439,50 +726,19 @@ export default function DevicesPage() {
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-border">
-                <button
-                  onClick={() => setShowSoftware(!showSoftware)}
-                  className="flex items-center justify-between w-full py-2 text-left group hover:bg-surface-raised -mx-2 px-2 rounded-md transition-all"
-                >
-                  <div className="flex items-center gap-2 text-xs text-foreground-muted uppercase tracking-wider font-semibold group-hover:text-foreground">
-                    <Package className="w-4 h-4" /> Installed Software ({selectedSoftware.length})
+              {/* Actions Section (Conditional) */}
+              {selected.device_type !== 'Network' && (
+                <div className="pt-2 border-t border-border space-y-2">
+                  <p className="text-xs text-foreground-muted uppercase tracking-wider font-bold">Remote Actions</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {["Restart PC", "Run Script", "Update Agent", "View Logs"].map(action => (
+                      <button key={action} className="px-3 py-2 text-[11px] font-semibold border border-border rounded-lg hover:bg-surface-raised hover:text-foreground text-foreground-muted transition-all">
+                        {action}
+                      </button>
+                    ))}
                   </div>
-                  {showSoftware ? <ChevronDown className="w-4 h-4 text-foreground-muted" /> : <ChevronRight className="w-4 h-4 text-foreground-muted" />}
-                </button>
-                
-                {showSoftware && (
-                  <div className="mt-2 space-y-2 max-h-64 overflow-y-auto custom-scrollbar border bg-background rounded-md p-3">
-                    {loadingSoftware ? (
-                      <div className="flex justify-center p-4">
-                        <RefreshCw className="w-4 h-4 animate-spin text-primary" />
-                      </div>
-                    ) : selectedSoftware.length > 0 ? (
-                      selectedSoftware.map((app, i) => (
-                        <div key={i} className="text-xs border-b border-border/50 pb-2 last:border-0 last:pb-0">
-                          <p className="font-medium text-foreground">{app.name}</p>
-                          <div className="flex justify-between items-center mt-1 opacity-70 font-mono text-[10px]">
-                            <span>{app.version || 'No Version'}</span>
-                            <span className="truncate max-w-[120px]" title={app.publisher}>{app.publisher}</span>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-xs text-foreground-muted italic text-center p-2">No software inventoried.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="pt-2 border-t border-border space-y-2">
-                <p className="text-xs text-foreground-muted uppercase tracking-wider font-semibold">Remote Actions</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {["Restart PC", "Run Script", "Update Agent", "View Logs"].map(action => (
-                    <button key={action} className="px-3 py-2 text-xs font-medium border border-border rounded-md hover:bg-surface-raised hover:text-foreground text-foreground-muted transition-colors">
-                      {action}
-                    </button>
-                  ))}
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Admin Actions */}
@@ -506,12 +762,13 @@ export default function DevicesPage() {
 
       {/* Add / Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className={cn("transition-all duration-300", formData.device_type === 'Network' ? "sm:max-w-[600px]" : "sm:max-w-[425px]")}>
           <DialogHeader>
             <DialogTitle>{editingDevice ? "Edit Device" : "Add New Device"}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSaveDevice} className="space-y-4 py-4" autoComplete="off">
-            <div className="grid grid-cols-4 items-center gap-4">
+          <form onSubmit={handleSaveDevice} className="py-4" autoComplete="off">
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-4 custom-scrollbar">
+              <div className="grid grid-cols-4 items-center gap-4">
               <label htmlFor="hostname" className="text-right text-sm font-medium">Hostname</label>
               <input
                 id="hostname"
@@ -523,7 +780,20 @@ export default function DevicesPage() {
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <label htmlFor="ip" className="text-right text-sm font-medium">Server (IP)</label>
+              <label htmlFor="device_type" className="text-right text-sm font-medium">Type</label>
+              <select
+                id="device_type"
+                name="device_type"
+                value={formData.device_type || 'PC'}
+                onChange={handleInputChange}
+                className="col-span-3 px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-semibold text-primary"
+              >
+                <option value="PC">PC / Server / POS</option>
+                <option value="Network">Router / Radio (Agentless)</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="ip" className="text-right text-sm font-medium">Base IP</label>
               <input
                 id="ip"
                 name="ip"
@@ -533,46 +803,165 @@ export default function DevicesPage() {
                 className="col-span-3 px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <label htmlFor="os_version" className="text-right text-sm font-medium">OS Version</label>
-              <input
-                id="os_version"
-                name="os_version"
-                required
-                value={formData.os_version}
-                onChange={handleInputChange}
-                className="col-span-3 px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label htmlFor="status" className="text-sm font-medium">Status</label>
-                <select
-                  id="status"
-                  name="status"
-                  value={formData.status}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="online">Online</option>
-                  <option value="offline">Offline</option>
-                  <option value="deploying">Deploying</option>
-                  <option value="error">Error</option>
-                  <option value="idle">Idle</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="agent_version" className="text-sm font-medium">Agent Ver.</label>
+            <div className="grid grid-cols-4 items-start gap-4">
+              <label htmlFor="location" className="text-right text-sm font-medium pt-2">Store Name</label>
+              <div className="col-span-3 space-y-2">
                 <input
-                  id="agent_version"
-                  name="agent_version"
-                  required
-                  value={formData.agent_version}
+                  id="location"
+                  name="location"
+                  list="location-suggestions"
+                  placeholder="e.g. Pepito Market Store"
+                  value={formData.location || ""}
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
+                <datalist id="location-suggestions">
+                  {[...new Set(devices.filter(d => d.location).map(d => d.location))].map((loc) => (
+                    <option key={loc} value={loc!} />
+                  ))}
+                </datalist>
+                {/* Show hint when location has auto-filled coordinates */}
+                {formData.location && devices.some(d => d.location?.toLowerCase() === formData.location?.toLowerCase() && d.latitude) && (
+                  <p className="text-[10px] text-success flex items-center gap-1 font-medium">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
+                    Koordinat otomatis diisi dari lokasi yang sudah ada
+                  </p>
+                )}
               </div>
             </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label className="text-right text-sm font-medium">Coordinates</label>
+              <div className="col-span-3 grid grid-cols-2 gap-2">
+                <input
+                  name="latitude"
+                  type="number"
+                  step="any"
+                  placeholder="Latitude"
+                  value={formData.latitude || ""}
+                  onChange={handleInputChange}
+                  className="px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <input
+                  name="longitude"
+                  type="number"
+                  step="any"
+                  placeholder="Longitude"
+                  value={formData.longitude || ""}
+                  onChange={handleInputChange}
+                  className="px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            </div>
+                   {formData.device_type === 'Network' && (
+              <div className="col-span-4 bg-primary/5 p-4 rounded-lg border border-primary/20 mt-2">
+                <h4 className="text-xs font-bold text-primary mb-2 flex items-center gap-1.5"><Activity className="w-4 h-4"/> MikroTik Script Generator</h4>
+                <p className="text-[10px] text-foreground-muted mb-2">Pindahkan script ini ke <b>System Scheduler</b> MikroTik (Interval 1 menit). Script ini otomatis mengambil nama router dari <b>System Identity</b>. Edit bagian <b>monitoredPorts</b> dengan format <b>"interface;label;target"</b> (Contoh: "ether1;Internet;8.8.8.8" atau "ether2;Lokal;192.168.1.1").</p>
+                <div className="relative">
+                  <pre className="text-[9.5px] font-mono bg-background text-foreground p-3.5 pr-14 rounded-md border border-border whitespace-pre-wrap break-words">
+{`{
+  :local hostName [/system identity get name];
+  :local sysTime [/system clock get time];
+  :local sysDate [/system clock get date];
+  :local monitoredPorts {"ether1;Internet;8.8.8.8"; "ether2;Lokal;1.2.3.4"};
+  :local portJson "";
+  :local first true;
+
+  :foreach item in=$monitoredPorts do={
+    :local sep1 [:find $item ";"];
+    :local iface [:pick $item 0 $sep1];
+    :local rest [:pick $item ($sep1 + 1) [:len $item]];
+    :local sep2 [:find $rest ";"];
+    :local label "";
+    :local target "8.8.8.8";
+    :if ($sep2 < 0) do={
+      :set label $rest;
+    } else={
+      :set label [:pick $rest 0 $sep2];
+      :set target [:pick $rest ($sep2 + 1) [:len $rest]];
+    };
+
+    :local status "down";
+    :do {
+      # 1. Physical/Logical Link Check
+      :if ([/interface get $iface running] = true) do={
+        # Percobaan 1: Cek Jalur Fisik (Strict Interface)
+        :if ([/ping $target interface=$iface count=3 interval=300ms] > 0) do={
+          :set status "up"
+        } else={
+          # Percobaan 2: Cek Routing (Fallback) - Berguna untuk Bridge/VLAN
+          if ([/ping $target count=2 interval=300ms] > 0) do={
+            :set status "up"
+          } else={
+            :if ($target = "8.8.8.8") do={ :set status "no-internet" } else={ :set status "down" }
+          }
+        }
+      } else={
+        :set status "down"
+      };
+    } on-error={ :set status "error" };
+
+    :local entry "{\\"name\\":\\"$label\\", \\"status\\":\\"$status\\"}";
+    :if ($first = true) do={ :set portJson $entry; :set first false; } else={ :set portJson ($portJson . "," . $entry); }
+  }
+  :local finalJson "{\\"hostname\\":\\"$hostName\\", \\"date\\":\\"$sysDate\\", \\"time\\":\\"$sysTime\\", \\"ports\\":[$portJson]}";
+  /tool fetch url="${window.location.protocol}//${window.location.host}/api/webhook/device-ping" mode=http http-method=post http-header-field="Content-Type: application/json" http-data=$finalJson keep-result=no check-certificate=no;
+}`}
+                  </pre>
+                  <button 
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(`{\n  :local hostName [/system identity get name];\n  :local sysTime [/system clock get time];\n  :local sysDate [/system clock get date];\n  :local monitoredPorts {"ether4;TELKOM;8.8.8.8"; "ether5;CGS;192.168.128.197"; "ether1;Local;192.168.85.7"};\n  :local portJson "";\n  :local first true;\n\n  :foreach item in=$monitoredPorts do={\n    :local sep1 [:find $item ";"];\n    :local iface [:pick $item 0 $sep1];\n    :local rest [:pick $item ($sep1 + 1) [:len $item]];\n    :local sep2 [:find $rest ";"];\n    :local label "";\n    :local target "8.8.8.8";\n    :if ($sep2 < 0) do={\n      :set label $rest;\n    } else={\n      :set label [:pick $rest 0 $sep2];\n      :set target [:pick $rest ($sep2 + 1) [:len $rest]];\n    };\n    :local status "down";\n    :do {\n      :if ([/interface get $iface running] = true) do={\n        :if ([/ping $target interface=$iface count=3 interval=300ms] > 0) do={ :set status "up" } else={\n          if ([/ping $target count=2 interval=300ms] > 0) do={ :set status "up" } else={\n            :if ($target = "8.8.8.8") do={ :set status "no-internet" } else={ :set status "down" }\n          }\n        }\n      } else={ :set status "down" }\n    } on-error={ :set status "error" };\n    :local entry "{\\"name\\":\\"$label\\", \\"status\\":\\"$status\\"}";\n    :if ($first = true) do={ :set portJson $entry; :set first false; } else={ :set portJson ($portJson . "," . $entry); }\n  }\n  :local finalJson "{\\"hostname\\":\\"$hostName\\", \\"date\\":\\"$sysDate\\", \\"time\\":\\"$sysTime\\", \\"ports\\":[$portJson]}";\n  /tool fetch url="${window.location.protocol}//${window.location.host}/api/webhook/device-ping" mode=http http-method=post http-header-field="Content-Type: application/json" http-data=$finalJson keep-result=no check-certificate=no;\n}`)}
+                    className="absolute top-2 right-2 px-2 py-1 bg-primary text-white rounded text-[9px] font-bold hover:bg-primary/90"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {formData.device_type !== 'Network' && (
+              <>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <label htmlFor="os_version" className="text-right text-sm font-medium">OS Version</label>
+                  <input
+                    id="os_version"
+                    name="os_version"
+                    required
+                    value={formData.os_version}
+                    onChange={handleInputChange}
+                    className="col-span-3 px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label htmlFor="status" className="text-sm font-medium">Status</label>
+                    <select
+                      id="status"
+                      name="status"
+                      value={formData.status}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="online">Online</option>
+                      <option value="offline">Offline</option>
+                      <option value="deploying">Deploying</option>
+                      <option value="error">Error</option>
+                      <option value="idle">Idle</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="agent_version" className="text-sm font-medium">Agent Ver.</label>
+                    <input
+                      id="agent_version"
+                      name="agent_version"
+                      required
+                      value={formData.agent_version}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Group Assignment</label>
@@ -688,6 +1077,8 @@ export default function DevicesPage() {
               </div>
             )}
 
+            </div>
+
             <DialogFooter className="pt-4">
               <DialogClose asChild>
                 <button type="button" className="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-surface transition-colors">
@@ -699,6 +1090,35 @@ export default function DevicesPage() {
               </button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[400px] border-danger/20">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-danger">
+              <AlertTriangle className="w-5 h-5" /> Confirm Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-foreground-muted">
+              Are you sure you want to delete this device? This action cannot be undone and will remove all associated logs and history.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <button
+              onClick={() => setIsDeleteDialogOpen(false)}
+              className="px-4 py-2 text-sm font-medium border border-border rounded-md hover:bg-surface transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmDeleteDevice}
+              className="px-4 py-2 text-sm font-medium bg-danger text-white rounded-md hover:bg-danger/90 transition-colors shadow-glow-danger"
+            >
+              Delete Permanently
+            </button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
