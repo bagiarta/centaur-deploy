@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
-  BookOpen, Plus, Search, ChevronRight, Edit2, Trash2, 
-  Save, X, Folder, FileText, Loader2, Book, AlertCircle, Download
+  BookOpen, Plus, Search, Edit2, Trash2, 
+  Save, Folder, FileText, Loader2, Book, Download, ArrowLeft, Clock, File, X
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import DocViewer, { DocViewerRenderers } from "@cyntler/react-doc-viewer";
 
 interface Workflow {
   id: string;
@@ -23,6 +24,19 @@ interface Workflow {
   updated_at: string;
 }
 
+const getCardGradient = (id: string) => {
+  const gradients = [
+    "from-blue-500/20 to-purple-500/20",
+    "from-emerald-500/20 to-teal-500/20",
+    "from-orange-500/20 to-red-500/20",
+    "from-pink-500/20 to-rose-500/20",
+    "from-indigo-500/20 to-cyan-500/20",
+  ];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash += id.charCodeAt(i);
+  return gradients[hash % gradients.length];
+};
+
 export default function WorkflowsPage() {
   const { user } = useAuth();
   const isAdmin = user?.is_admin;
@@ -32,6 +46,7 @@ export default function WorkflowsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
   // Editor State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -50,10 +65,6 @@ export default function WorkflowsPage() {
       const res = await fetch("/api/workflows");
       const data = await res.json();
       setWorkflows(data);
-      if (data.length > 0 && !selectedWorkflow) {
-        // Fetch the full content of the first one
-        loadWorkflowDetail(data[0].id);
-      }
     } catch (err) {
       toast.error("Failed to fetch workflows");
     } finally {
@@ -92,19 +103,20 @@ export default function WorkflowsPage() {
     setIsEditorOpen(true);
   };
 
-  const handleEdit = () => {
-    if (!selectedWorkflow) return;
-    setEditingWorkflow({ ...selectedWorkflow });
+  const handleEdit = (wf: Workflow) => {
+    setEditingWorkflow({ ...wf });
     setIsEditorOpen(true);
   };
 
-  const handleDelete = async () => {
-    if (!selectedWorkflow || !confirm("Are you sure you want to delete this workflow?")) return;
+  const handleDelete = async (wf: Workflow) => {
+    if (!confirm("Are you sure you want to delete this workflow?")) return;
     try {
-      const res = await fetch(`/api/workflows/${selectedWorkflow.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/workflows/${wf.id}`, { method: "DELETE" });
       if (res.ok) {
         toast.success("Workflow deleted");
-        setSelectedWorkflow(null);
+        if (selectedWorkflow?.id === wf.id) {
+          setSelectedWorkflow(null);
+        }
         fetchWorkflows();
       }
     } catch (err) {
@@ -133,7 +145,7 @@ export default function WorkflowsPage() {
           file_name: data.fileName,
           file_path: data.filePath
         }));
-        toast.success("Text extracted from document");
+        toast.success("Document uploaded and text extracted");
       } else {
         toast.error(data.error || "Failed to upload file");
       }
@@ -175,7 +187,9 @@ export default function WorkflowsPage() {
         setIsEditorOpen(false);
         fetchWorkflows();
         fetchCategories();
-        if (editingWorkflow.id) loadWorkflowDetail(editingWorkflow.id);
+        if (selectedWorkflow && selectedWorkflow.id === editingWorkflow.id) {
+          loadWorkflowDetail(editingWorkflow.id);
+        }
       } else {
         const data = await res.json();
         toast.error(data.error || "Failed to save workflow");
@@ -187,158 +201,242 @@ export default function WorkflowsPage() {
     }
   };
 
-  // Grouping
-  const groupedWorkflows = workflows.reduce((acc, wf) => {
-    const cat = wf.category || "Uncategorized";
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(wf);
-    return acc;
-  }, {} as Record<string, Workflow[]>);
-
-  const filteredGroups = Object.entries(groupedWorkflows).map(([cat, items]) => {
-    const filteredItems = items.filter(w => 
-      w.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      cat.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    return { cat, items: filteredItems };
-  }).filter(group => group.items.length > 0);
+  const filteredWorkflows = workflows.filter(w => {
+    const matchesSearch = w.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          w.category.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory ? w.category === selectedCategory : true;
+    return matchesSearch && matchesCategory;
+  });
 
   return (
-    <div className="p-6 h-full flex flex-col gap-6 animate-fade-up">
-      <PageHeader 
-        title="Knowledge Base & Workflows" 
-        subtitle="Internal tutorials, Work Instructions (WI), and procedures"
-        actions={
-          isAdmin && (
-            <button 
-              onClick={handleCreate}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-all shadow-glow"
-            >
-              <Plus className="w-4 h-4" />
-              New Instruction
-            </button>
-          )
-        }
-      />
+    <div className="p-6 h-full flex flex-col gap-6 animate-fade-up overflow-y-auto">
+      {!selectedWorkflow ? (
+        <>
+          <PageHeader 
+            title="Knowledge Base & Workflows" 
+            subtitle="Internal tutorials, Work Instructions (WI), and procedures"
+            actions={
+              isAdmin && (
+                <button 
+                  onClick={handleCreate}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-all shadow-glow"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Article
+                </button>
+              )
+            }
+          />
 
-      <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6">
-        {/* Sidebar: Document List */}
-        <div className="w-full lg:w-80 flex flex-col gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground-muted" />
-            <input 
-              type="text"
-              placeholder="Search instructions..."
-              className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          <div className="flex-1 overflow-y-auto pr-1 space-y-4">
-            {loading ? (
-              <div className="py-10 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></div>
-            ) : filteredGroups.length === 0 ? (
-              <div className="py-10 text-center text-foreground-muted text-sm italic">No documents found</div>
-            ) : filteredGroups.map(group => (
-              <div key={group.cat} className="space-y-1">
-                <div className="flex items-center gap-2 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-foreground-subtle">
-                  <Folder className="w-3 h-3" />
-                  {group.cat}
-                </div>
-                {group.items.map(wf => (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="relative w-full md:max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground-muted" />
+                <input 
+                  type="text"
+                  placeholder="Search articles, procedures..."
+                  className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              
+              <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
+                <button
+                  onClick={() => setSelectedCategory(null)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors",
+                    !selectedCategory ? "bg-primary text-primary-foreground" : "bg-surface text-foreground-muted hover:bg-surface-raised"
+                  )}
+                >
+                  All
+                </button>
+                {categories.map(cat => (
                   <button
-                    key={wf.id}
-                    onClick={() => loadWorkflowDetail(wf.id)}
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
                     className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all text-left",
-                      selectedWorkflow?.id === wf.id 
-                        ? "bg-primary/10 text-primary font-medium" 
-                        : "text-foreground-muted hover:bg-surface hover:text-foreground"
+                      "px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors",
+                      selectedCategory === cat ? "bg-primary text-primary-foreground" : "bg-surface text-foreground-muted hover:bg-surface-raised"
                     )}
                   >
-                    <FileText className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{wf.title}</span>
-                    {selectedWorkflow?.id === wf.id && <ChevronRight className="w-4 h-4 ml-auto" />}
+                    {cat}
                   </button>
                 ))}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {/* Main Content: Viewer */}
-        <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden">
-          {selectedWorkflow ? (
-            <SectionCard className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              <div className="flex items-center justify-between border-b border-border p-4 bg-surface/30">
-                <div>
-                  <h2 className="text-xl font-bold text-foreground">{selectedWorkflow.title}</h2>
-                  <div className="flex items-center gap-4 mt-1">
-                    <span className="text-xs text-foreground-muted flex items-center gap-1">
-                      <Folder className="w-3 h-3" /> {selectedWorkflow.category}
-                    </span>
-                    <span className="text-xs text-foreground-muted flex items-center gap-1">
-                      <Book className="w-3 h-3" /> By {selectedWorkflow.created_by}
-                    </span>
+            {loading ? (
+              <div className="py-20 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></div>
+            ) : filteredWorkflows.length === 0 ? (
+              <div className="py-20 text-center text-foreground-muted">
+                <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                <h3 className="text-lg font-medium">No articles found</h3>
+                <p className="text-sm mt-1">Try adjusting your search or category filter.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredWorkflows.map(wf => (
+                  <div 
+                    key={wf.id}
+                    onClick={() => loadWorkflowDetail(wf.id)}
+                    className="group flex flex-col bg-card border border-border rounded-xl overflow-hidden hover:shadow-lg hover:border-primary/30 transition-all cursor-pointer h-72"
+                  >
+                    <div className={cn("h-32 w-full bg-gradient-to-br flex items-center justify-center p-4 relative", getCardGradient(wf.id))}>
+                      {wf.file_path ? (
+                        <FileText className="w-12 h-12 text-foreground/50 drop-shadow-md transition-transform group-hover:scale-110" />
+                      ) : (
+                        <BookOpen className="w-12 h-12 text-foreground/50 drop-shadow-md transition-transform group-hover:scale-110" />
+                      )}
+                      <div className="absolute top-3 left-3">
+                        <span className="px-2 py-1 bg-background/80 backdrop-blur text-[10px] font-bold uppercase tracking-wider rounded text-foreground">
+                          {wf.category}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-4 flex-1 flex flex-col">
+                      <h3 className="font-bold text-foreground text-lg line-clamp-2 leading-tight mb-2 group-hover:text-primary transition-colors">
+                        {wf.title}
+                      </h3>
+                      <p className="text-xs text-foreground-muted flex-1 line-clamp-3">
+                        Click to read this documentation and learn more about the procedure.
+                      </p>
+                      <div className="mt-4 flex items-center justify-between text-[11px] text-foreground-subtle font-medium border-t border-border pt-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center">
+                            {wf.created_by.charAt(0).toUpperCase()}
+                          </div>
+                          <span>{wf.created_by}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          <span>{new Date(wf.created_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full gap-6 pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <button 
+            onClick={() => setSelectedWorkflow(null)}
+            className="flex items-center gap-2 text-sm text-foreground-muted hover:text-primary transition-colors self-start px-3 py-1.5 -ml-3 rounded-lg hover:bg-surface"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Articles
+          </button>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-bold uppercase tracking-wider rounded-md">
+                {selectedWorkflow.category}
+              </span>
+              <span className="text-xs text-foreground-muted flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" />
+                Last updated {new Date(selectedWorkflow.updated_at).toLocaleDateString()}
+              </span>
+            </div>
+            
+            <h1 className="text-3xl md:text-5xl font-extrabold text-foreground leading-tight">
+              {selectedWorkflow.title}
+            </h1>
+            
+            <div className="flex items-center justify-between border-b border-border pb-6 pt-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/20 text-primary flex items-center justify-center text-lg font-bold">
+                  {selectedWorkflow.created_by.charAt(0).toUpperCase()}
                 </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Written by {selectedWorkflow.created_by}</p>
+                  <p className="text-xs text-foreground-muted">Knowledge Base Contributor</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2">
                 {selectedWorkflow.file_name && (
                   <a 
                     href={`/api/workflows/${selectedWorkflow.id}/download`}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-medium hover:bg-surface/50 transition-all text-primary"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-medium hover:bg-surface-raised transition-all text-foreground"
                     download
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    Download Original
+                    <Download className="w-4 h-4" />
+                    Download
                   </a>
                 )}
                 {isAdmin && (
-                  <div className="flex items-center gap-2">
+                  <>
                     <button 
-                      onClick={handleEdit}
-                      className="p-2 text-foreground-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
-                      title="Edit Document"
+                      onClick={() => handleEdit(selectedWorkflow)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-xs font-medium hover:bg-primary/20 transition-all"
                     >
                       <Edit2 className="w-4 h-4" />
+                      Edit
                     </button>
                     <button 
-                      onClick={handleDelete}
-                      className="p-2 text-foreground-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-all"
-                      title="Delete Document"
+                      onClick={() => handleDelete(selectedWorkflow)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-danger/10 text-danger rounded-lg text-xs font-medium hover:bg-danger/20 transition-all"
                     >
                       <Trash2 className="w-4 h-4" />
+                      Delete
                     </button>
-                  </div>
+                  </>
                 )}
               </div>
-              
-              <div className="flex-1 overflow-y-auto p-6 prose prose-invert prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground-muted prose-strong:text-foreground prose-code:text-info prose-pre:bg-surface/50">
+            </div>
+          </div>
+
+          <div className="mt-4 flex-1 min-h-[600px] flex flex-col bg-surface/30 rounded-xl border border-border overflow-hidden relative">
+            {selectedWorkflow.file_path ? (
+              <div className="flex-1 w-full h-full min-h-[600px] relative">
+                <DocViewer 
+                  documents={[{
+                    uri: `${window.location.origin}/api/workflows/${selectedWorkflow.id}/view`,
+                    fileType: selectedWorkflow.file_name?.split('.').pop() || 'pdf',
+                    fileName: selectedWorkflow.file_name
+                  }]} 
+                  pluginRenderers={DocViewerRenderers} 
+                  style={{ height: "100%", width: "100%", background: "transparent" }}
+                  theme={{
+                    primary: "#3b82f6",
+                    secondary: "#1e293b",
+                    tertiary: "#0f172a",
+                    textPrimary: "#f1f5f9",
+                    textSecondary: "#94a3b8",
+                    textTertiary: "#cbd5e1",
+                    disableThemeScrollbar: false,
+                  }}
+                  config={{
+                    header: {
+                      disableHeader: false,
+                      disableFileName: false,
+                      retainURLParams: false
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="p-8 md:p-12 prose prose-invert prose-blue max-w-none prose-headings:text-foreground prose-p:text-foreground/80 prose-strong:text-foreground prose-code:text-info prose-pre:bg-surface/50">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {selectedWorkflow.content}
                 </ReactMarkdown>
               </div>
-            </SectionCard>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-12 bg-surface/20 rounded-xl border border-dashed border-border text-foreground-muted">
-              <BookOpen className="w-12 h-12 mb-4 opacity-20" />
-              <h3 className="text-lg font-medium">Select a workflow to read</h3>
-              <p className="max-w-xs mx-auto text-sm mt-1">
-                Choose a document from the sidebar to view detailed Work Instructions and tutorials.
-              </p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Editor Dialog */}
       <Dialog open={isEditorOpen} onOpenChange={setIsEditorOpen}>
         <DialogContent className="max-w-4xl h-[80vh] flex flex-col overflow-hidden">
           <DialogHeader>
-            <DialogTitle>{editingWorkflow?.id ? "Edit Work Instruction" : "Create New Instruction"}</DialogTitle>
+            <DialogTitle>{editingWorkflow?.id && editingWorkflow.id.startsWith('wf-') ? "Create New Article" : "Edit Article"}</DialogTitle>
           </DialogHeader>
           
-          <div className="flex-1 flex flex-col gap-4 min-h-0 py-4">
+          <div className="flex-1 flex flex-col gap-4 min-h-0 py-4 overflow-y-auto">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Title</label>
@@ -346,17 +444,17 @@ export default function WorkflowsPage() {
                   className="w-full px-3 py-2 bg-background border border-border rounded-md focus:ring-1 focus:ring-primary outline-none"
                   value={editingWorkflow?.title || ""}
                   onChange={e => setEditingWorkflow(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="e.g. Restart POS Agent Service"
+                  placeholder="e.g. Troubleshooting Printer Connection"
                 />
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Category</label>
-                <div className="relative">
+                <div className="relative group">
                   <input 
                     className="w-full px-3 py-2 bg-background border border-border rounded-md focus:ring-1 focus:ring-primary outline-none"
                     value={editingWorkflow?.category || ""}
                     onChange={e => setEditingWorkflow(prev => ({ ...prev, category: e.target.value }))}
-                    placeholder="e.g. Troubleshooting..."
+                    placeholder="e.g. Hardware"
                   />
                   
                   {/* Category Autocomplete */}
@@ -365,7 +463,10 @@ export default function WorkflowsPage() {
                       {categories.map(c => (
                         <button 
                           key={c}
-                          onClick={() => setEditingWorkflow(prev => ({ ...prev, category: c }))}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setEditingWorkflow(prev => ({ ...prev, category: c }));
+                          }}
                           className="w-full text-left px-3 py-1.5 text-xs hover:bg-primary/10 transition-colors"
                         >
                           {c}
@@ -377,77 +478,81 @@ export default function WorkflowsPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-primary/10 rounded-lg">
-                  <BookOpen className="w-5 h-5 text-primary" />
+            <div className="flex flex-col gap-3 p-4 bg-primary/5 border border-primary/20 rounded-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-primary/10 rounded-lg">
+                    <File className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Document Attachment (Optional)</p>
+                    <p className="text-xs text-foreground-muted">Upload Word/PDF to display the original document in the viewer</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold">Knowledge Ingestion</p>
-                  <p className="text-xs text-foreground-muted">Upload Word/Text to extract content automatically</p>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="file" 
+                    id="kb-file-upload" 
+                    className="hidden" 
+                    accept=".docx,.txt,.pdf"
+                    onChange={handleFileUpload}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('kb-file-upload')?.click()}
+                    disabled={isExtracting}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md text-xs font-bold hover:bg-surface transition-all disabled:opacity-50"
+                  >
+                    {isExtracting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="w-3.5 h-3.5" />
+                    )}
+                    {editingWorkflow?.file_name ? "Replace Document" : "Upload Document"}
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {editingWorkflow?.file_name && (
-                  <span className="text-[10px] bg-surface-subtle px-2 py-1 rounded border border-border truncate max-w-[150px]">
-                    {editingWorkflow.file_name}
-                  </span>
-                )}
-                <input 
-                  type="file" 
-                  id="kb-file-upload" 
-                  className="hidden" 
-                  accept=".docx,.txt,.pdf"
-                  onChange={handleFileUpload}
-                />
-                <button
-                  type="button"
-                  onClick={() => document.getElementById('kb-file-upload')?.click()}
-                  disabled={isExtracting}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-md text-xs font-bold hover:bg-surface transition-all disabled:opacity-50"
-                >
-                  {isExtracting ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Plus className="w-3.5 h-3.5" />
-                  )}
-                  {editingWorkflow?.file_name ? "Change File" : "Upload & Extract"}
-                </button>
-              </div>
+              
+              {editingWorkflow?.file_name && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-background/50 rounded-md border border-border mt-1">
+                  <FileText className="w-4 h-4 text-primary" />
+                  <span className="text-xs font-medium truncate flex-1">{editingWorkflow.file_name}</span>
+                  <button 
+                    onClick={() => setEditingWorkflow(prev => ({ ...prev, file_name: undefined, file_path: undefined }))}
+                    className="p-1 hover:bg-danger/10 text-danger rounded transition-colors"
+                    title="Remove attachment"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="flex-1 flex gap-4 min-h-0">
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Content (Markdown)</label>
-                <textarea 
-                  className="flex-1 p-4 bg-background border border-border rounded-md font-mono text-xs focus:ring-1 focus:ring-primary outline-none resize-none"
-                  value={editingWorkflow?.content || ""}
-                  onChange={e => setEditingWorkflow(prev => ({ ...prev, content: e.target.value }))}
-                  placeholder="# Procedure Title\n\n1. Step one\n2. Step two..."
-                />
-              </div>
-              <div className="flex-1 flex flex-col gap-1.5 overflow-hidden">
-                <label className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Preview</label>
-                <div className="flex-1 p-4 bg-surface/50 border border-border rounded-md overflow-y-auto prose prose-invert prose-xs max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {editingWorkflow?.content || "*No content to preview*"}
-                  </ReactMarkdown>
-                </div>
-              </div>
+            <div className="flex-1 flex flex-col gap-1.5 min-h-[300px]">
+              <label className="text-xs font-semibold uppercase tracking-wider text-foreground-muted flex justify-between">
+                <span>Text Content (Markdown)</span>
+                <span className="text-[10px] lowercase normal-case opacity-70">Used for search and if no document is attached</span>
+              </label>
+              <textarea 
+                className="flex-1 p-4 bg-background border border-border rounded-md font-mono text-xs focus:ring-1 focus:ring-primary outline-none resize-none"
+                value={editingWorkflow?.content || ""}
+                onChange={e => setEditingWorkflow(prev => ({ ...prev, content: e.target.value }))}
+                placeholder="# Procedure Title\n\n1. Step one\n2. Step two..."
+              />
             </div>
           </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 pt-2 border-t border-border mt-auto">
             <DialogClose asChild>
               <button className="px-4 py-2 text-sm font-medium hover:bg-surface rounded-lg transition-colors">Cancel</button>
             </DialogClose>
             <button 
               onClick={handleSave}
               disabled={isSaving}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-all disabled:opacity-50 shadow-glow"
             >
               {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {editingWorkflow?.id ? "Update Document" : "Save Document"}
+              Save Article
             </button>
           </DialogFooter>
         </DialogContent>

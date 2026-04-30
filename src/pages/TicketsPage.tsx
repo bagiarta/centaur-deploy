@@ -11,6 +11,7 @@ type TicketTarget = {
   status: string;
   remark: string;
   updated_at: string;
+  solved_by?: string;
   isFromGroup?: boolean;
 };
 
@@ -61,6 +62,8 @@ export default function TicketsPage() {
   const [devices, setDevices] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [targetSearchQuery, setTargetSearchQuery] = useState("");
+  const [targetStatusFilter, setTargetStatusFilter] = useState("All");
+  const [triggerLoading, setTriggerLoading] = useState(false);
   
   const [isManageTargetsOpen, setIsManageTargetsOpen] = useState(false);
   const [manageTargetsData, setManageTargetsData] = useState({
@@ -307,6 +310,23 @@ export default function TicketsPage() {
     }
   };
 
+  const handleTriggerDailySummary = async () => {
+    if (!confirm("Send daily outstanding ticket summary to WhatsApp/Webhook?")) return;
+    setTriggerLoading(true);
+    try {
+      const res = await fetch("/api/reports/trigger-daily-tickets", { method: "POST" });
+      if (res.ok) {
+        alert("Daily summary notification triggered successfully!");
+      } else {
+        throw new Error("Trigger failed");
+      }
+    } catch (err) {
+      alert("Failed to trigger summary.");
+    } finally {
+      setTriggerLoading(false);
+    }
+  };
+
   const selected_ticket_can_edit = selectedTicket && (user?.username === selectedTicket.created_by || canManageTickets) && selectedTicket.status !== 'Closed' && selectedTicket.status !== 'Resolved';
 
   const filteredTickets = tickets.filter(t => {
@@ -332,6 +352,73 @@ export default function TicketsPage() {
     filterAssignee
   });
 
+  const handleExportTicketsCSV = () => {
+    const headers = [
+      "ID", "Title", "Category", "Status", "Priority", "Outlet", "Hostname", 
+      "Created By", "Created At", "Assigned To", "Resolved By", "Resolved At", "Closed By", "Closed At"
+    ];
+    
+    const rows = filteredTickets.map(t => [
+      t.id,
+      `"${t.title.replace(/"/g, '""')}"`,
+      t.category,
+      t.status,
+      t.priority,
+      t.outlet_name,
+      t.hostname,
+      t.created_by,
+      formatServerDate(t.created_at),
+      t.assigned_to || "Unassigned",
+      t.resolved_by || "-",
+      t.resolved_at ? formatServerDate(t.resolved_at) : "-",
+      t.closed_by || "-",
+      t.closed_at ? formatServerDate(t.closed_at) : "-"
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(r => r.join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `all_tickets_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportTargetsCSV = () => {
+    if (!selectedTicket || !selectedTicket.targets) return;
+    
+    const headers = ["Ticket ID", "Ticket Title", "Hostname", "Status", "Remark", "Solved By", "Solved At"];
+    const rows = selectedTicket.targets.map(t => [
+      selectedTicket.id,
+      `"${selectedTicket.title.replace(/"/g, '""')}"`,
+      t.hostname,
+      t.status,
+      `"${(t.remark || "").replace(/"/g, '""')}"`,
+      t.solved_by || "-",
+      t.updated_at ? formatServerDate(t.updated_at) : "-"
+    ]);
+    
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(r => r.join(","))
+    ].join("\n");
+    
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `ticket_${selectedTicket.id}_targets_full.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const getPriorityColor = (p: string) => {
     if (p === "High" || p === "Critical") return "text-danger bg-danger/10 border border-danger/20";
     if (p === "Medium") return "text-warning bg-warning/10 border border-warning/20";
@@ -353,22 +440,45 @@ export default function TicketsPage() {
       {/* ── Left Sidebar (List) ── */}
       <div className="flex flex-col w-1/3 min-w-[350px] bg-card rounded-xl border border-border overflow-hidden shadow-sm">
         <div className="p-4 border-b border-border bg-surface/50">
-          <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-            <Ticket className="w-5 h-5 text-primary" />
-            Helpdesk Tickets
-          </h2>
-          <p className="text-xs text-foreground-muted mb-4 uppercase tracking-widest">{canManageTickets ? 'All User Reports' : 'My Reports'}</p>
+          <div className="flex justify-between items-start">
+            <div>
+              <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+                <Ticket className="w-5 h-5 text-primary" />
+                Helpdesk Tickets
+              </h2>
+              <p className="text-xs text-foreground-muted mb-4 uppercase tracking-widest">{canManageTickets ? 'All User Reports' : 'My Reports'}</p>
+            </div>
+            {canManageTickets && (
+              <button
+                onClick={handleTriggerDailySummary}
+                disabled={triggerLoading}
+                title="Send daily summary notification to WhatsApp"
+                className="p-2 text-foreground-muted hover:text-primary transition-colors disabled:opacity-50"
+              >
+                <MessageSquare className="w-5 h-5" />
+              </button>
+            )}
+          </div>
 
           <div className="space-y-3">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-foreground-muted" />
-              <input
-                type="text"
-                placeholder="Search tickets..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:border-primary focus:outline-none transition-all"
-              />
+            <div className="relative flex gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-foreground-muted" />
+                <input
+                  type="text"
+                  placeholder="Search tickets..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:border-primary focus:outline-none transition-all"
+                />
+              </div>
+              <button
+                onClick={handleExportTicketsCSV}
+                className="p-2 bg-background border border-border rounded-lg text-foreground-muted hover:text-primary transition-colors flex items-center justify-center"
+                title="Export list to CSV"
+              >
+                <Download className="w-5 h-5" />
+              </button>
             </div>
 
             <div className="flex bg-background p-1 rounded-lg border border-border">
@@ -386,17 +496,17 @@ export default function TicketsPage() {
               ))}
             </div>
             
-            <div className="flex bg-background p-1 rounded-lg border border-border mt-2">
+            <div className="flex bg-background p-1 rounded-lg border border-border mt-2 items-center">
               <select 
                 value={filterAssignee} 
                 onChange={e => setFilterAssignee(e.target.value)}
-                className="w-full bg-transparent text-[11px] font-semibold py-1 focus:outline-none px-2"
+                className="w-full bg-background text-foreground text-[11px] font-semibold py-1 focus:outline-none px-2 rounded cursor-pointer"
               >
-                <option value="All">All Assignees</option>
-                <option value="Me">Assigned to Me</option>
-                <option value="Unassigned">Unassigned</option>
+                <option value="All" className="bg-background text-foreground">All Assignees</option>
+                <option value="Me" className="bg-background text-foreground">Assigned to Me</option>
+                <option value="Unassigned" className="bg-background text-foreground">Unassigned</option>
                 {users.map(u => (
-                  <option key={u.id} value={u.username}>{u.full_name || u.username}</option>
+                  <option key={u.id} value={u.username} className="bg-background text-foreground">{u.full_name || u.username}</option>
                 ))}
               </select>
             </div>
@@ -524,14 +634,14 @@ export default function TicketsPage() {
                       Assign To
                     </p>
                     <select 
-                      className="w-full bg-surface-raised text-foreground text-sm font-semibold focus:outline-none cursor-pointer border border-border/40 rounded px-2 py-1.5 hover:border-primary/40 transition-all appearance-none"
+                      className="w-full bg-background text-foreground text-sm font-semibold focus:outline-none cursor-pointer border border-border rounded px-2 py-1.5 hover:border-primary/40 transition-all shadow-inner"
                       value={selectedTicket.assigned_to || ""}
                       onChange={(e) => handleAssignTicket(e.target.value)}
                       disabled={actionLoading}
                     >
-                      <option value="" className="bg-surface-overlay text-foreground">Unassigned</option>
+                      <option value="" className="bg-background text-foreground">Unassigned</option>
                       {users.map(u => (
-                        <option key={u.id} value={u.username} className="bg-surface-overlay text-foreground">
+                        <option key={u.id} value={u.username} className="bg-background text-foreground">
                           {u.full_name || u.username}
                         </option>
                       ))}
@@ -584,29 +694,52 @@ export default function TicketsPage() {
               {selectedTicket.targets && selectedTicket.targets.length > 0 && (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Target Hostnames ({selectedTicket.targets.length})</h3>
-                    <div className="relative w-full sm:w-64">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" />
-                      <input
-                        type="text"
-                        placeholder="Search hostnames..."
-                        className="w-full bg-surface border border-border rounded-md pl-9 pr-3 py-1.5 text-xs focus:outline-none focus:border-primary transition-all"
-                        value={targetSearchQuery}
-                        onChange={(e) => setTargetSearchQuery(e.target.value)}
-                      />
-                      {targetSearchQuery && (
-                        <button 
-                          onClick={() => setTargetSearchQuery("")}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted">
+                        Target Hostnames ({selectedTicket.targets.length})
+                      </h3>
+                      <button 
+                        onClick={handleExportTargetsCSV}
+                        className="text-[10px] flex items-center gap-1 font-bold uppercase tracking-wider text-primary hover:text-primary-hover transition-colors bg-primary/10 px-2 py-1 rounded"
+                        title="Export details to CSV"
+                      >
+                        <Download className="w-3 h-3" /> Export
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <select 
+                        value={targetStatusFilter}
+                        onChange={(e) => setTargetStatusFilter(e.target.value)}
+                        className="bg-surface border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:border-primary transition-all"
+                      >
+                        <option value="All">All Status</option>
+                        <option value="Solved">Solved</option>
+                        <option value="Pending">Pending</option>
+                      </select>
+                      <div className="relative w-full sm:w-48">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" />
+                        <input
+                          type="text"
+                          placeholder="Search hostnames..."
+                          className="w-full bg-surface border border-border rounded-md pl-9 pr-3 py-1.5 text-xs focus:outline-none focus:border-primary transition-all"
+                          value={targetSearchQuery}
+                          onChange={(e) => setTargetSearchQuery(e.target.value)}
+                        />
+                        {targetSearchQuery && (
+                          <button 
+                            onClick={() => setTargetSearchQuery("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="grid gap-3">
                     {selectedTicket.targets
                       .filter(t => t.hostname.toLowerCase().includes(targetSearchQuery.toLowerCase()))
+                      .filter(t => targetStatusFilter === "All" || t.status === targetStatusFilter)
                       .map(target => (
                       <div key={target.id} className="bg-background border border-border rounded-lg p-3 flex flex-col gap-3">
                         <div className="flex items-center justify-between">

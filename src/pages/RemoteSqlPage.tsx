@@ -14,8 +14,11 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import CodeMirror from '@uiw/react-codemirror';
 import { sql } from '@codemirror/lang-sql';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 export default function RemoteSqlPage() {
+  const { user } = useAuth();
   const [script, setScript] = useState("-- Write your SQL script here\nSELECT TOP 10 * FROM INFORMATION_SCHEMA.TABLES;");
   const [devices, setDevices] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
@@ -29,7 +32,7 @@ export default function RemoteSqlPage() {
   // New Features State
   const [templates, setTemplates] = useState<any[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
-  const [force, setForce] = useState(false);
+  const [globalSafeMode, setGlobalSafeMode] = useState(true);
   const [showSchedule, setShowSchedule] = useState(false);
   const [scheduleName, setScheduleName] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
@@ -75,6 +78,13 @@ export default function RemoteSqlPage() {
         if (Array.isArray(grps)) setGroups(grps);
         if (Array.isArray(tpls)) setTemplates(tpls);
 
+        // 4. Fetch global safe mode setting
+        const settingsRes = await fetch('/api/notification-settings').catch(() => null);
+        if (settingsRes && settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          setGlobalSafeMode(settingsData.sql_safe_mode === 1 || settingsData.sql_safe_mode === true);
+        }
+
       } catch (err: any) {
         console.error("RemoteSqlPage: Load error:", err);
         setLoadError(err.message);
@@ -93,6 +103,31 @@ export default function RemoteSqlPage() {
       </div>
     );
   }
+
+  const handleToggleSafeMode = async () => {
+    const newVal = !globalSafeMode;
+    setGlobalSafeMode(newVal); // optimistic update
+    try {
+      // Fetch existing settings first so we don't wipe other fields
+      const currentRes = await fetch('/api/notification-settings');
+      const currentSettings = currentRes.ok ? await currentRes.json() : {};
+
+      const res = await fetch('/api/notification-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...currentSettings, sql_safe_mode: newVal })
+      });
+      if (res.ok) {
+        toast.success(newVal ? '🔒 SQL Safe Mode diaktifkan' : '🔓 SQL Safe Mode dinonaktifkan');
+      } else {
+        setGlobalSafeMode(!newVal); // revert
+        toast.error('Gagal menyimpan pengaturan');
+      }
+    } catch {
+      setGlobalSafeMode(!newVal); // revert
+      toast.error('Gagal terhubung ke server');
+    }
+  };
 
   const handleExecute = async () => {
     console.log("RemoteSqlPage: handleExecute started. Targets:", selectedDeviceIds);
@@ -114,21 +149,44 @@ export default function RemoteSqlPage() {
 
       const payload = {
         script: queryToRun,
-        target_device_ids: selectedDeviceIds,
-        force
+        target_device_ids: selectedDeviceIds
       };
       console.log("RemoteSqlPage: Execution payload:", payload);
 
       const res = await fetch('/api/sql/execute', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': user?.id || '' 
+        },
         body: JSON.stringify(payload)
       });
       const data = await res.json();
       console.log("RemoteSqlPage: Execution response data:", data);
       
-      if (res.status === 400) alert(data.error);
-      else {
+      if (res.status === 400) {
+        if (data.can_bypass && confirm(`${data.error}\n\nApakah Anda ingin tetap menjalankan kueri ini dengan mode FORCE?`)) {
+          // Re-run with force flag
+          setIsExecuting(true);
+          const forceRes = await fetch('/api/sql/execute', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'x-user-id': user?.id || '' 
+            },
+            body: JSON.stringify({ ...payload, force: true })
+          });
+          const forceData = await forceRes.json();
+          if (forceRes.ok) {
+            setResults(forceData.results);
+            toast.success("Query executed with FORCE bypass");
+          } else {
+            alert(forceData.error);
+          }
+        } else {
+          alert(data.error);
+        }
+      } else {
         setResults(data.results);
         if (!data.results || Object.keys(data.results).length === 0) {
           console.warn("RemoteSqlPage: Empty results object received from server.");
@@ -266,21 +324,25 @@ export default function RemoteSqlPage() {
         subtitle="Professional DB management with templates, scheduling, and visualization"
         actions={
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-surface px-3 py-1.5 rounded-lg border border-border mr-2">
-              <ShieldAlert className={cn("w-4 h-4", force ? "text-danger" : "text-success")} />
-              <span className="text-[10px] font-bold uppercase">Safe Mode</span>
-              <button 
-                onClick={() => setForce(!force)}
-                className={cn(
-                  "w-8 h-4 rounded-full relative transition-colors",
-                  force ? "bg-danger" : "bg-success"
-                )}
-              >
-                <div className={cn(
-                  "absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200",
-                  force ? "translate-x-4" : "translate-x-0"
-                )} />
-              </button>
+            <div 
+              className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-lg border mr-2 cursor-pointer transition-all select-none",
+                globalSafeMode 
+                  ? "bg-success/10 border-success/30 hover:bg-success/20" 
+                  : "bg-warning/10 border-warning/30 hover:bg-warning/20"
+              )}
+              onClick={handleToggleSafeMode}
+              title={globalSafeMode ? "Klik untuk nonaktifkan Safe Mode" : "Klik untuk aktifkan Safe Mode"}
+            >
+              <ShieldAlert className={cn("w-4 h-4", globalSafeMode ? "text-success" : "text-warning")} />
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold uppercase leading-none">
+                  Safe Mode: {globalSafeMode ? "ON" : "OFF"}
+                </span>
+                <span className="text-[8px] text-foreground-muted mt-0.5">
+                  {globalSafeMode ? "Hanya SELECT" : "Semua kueri diizinkan"}
+                </span>
+              </div>
             </div>
             
             <button
@@ -534,7 +596,7 @@ export default function RemoteSqlPage() {
                     )}>
                       <div className="flex items-center gap-3">
                         {res.status === 'success' ? <CheckCircle className="w-3 h-3 text-success" /> : <XCircle className="w-3 h-3 text-danger" />}
-                        <p className="text-[10px] font-bold font-mono">{res.hostname || deviceId}</p>
+                        <p className="text-xs font-bold font-mono">{res.hostname || deviceId}</p>
                         <span className="text-[10px] text-foreground-muted">{res.duration_ms}ms</span>
                       </div>
                       <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded", res.status === 'success' ? "text-success" : "text-danger")}>
@@ -579,7 +641,7 @@ export default function RemoteSqlPage() {
                               <thead className="bg-surface-raised sticky top-0 border-b border-border">
                                 <tr>
                                   {Object.keys(res.recordset[0]).map(col => (
-                                    <th key={col} className="px-2 py-1 text-[9px] font-bold text-foreground-muted uppercase tracking-tight">{col}</th>
+                                    <th key={col} className="px-2 py-1.5 text-[10px] font-bold text-foreground-muted uppercase tracking-tight border-r border-border/30 last:border-0">{col}</th>
                                   ))}
                                 </tr>
                               </thead>
@@ -587,7 +649,7 @@ export default function RemoteSqlPage() {
                                 {res.recordset.slice(0, 50).map((row: any, i: number) => (
                                   <tr key={i} className="hover:bg-primary/5 transition-colors">
                                     {Object.values(row).map((val: any, j) => (
-                                      <td key={j} className="px-2 py-1 text-[10px] text-foreground truncate max-w-[150px]">{String(val)}</td>
+                                      <td key={j} className="px-2 py-1.5 text-xs font-mono text-foreground border-r border-border/30 last:border-0 truncate max-w-[200px]">{String(val)}</td>
                                     ))}
                                   </tr>
                                 ))}

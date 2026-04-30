@@ -272,22 +272,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           can_manage: canManageTickets ? "true" : "false",
           since: lastCheckedTime
         });
-        
+
         const res = await fetch(`/api/tickets/updates?${qs}`);
         if (!res.ok || !active) return;
-        
+
         const updates = await res.json();
-        
+
         if (updates.length > 0) {
-           for (const t of updates) {
-              if (canManageTickets && t.status === "Open" && t.created_by !== user.username) {
-                 toast('New Trouble Ticket!', { description: `New issue reported at ${t.outlet_name || "a device"}` });
-              } else if (!canManageTickets && t.status === "Resolved" && t.created_by === user.username) {
-                 toast.success('Your Ticket is Resolved!', { description: `Your issue '${t.title}' has been resolved by IT. Check your Helpdesk menu.` });
-              }
-           }
+          for (const t of updates) {
+            if (canManageTickets && t.status === "Open" && t.created_by !== user.username) {
+              toast('New Trouble Ticket!', { description: `New issue reported at ${t.outlet_name || "a device"}` });
+            } else if (!canManageTickets && t.status === "Resolved" && t.created_by === user.username) {
+              toast.success('Your Ticket is Resolved!', { description: `Your issue '${t.title}' has been resolved by IT. Check your Helpdesk menu.` });
+            }
+          }
         }
-        
+
         lastCheckedTime = now;
         localStorage.setItem('pepi_last_ticket_poll', now);
       } catch (err) {
@@ -430,7 +430,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-success animate-pulse-dot" />
-              <span className="text-xs text-foreground-muted font-mono">v2.4.1</span>
+              <span className="text-xs text-foreground-muted font-mono">v2.7.2</span>
             </div>
             <span className="text-foreground-subtle text-xs">|</span>
             <span className="text-xs text-foreground-muted font-medium">
@@ -438,7 +438,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={() => setIsReportModalOpen(true)}
               title="Report an Issue"
               className="px-3 py-1.5 rounded-md hover:bg-danger/10 text-danger hover:text-danger-foreground font-medium text-xs flex items-center gap-2 transition-colors border border-danger/20"

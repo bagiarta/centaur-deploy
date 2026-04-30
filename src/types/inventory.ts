@@ -14,6 +14,11 @@ export interface Device {
   status: DeviceStatus;
   last_seen: string;
   group_ids: string[];
+  device_type?: string;
+  network_ports?: any;
+  location?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface DeviceGroup {

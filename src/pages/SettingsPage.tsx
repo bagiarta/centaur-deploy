@@ -7,14 +7,14 @@ import { useAuth } from "@/contexts/AuthContext";
 const DOWNLOADS = [
   {
     name: "CentralDeployServer",
-    version: "2.4.1",
+    version: "2.7.2",
     description: "Full web dashboard server with REST API, package repository, deployment engine, monitoring, and scheduler.",
     icon: <Server className="w-6 h-6" />,
     color: "text-primary",
     bg: "bg-primary-dim",
     border: "border-primary/20",
     size: "~145 MB",
-    file: "CentralDeployServer-Setup-2.4.1.exe",
+    file: "CentralDeployServer-Setup-2.7.2.exe",
     reqs: ["Windows Server 2016+ or Windows 10+", "4 GB RAM min (8 GB recommended)", ".NET 8.0 Runtime", "Port 8080 (configurable)"],
   },
   {
@@ -307,7 +307,7 @@ export default function SettingsPage() {
   };
 
   const fetchAssistantKeywords = async () => {
-    if (!userKey || !user.is_admin) return;
+    if (!userKey || !user?.is_admin) return;
 
     setKeywordsLoading(true);
     try {
@@ -494,25 +494,31 @@ export default function SettingsPage() {
         
         if (notifRes.ok) {
           const data = await notifRes.json();
-          setNotifSettings({
-            webhook_url: data.webhook_url || "",
-            whatsapp_token: data.whatsapp_token || "",
-            whatsapp_target: data.whatsapp_target || "",
-            whatsapp_group: data.whatsapp_group || "",
-            alert_offline: data.alert_offline === 1 || data.alert_offline === true,
-            alert_deployment_success: data.alert_deployment_success === 1 || data.alert_deployment_success === true,
-            alert_deployment_failed: data.alert_deployment_failed === 1 || data.alert_deployment_failed === true,
-            offline_timeout_mins: data.offline_timeout_mins || 30
-          });
+          if (data && typeof data === 'object') {
+            setNotifSettings({
+              webhook_url: data.webhook_url || "",
+              whatsapp_token: data.whatsapp_token || "",
+              whatsapp_target: data.whatsapp_target || "",
+              whatsapp_group: data.whatsapp_group || "",
+              alert_offline: data.alert_offline === 1 || data.alert_offline === true,
+              alert_deployment_success: data.alert_deployment_success === 1 || data.alert_deployment_success === true,
+              alert_deployment_failed: data.alert_deployment_failed === 1 || data.alert_deployment_failed === true,
+              offline_timeout_mins: data.offline_timeout_mins || 30
+            });
+          }
         }
 
         if (agentRes.ok) {
-          setAgentConfig(await agentRes.json());
+          const agentData = await agentRes.json();
+          if (agentData) setAgentConfig(agentData);
         }
 
         if (themeRes.ok) {
-          const themeData = normalizeTheme(await themeRes.json());
-          setTheme(themeData);
+          const themeJson = await themeRes.json();
+          if (themeJson) {
+            const themeData = normalizeTheme(themeJson);
+            setTheme(themeData);
+          }
         }
       } catch (err) {
         console.error("Failed to fetch settings", err);
@@ -525,7 +531,7 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (user?.is_admin) {
+    if (userKey && user?.is_admin) {
       void fetchAssistantKeywords();
     }
   }, [userKey, user?.is_admin]);
@@ -802,9 +808,11 @@ export default function SettingsPage() {
                      className="text-[10px] bg-background border border-border rounded px-1 py-0.5 outline-none font-bold"
                    >
                      <option value="5">5 min</option>
+                     <option value="10">10 min</option>
                      <option value="15">15 min</option>
                      <option value="30">30 min</option>
                      <option value="60">1 hour</option>
+                     <option value="120">2 hours</option>
                      <option value="1440">24 hours</option>
                    </select>
                 </div>

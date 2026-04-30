@@ -1,16 +1,18 @@
+require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const cors = require('cors');
 const sql = require('mssql');
-const dotenv = require('dotenv');
 const path = require('path');
 const multer = require('multer');
 const { exec } = require('child_process');
 const util = require('util');
 const https = require('https');
 const OpenAI = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const mammoth = require('mammoth');
 const PDFDocument = require('pdfkit');
+const pdfParse = require('pdf-parse');
 const cron = require('node-cron');
 
 // ── TIMEZONE HELPER FUNCTIONS ──────────────────────────────
@@ -38,11 +40,50 @@ function getCurrentTimeHHMM() {
 }
 
 function getISOTimestamp() {
-  // Return ISO string but adjusted to configured timezone
-  const now = new Date();
-  const tzOffset = now.getTimezoneOffset() * 60000; // offset in milliseconds
-  const localISOTime = (new Date(now - tzOffset)).toISOString().slice(0, -1);
-  return localISOTime;
+  return new Date().toISOString();
+}
+
+/**
+ * Validates if the SQL query is a safe READ-ONLY SELECT statement.
+ * Blocks multiple statements (;), comments that could hide logic, 
+ * and DDL/DML mutation keywords.
+ */
+function isValidSafeSQL(script) {
+  if (!script || typeof script !== 'string') return false;
+
+  // 1. Remove comments to see the actual commands
+  // Single line comments starting with --
+  // Block comments /* ... */
+  const cleanScript = script
+    .replace(/--.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim();
+
+  if (!cleanScript) return false;
+
+  const normalized = cleanScript.toUpperCase();
+
+  // 2. Must start with SELECT (ignoring what we just cleaned)
+  if (!normalized.startsWith('SELECT')) return false;
+
+  // 3. Block multiple statements (semicolon)
+  // We allow a semicolon at the very end of the script, but not elsewhere
+  const withoutTrailingSemicolon = cleanScript.replace(/;\s*$/, '');
+  if (withoutTrailingSemicolon.includes(';')) return false;
+
+  // 4. Block mutation keywords
+  const blockedKeywords = [
+    'UPDATE', 'DELETE', 'INSERT', 'DROP', 'TRUNCATE', 'ALTER', 'CREATE',
+    'RECONFIGURE', 'EXEC', 'EXECUTE', 'MERGE', 'GRANT', 'REVOKE',
+    'INTO', 'WRITETEXT', 'UPDATETEXT', 'DELETETEXT'
+  ];
+
+  for (const keyword of blockedKeywords) {
+    const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+    if (regex.test(normalized)) return false;
+  }
+
+  return true;
 }
 
 // Multer Config for Workflows
@@ -59,9 +100,6 @@ const execPromise = (cmd, options = {}) => {
     });
   });
 };
-
-
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -117,12 +155,12 @@ async function initDb() {
   try {
     poolPromise = sql.connect(dbConfig);
     const pool = await poolPromise;
-    
+
     // Connectivity Event listener
     pool.on('error', err => {
       console.error('⚠️ [SQL POOL ERROR]:', err.message);
       if (err.message.includes('broken') || err.message.includes('Connection loss')) {
-         console.warn('-- Possible Network Instability detected with ' + dbConfig.server + ' --');
+        console.warn('-- Possible Network Instability detected with ' + dbConfig.server + ' --');
       }
     });
 
@@ -141,7 +179,10 @@ async function initDb() {
            agent_version NVARCHAR(50),
            status NVARCHAR(50),
            last_seen NVARCHAR(50),
-           group_ids NVARCHAR(500)
+           group_ids NVARCHAR(500),
+           location NVARCHAR(200),
+           latitude FLOAT,
+           longitude FLOAT
        )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='DeviceGroups' AND xtype='U')
        CREATE TABLE DeviceGroups (
@@ -253,7 +294,7 @@ async function initDb() {
         alert_offline BIT DEFAULT 1,
         alert_deployment_success BIT DEFAULT 1,
         alert_deployment_failed BIT DEFAULT 1,
-        offline_timeout_mins INT DEFAULT 30
+        offline_timeout_mins INT DEFAULT 10
       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ThemeSettings' AND xtype='U')
       CREATE TABLE ThemeSettings (
@@ -451,10 +492,52 @@ async function initDb() {
       await pool.request().query('ALTER TABLE Workflows ADD file_path NVARCHAR(MAX)');
     }
 
+    // Devices table expansion for Network Monitors
+    const checkDevCols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'Devices' AND COLUMN_NAME IN ('device_type', 'network_ports', 'location', 'latitude', 'longitude')
+    `);
+    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'device_type')) {
+      await pool.request().query("ALTER TABLE Devices ADD device_type NVARCHAR(50) DEFAULT 'PC'");
+    }
+    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'network_ports')) {
+      await pool.request().query("ALTER TABLE Devices ADD network_ports NVARCHAR(MAX)");
+    }
+
+    // Devices table expansion for Location and Coordinates
+    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'location')) {
+      await pool.request().query("ALTER TABLE Devices ADD location NVARCHAR(200)");
+    }
+    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'latitude')) {
+      await pool.request().query("ALTER TABLE Devices ADD latitude FLOAT");
+    }
+    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'longitude')) {
+      await pool.request().query("ALTER TABLE Devices ADD longitude FLOAT");
+    }
+
     await pool.request().query('ALTER TABLE AgentJobs ALTER COLUMN ip_range NVARCHAR(MAX)').catch(() => { });
+
+    // Add sql_safe_mode to NotificationSettings if it doesn't exist
+    const checkSqlModeCol = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'NotificationSettings' AND COLUMN_NAME = 'sql_safe_mode'
+    `);
+    if (checkSqlModeCol.recordset.length === 0) {
+      await pool.request().query('ALTER TABLE NotificationSettings ADD sql_safe_mode BIT DEFAULT 1');
+    }
 
     // Seed initial mock data if tables are empty
     await seedData(pool);
+
+    // TicketTargets expansion
+    const checkTargetCols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'TicketTargets' AND COLUMN_NAME = 'solved_by'
+    `);
+    if (checkTargetCols.recordset.length === 0) {
+      await pool.request().query('ALTER TABLE TicketTargets ADD solved_by NVARCHAR(100)');
+    }
+
     console.log('✅ Database fully initialized (DBWH_8529)');
   } catch (err) {
     console.error('❌ Database Connection Failed! Bad Config: ', err);
@@ -732,6 +815,119 @@ app.post('/api/devices/:id/db-connection', async (req, res) => {
   }
 });
 
+// ── POST /api/webhook/test-device-ping (TRIAL EXPERIMENT) ─
+app.post('/api/webhook/test-device-ping', (req, res) => {
+  const payload = req.body;
+
+  // If MikroTik sends GET or raw body not parsed as json properly, try capturing query
+  const finalPayload = Object.keys(payload).length === 0 ? req.query : payload;
+
+  const logEntry = `[${getCurrentTimestamp()}] TRIAL WEBHOOK RECEIVED: ${JSON.stringify(finalPayload)}\n`;
+
+  const logFile = path.join(__dirname, 'scratch', 'test_webhook_log.txt');
+  if (!fs.existsSync(path.join(__dirname, 'scratch'))) {
+    fs.mkdirSync(path.join(__dirname, 'scratch'));
+  }
+
+  fs.appendFileSync(logFile, logEntry);
+  console.log('✅ Trial Webhook Data Received:', finalPayload);
+
+  res.json({ success: true, message: 'Trial data received', data: finalPayload });
+});
+
+// ── GET /api/webhook/test-results (VIEW EXPERIMENT) ─
+app.get('/api/webhook/test-results', (req, res) => {
+  const logFile = path.join(__dirname, 'scratch', 'test_webhook_log.txt');
+  if (fs.existsSync(logFile)) {
+    const data = fs.readFileSync(logFile, 'utf8');
+    res.type('text/plain');
+    res.send("=== HASIL UJI COBA MIKROTIK (AUTO-REFRESH) ===\n\n" + data);
+  } else {
+    res.send("Belum ada data uji coba yang masuk.");
+  }
+});
+
+// ──  POST /api/webhook/device-ping (LIVE SYSTEM) ──────────
+app.post('/api/webhook/device-ping', async (req, res) => {
+  console.log(`[DEBUG] Received Live Ping at ${new Date().toISOString()}`);
+  console.log(`[DEBUG] Body:`, JSON.stringify(req.body));
+  console.log(`[DEBUG] Query:`, JSON.stringify(req.query));
+
+  const payload = Object.keys(req.body).length === 0 ? req.query : req.body;
+  const { hostname, ports, date: mtDate, time: mtTime } = payload;
+
+  if (mtDate || mtTime) {
+    console.log(`[DEBUG] Router Clock: ${mtDate} ${mtTime}`);
+  }
+
+  if (!hostname) {
+    console.log(`[DEBUG] No hostname found in payload.`);
+    return res.status(400).json({ error: 'hostname is required' });
+  }
+
+  console.log(`[DEBUG] Processing ping for hostname: "${hostname}"`);
+
+  try {
+    const pool = await poolPromise;
+    console.log(`[DEBUG] DB Pool acquired for ${hostname}`);
+    const nowObj = new Date();
+
+    // Check if device exists
+    const check = await pool.request()
+      .input('hostname', sql.NVarChar, hostname)
+      .query('SELECT id, status, network_ports, device_type FROM Devices WHERE hostname = @hostname');
+    console.log(`[DEBUG] DB Check completed for ${hostname}. Found: ${check.recordset.length}`);
+
+    let portsJson = null;
+    if (ports) {
+      portsJson = typeof ports === 'string' ? ports : JSON.stringify(ports);
+    }
+
+    if (check.recordset.length > 0) {
+      // Update existing device
+      const oldStatus = check.recordset[0].status;
+      const isoNow = new Date().toISOString();
+      await pool.request()
+        .input('hostname', sql.NVarChar, hostname)
+        .input('last_seen', sql.NVarChar, isoNow)
+        .input('status', sql.NVarChar, 'online')
+        .input('network_ports', sql.NVarChar, portsJson)
+        .query(`
+          UPDATE Devices 
+          SET last_seen = @last_seen, status = @status, network_ports = ISNULL(@network_ports, network_ports)
+          WHERE hostname = @hostname
+        `);
+
+      if (oldStatus !== 'online') {
+        console.log(`✅ Network Hook: Device ${hostname} is back online.`);
+      }
+    } else {
+      // Create new network device if doesn't exist
+      const deviceId = 'net-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
+      console.log(`[DEBUG] Registering NEW device: ${hostname} with ID: ${deviceId}`);
+      await pool.request()
+        .input('id', sql.NVarChar, deviceId)
+        .input('hostname', sql.NVarChar, hostname)
+        .input('ip', sql.NVarChar, req.ip || '')
+        .input('os_version', sql.NVarChar, 'Agentless (Webhook)')
+        .input('status', sql.NVarChar, 'online')
+        .input('last_seen', sql.NVarChar, new Date().toISOString())
+        .input('device_type', sql.NVarChar, 'Network')
+        .input('network_ports', sql.NVarChar, portsJson)
+        .query(`
+          INSERT INTO Devices (id, hostname, ip, os_version, status, last_seen, device_type, network_ports)
+          VALUES (@id, @hostname, @ip, @os_version, @status, @last_seen, @device_type, @network_ports)
+        `);
+      console.log(`✅ Network Hook: Registered new device ${hostname}`);
+    }
+
+    res.json({ success: true, message: 'Device status updated' });
+  } catch (err) {
+    console.error('❌ Webhook processing error:', err);
+    res.status(500).json({ error: 'Failed to process webhook', detail: err.message });
+  }
+});
+
 // ── GET /api/devices ──────────────────────────────────────
 app.get('/api/devices', async (req, res) => {
   try {
@@ -743,19 +939,22 @@ app.get('/api/devices', async (req, res) => {
       let lastSeenLocal = 'Never';
       if (row.last_seen) {
         try {
-          // Parse UTC time and convert to local timezone
           const utcDate = new Date(row.last_seen);
-          lastSeenLocal = utcDate.toLocaleString('id-ID', {
-            timeZone: process.env.TZ || 'Asia/Ma',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-          });
+          if (!isNaN(utcDate.getTime())) {
+            lastSeenLocal = utcDate.toLocaleString('id-ID', {
+              timeZone: process.env.TZ || 'Asia/Makassar',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            });
+          } else {
+            lastSeenLocal = row.last_seen;
+          }
         } catch (e) {
-          lastSeenLocal = row.last_seen; // fallback to raw value
+          lastSeenLocal = row.last_seen;
         }
       }
 
@@ -813,7 +1012,8 @@ app.post('/api/remote-commands', async (req, res) => {
 // ── POST /api/devices ─────────────────────────────────────
 app.post('/api/devices', async (req, res) => {
   try {
-    const { id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen } = req.body;
+    const { id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude } = req.body;
+    console.log(`[DEVICE_POST] id: ${id}, location: ${location}, lat: ${latitude}, lon: ${longitude}`);
     const pool = await poolPromise;
     const gids = Array.isArray(group_ids) ? group_ids.join(',') : '';
 
@@ -829,9 +1029,13 @@ app.post('/api/devices', async (req, res) => {
       .input('status', sql.NVarChar, status || 'online')
       .input('group_ids', sql.NVarChar, gids)
       .input('last_seen', sql.NVarChar, last_seen || new Date().toISOString())
+      .input('device_type', sql.NVarChar, device_type || 'PC')
+      .input('location', sql.NVarChar, location)
+      .input('latitude', sql.Float, latitude)
+      .input('longitude', sql.Float, longitude)
       .query(`
-        INSERT INTO Devices (id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen)
-        VALUES (@id, @hostname, @ip, @os_version, @cpu, @ram, @disk, @agent_version, @status, @group_ids, @last_seen)
+        INSERT INTO Devices (id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude)
+        VALUES (@id, @hostname, @ip, @os_version, @cpu, @ram, @disk, @agent_version, @status, @group_ids, @last_seen, @device_type, @location, @latitude, @longitude)
       `);
 
     res.status(201).json({ message: 'Device created completely' });
@@ -843,7 +1047,8 @@ app.post('/api/devices', async (req, res) => {
 // ── PUT /api/devices/:id ──────────────────────────────────
 app.put('/api/devices/:id', async (req, res) => {
   try {
-    const { hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen } = req.body;
+    const { hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude } = req.body;
+    console.log(`[DEVICE_PUT] id: ${req.params.id}, location: ${location}, lat: ${latitude}, lon: ${longitude}`);
     const pool = await poolPromise;
     const gids = Array.isArray(group_ids) ? group_ids.join(',') : '';
 
@@ -859,11 +1064,16 @@ app.put('/api/devices/:id', async (req, res) => {
       .input('status', sql.NVarChar, status || 'online')
       .input('group_ids', sql.NVarChar, gids)
       .input('last_seen', sql.NVarChar, last_seen || new Date().toISOString())
+      .input('device_type', sql.NVarChar, device_type || 'PC')
+      .input('location', sql.NVarChar, location)
+      .input('latitude', sql.Float, latitude)
+      .input('longitude', sql.Float, longitude)
       .query(`
         UPDATE Devices SET 
           hostname = @hostname, ip = @ip, os_version = @os_version, 
           cpu = @cpu, ram = @ram, disk = @disk, agent_version = @agent_version, 
-          status = @status, group_ids = @group_ids, last_seen = @last_seen
+          status = @status, group_ids = @group_ids, last_seen = @last_seen, device_type = @device_type,
+          location = @location, latitude = @latitude, longitude = @longitude
         WHERE id = @id
       `);
 
@@ -1145,15 +1355,52 @@ app.post('/api/sql/test-connection', async (req, res) => {
 
 // ── POST /api/sql/execute ──────────────────────────────
 app.post('/api/sql/execute', async (req, res) => {
-  const { script, target_device_ids } = req.body;
+  const { script, target_device_ids, force } = req.body;
+  const userId = req.headers['x-user-id'] || 'anonymous';
 
   try {
     const pool = await poolPromise;
-    // 1. Fetch connection details for all targets
+
+    // 0. Fetch Global Security Settings
+    const settingsRes = await pool.request().query("SELECT sql_safe_mode FROM NotificationSettings WHERE id = 'global'");
+    const rawMode = settingsRes.recordset[0]?.sql_safe_mode;
+
+    // Robust Evaluation: Default to true if null/undefined.
+    // handles BIT (boolean true/false) or numeric 0/1.
+    const isGlobalSafeMode = (rawMode === null || rawMode === undefined) ? true : !!rawMode;
+
+    console.log(`[SQL_DEBUG_V3] raw: ${rawMode} (${typeof rawMode}), isSafe: ${isGlobalSafeMode}`);
+    console.log(`[SQL_EXEC] user: ${userId}, globalSafe: ${isGlobalSafeMode}`);
+
+    // 0.5 Fetch User Role to check Admin status
+    const userRes = await pool.request().input('uid', sql.NVarChar, userId).query(`
+      SELECT r.is_admin FROM Users u JOIN Roles r ON u.role_id = r.id WHERE u.id = @uid
+    `);
+    const isAdmin = userRes.recordset[0]?.is_admin || false;
+
+    // 1. SECURITY ENFORCEMENT
+    // Simple rule: Global Safe Mode from DB is the single source of truth.
+    // - Global ON  → only SELECT allowed (no bypass)
+    // - Global OFF → all queries allowed
+
+
+    if (isGlobalSafeMode && !isValidSafeSQL(script)) {
+      // Allow Admin to bypass if they explicitly use the "force" flag
+      if (isAdmin && force === true) {
+        console.log(`[SQL_BYPASS] Admin ${userId} bypassed Safe Mode.`);
+      } else {
+        return res.status(400).json({
+          error: "SQL Safe Mode aktif. Hanya kueri SELECT yang diizinkan.",
+          can_bypass: isAdmin
+        });
+      }
+    }
+
+    // 2. Fetch connection details for all targets
     const connRes = await pool.request().query('SELECT * FROM DeviceDbConnections');
     const allConns = connRes.recordset;
 
-    // 2. Fetch device IPs (Server addresses)
+    // 3. Fetch device IPs (Server addresses)
     const devRes = await pool.request().query('SELECT id, ip, hostname FROM Devices');
     const allDevs = devRes.recordset;
 
@@ -1185,6 +1432,15 @@ app.post('/api/sql/execute', async (req, res) => {
         await remotePool.connect();
         const result = await remotePool.request().query(script);
         await remotePool.close();
+
+        // Audit log
+        await pool.request()
+          .input('time', sql.NVarChar, new Date().toLocaleString())
+          .input('u', sql.NVarChar, userId)
+          .input('act', sql.NVarChar, `SQL EXEC on [${dev.hostname}]: ${script.substring(0, 200)}`)
+          .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @u, @act)")
+          .catch(e => console.error("Audit fail", e));
+
         results[deviceId] = {
           status: 'success',
           hostname: dev.hostname,
@@ -1735,86 +1991,7 @@ app.post('/api/deployments', async (req, res) => {
   }
 });
 
-// ── POST /api/devices ─────────────────────────────────────
-app.post('/api/devices', async (req, res) => {
-  try {
-    const { id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, last_seen, group_ids } = req.body;
-    const groupsString = Array.isArray(group_ids) ? group_ids.join(',') : '';
 
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, id)
-      .input('hostname', sql.NVarChar, hostname)
-      .input('ip', sql.NVarChar, ip)
-      .input('os_version', sql.NVarChar, os_version)
-      .input('cpu', sql.NVarChar, cpu)
-      .input('ram', sql.NVarChar, ram)
-      .input('disk', sql.NVarChar, disk)
-      .input('agent_version', sql.NVarChar, agent_version)
-      .input('status', sql.NVarChar, status)
-      .input('last_seen', sql.NVarChar, last_seen)
-      .input('group_ids', sql.NVarChar, groupsString)
-      .query(`
-        INSERT INTO Devices 
-        (id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, last_seen, group_ids)
-        VALUES 
-        (@id, @hostname, @ip, @os_version, @cpu, @ram, @disk, @agent_version, @status, @last_seen, @group_ids)
-      `);
-
-    res.status(201).json({ message: 'Device created successfully', device: req.body });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── PUT /api/devices/:id ──────────────────────────────────
-app.put('/api/devices/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { hostname, ip, os_version, cpu, ram, disk, agent_version, status, last_seen, group_ids } = req.body;
-    const groupsString = Array.isArray(group_ids) ? group_ids.join(',') : '';
-
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, id)
-      .input('hostname', sql.NVarChar, hostname)
-      .input('ip', sql.NVarChar, ip)
-      .input('os_version', sql.NVarChar, os_version)
-      .input('cpu', sql.NVarChar, cpu)
-      .input('ram', sql.NVarChar, ram)
-      .input('disk', sql.NVarChar, disk)
-      .input('agent_version', sql.NVarChar, agent_version)
-      .input('status', sql.NVarChar, status)
-      .input('last_seen', sql.NVarChar, last_seen)
-      .input('group_ids', sql.NVarChar, groupsString)
-      .query(`
-        UPDATE Devices 
-        SET hostname=@hostname, ip=@ip, os_version=@os_version, cpu=@cpu, 
-            ram=@ram, disk=@disk, agent_version=@agent_version, status=@status, 
-            last_seen=@last_seen, group_ids=@group_ids
-        WHERE id=@id
-      `);
-
-    res.json({ message: 'Device updated successfully', device: { ...req.body, id } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── DELETE /api/devices/:id ───────────────────────────────
-app.delete('/api/devices/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, id)
-      .query('DELETE FROM Devices WHERE id=@id');
-
-    res.json({ message: 'Device deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── POST /api/agent/heartbeat ──────────────────────────
 app.post('/api/agent/heartbeat', async (req, res) => {
@@ -1909,7 +2086,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
           const chunk = software.slice(i, i + chunkSize);
           const reqBatch = transaction.request();
           reqBatch.input('device_id', sql.NVarChar, safeId);
-          
+
           let insertValues = [];
           chunk.forEach((app, idx) => {
             reqBatch.input(`n${idx}`, sql.NVarChar, (app.name || 'Unknown').substring(0, 490));
@@ -1917,7 +2094,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
             reqBatch.input(`p${idx}`, sql.NVarChar, (app.publisher || '').substring(0, 190));
             insertValues.push(`(@device_id, @n${idx}, @v${idx}, @p${idx}, GETDATE())`);
           });
-          
+
           await reqBatch.query(`INSERT INTO DeviceSoftware (device_id, name, version, publisher, updated_at) VALUES ${insertValues.join(', ')}`);
         }
       }
@@ -2633,7 +2810,7 @@ app.post('/api/notification-settings', async (req, res) => {
   const {
     webhook_url, whatsapp_token, whatsapp_target, whatsapp_group,
     alert_offline, alert_deployment_success, alert_deployment_failed,
-    offline_timeout_mins
+    offline_timeout_mins, sql_safe_mode
   } = req.body;
   try {
     const pool = await poolPromise;
@@ -2646,6 +2823,7 @@ app.post('/api/notification-settings', async (req, res) => {
       .input('alert_dep_success', sql.Bit, alert_deployment_success ? 1 : 0)
       .input('alert_dep_failed', sql.Bit, alert_deployment_failed ? 1 : 0)
       .input('timeout_mins', sql.Int, offline_timeout_mins || 5)
+      .input('sql_safe_mode', sql.Bit, sql_safe_mode ? 1 : 0)
       .query(`
         IF EXISTS (SELECT 1 FROM NotificationSettings WHERE id = 'global')
           UPDATE NotificationSettings SET
@@ -2653,11 +2831,12 @@ app.post('/api/notification-settings', async (req, res) => {
             whatsapp_group = @group, alert_offline = @alert_offline,
             alert_deployment_success = @alert_dep_success,
             alert_deployment_failed = @alert_dep_failed,
-            offline_timeout_mins = @timeout_mins
+            offline_timeout_mins = @timeout_mins,
+            sql_safe_mode = @sql_safe_mode
           WHERE id = 'global'
         ELSE
-          INSERT INTO NotificationSettings (id, webhook_url, whatsapp_token, whatsapp_target, whatsapp_group, alert_offline, alert_deployment_success, alert_deployment_failed, offline_timeout_mins)
-          VALUES ('global', @url, @token, @target, @group, @alert_offline, @alert_dep_success, @alert_dep_failed, @timeout_mins)
+          INSERT INTO NotificationSettings (id, webhook_url, whatsapp_token, whatsapp_target, whatsapp_group, alert_offline, alert_deployment_success, alert_deployment_failed, offline_timeout_mins, sql_safe_mode)
+          VALUES ('global', @url, @token, @target, @group, @alert_offline, @alert_dep_success, @alert_dep_failed, @timeout_mins, @sql_safe_mode)
       `);
     res.json({ success: true });
   } catch (err) {
@@ -3199,7 +3378,7 @@ async function runOfflineDetector() {
     const settings = settingsRes.recordset[0];
     if (!settings || !settings.alert_offline) return;
 
-    const timeoutMins = settings.offline_timeout_mins || 30;
+    const timeoutMins = settings.offline_timeout_mins || 10;
 
     // Ensure last_offline_alert_at column exists
     await pool.request().query(`
@@ -3207,40 +3386,96 @@ async function runOfflineDetector() {
         ALTER TABLE Devices ADD last_offline_alert_at DATETIME NULL
     `).catch(() => { });
 
-    // 1. Get all Online devices to verify their status
-    const devicesToCheckRes = await pool.request().query("SELECT id, hostname, ip, last_seen, last_offline_alert_at FROM Devices WHERE status = 'online'");
+    // 1. Get all devices AND all groups to verify status and context
+    const devicesToCheckRes = await pool.request().query("SELECT id, hostname, ip, last_seen, status, last_offline_alert_at, group_ids FROM Devices");
     const devicesToCheck = devicesToCheckRes.recordset || [];
+
+    const groupsRes = await pool.request().query("SELECT id, name FROM DeviceGroups");
+    const groupsMap = (groupsRes.recordset || []).reduce((acc, g) => {
+      acc[g.id] = g.name.toLowerCase();
+      return acc;
+    }, {});
+
+    const now = new Date();
+    const currentHour = now.getHours();
+    const isLateNight = currentHour >= 23 || currentHour < 7;
 
     let newlyOffline = [];
 
-    // 2. Perform Ping-Check and Heartbeat-Check (Sequential/Batch to avoid shell spam)
+    // 2. Perform Ping-Check and Heartbeat-Check
     for (const dev of devicesToCheck) {
       let isHeartbeatStale = false;
-      const now = new Date();
       if (dev.last_seen) {
-        const lastSeenDate = new Date(dev.last_seen);
-        const diffMins = (now - lastSeenDate) / (1000 * 60);
-        if (diffMins > timeoutMins) isHeartbeatStale = true;
+        let lastSeenDate;
+        if (dev.last_seen instanceof Date) {
+          lastSeenDate = dev.last_seen;
+        } else {
+          lastSeenDate = new Date(dev.last_seen);
+        }
+
+        if (!isNaN(lastSeenDate.getTime())) {
+          const diffMins = (now - lastSeenDate) / (1000 * 60);
+          if (diffMins > timeoutMins) isHeartbeatStale = true;
+        } else {
+          isHeartbeatStale = true;
+        }
       } else {
         isHeartbeatStale = true;
       }
 
       // Proactive Ping Check (Only if heartbeat is stale)
       let isPingFailing = false;
-      if (isHeartbeatStale && dev.ip && dev.ip !== 'Unknown' && dev.ip !== '127.0.0.1' && !dev.ip.startsWith('169.')) {
+      const canPing = dev.ip && dev.ip !== 'Unknown' && dev.ip !== '127.0.0.1' && !dev.ip.startsWith('169.');
+
+      if (isHeartbeatStale && canPing) {
         try {
-          // Use -n 1 (one ping) and -w 1000 (standard timeout)
-          const { stdout } = await execPromise(`ping -n 1 -w 1000 ${dev.ip}`);
-          if (!stdout.includes("TTL=")) isPingFailing = true;
+          const { stdout } = await execPromise(`ping -n 2 -w 1000 ${dev.ip}`);
+          if (!stdout.includes("TTL=")) {
+            isPingFailing = true;
+          } else {
+            // Ping Success logic: RECOVERY
+            if (dev.status === 'offline') {
+              await pool.request()
+                .input('id', sql.NVarChar, dev.id)
+                .query("UPDATE Devices SET status = 'online', last_offline_alert_at = NULL WHERE id = @id");
+              console.log(`[DETECTOR] Device ${dev.hostname} RECOVERED (Ping Success)`);
+            }
+            // If it responds to ping, it is NOT failing
+            isPingFailing = false;
+          }
         } catch (e) {
           isPingFailing = true;
         }
       }
 
+      // OFFLINE RULE: Stale AND Ping Fails
+      if (isHeartbeatStale && isPingFailing) {
+        if (dev.status === 'online') {
+          // 1. Calculate Priority (Server/Network/Router groups)
+          const gids = (dev.group_ids || "").split(',').map((s) => s.trim());
+          const isPriority = gids.some((gid) => {
+            if (gid === 'g2') return true; // Default Servers ID
+            const gName = groupsMap[gid] || "";
+            return gName.includes('server') || gName.includes('network') || gName.includes('router');
+          });
 
-      if (isHeartbeatStale || isPingFailing) {
-        if (!dev.last_offline_alert_at) {
-          newlyOffline.push({ ...dev, alertNeeded: true, reason: isHeartbeatStale ? "Heartbeat Timeout" : "Ping Failed" });
+          // 2. ALWAYS Update DB status to Offline for Dashboard visibility
+          // BUT only set the alert timestamp if it's a priority device
+          const updateQuery = isPriority
+            ? "UPDATE Devices SET status = 'offline', last_offline_alert_at = @now WHERE id = @id"
+            : "UPDATE Devices SET status = 'offline' WHERE id = @id";
+
+          await pool.request()
+            .input('id', sql.NVarChar, dev.id)
+            .input('now', sql.DateTime, now)
+            .query(updateQuery);
+
+          // 3. ONLY add to notification list if Priority
+          if (isPriority) {
+            newlyOffline.push({ ...dev, alertNeeded: true, reason: "Heartbeat Stale & Ping Fail" });
+          } else {
+            console.log(`[DETECTOR] Silent offline (non-priority device) for: ${dev.hostname}`);
+          }
         }
       }
 
@@ -3248,11 +3483,8 @@ async function runOfflineDetector() {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
-    // 3. Mark newly offline devices in DB
+    // 3. LOG newly offline devices to ActivityLog (Only for those in newlyOffline)
     for (const dev of newlyOffline) {
-      await pool.request().input('id', sql.NVarChar, dev.id)
-        .query("UPDATE Devices SET status = 'offline', last_offline_alert_at = GETDATE() WHERE id = @id");
-
       const ts = getCurrentTimeHHMM();
       await pool.request()
         .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
@@ -3262,19 +3494,30 @@ async function runOfflineDetector() {
     }
 
     // 4. Recovery Detection: Find devices that were offline but are now responding
-    const recoveredRes = await pool.request().input('timeout', sql.Int, timeoutMins).query(`
-      SELECT id, hostname, ip, last_offline_alert_at 
+    // Fetch and filter in JS to avoid SQL conversion issues with different locale settings
+    const allRecoverable = await pool.request().query(`
+      SELECT id, hostname, ip, last_seen, status, last_offline_alert_at 
       FROM Devices 
       WHERE (status = 'offline' OR last_offline_alert_at IS NOT NULL)
-        AND last_seen IS NOT NULL 
-        AND ISDATE(last_seen) = 1
-        AND DATEDIFF(MINUTE, CAST(last_seen AS DATETIME2), GETDATE()) <= @timeout
+        AND last_seen IS NOT NULL
     `);
 
-    const recovered = recoveredRes.recordset || [];
+    // const now is already declared at the top of the function
+    const recovered = (allRecoverable.recordset || []).filter(dev => {
+      let lastSeenDate;
+      if (dev.last_seen instanceof Date) {
+        lastSeenDate = dev.last_seen;
+      } else {
+        lastSeenDate = new Date(dev.last_seen);
+      }
+
+      if (isNaN(lastSeenDate.getTime())) return false;
+      const diffMins = (now - lastSeenDate) / (1000 * 60);
+      return diffMins <= timeoutMins;
+    });
+
     if (recovered.length > 0) {
       let recoveryWA = `✅ *NET RECOVERY: ${recovered.length} DEVICES ONLINE*\n`;
-      const now = new Date();
 
       for (const dev of recovered) {
         let durationStr = "";
@@ -3478,6 +3721,190 @@ app.post('/api/reports/trigger-weekly', async (req, res) => {
   res.json({ message: "Weekly report generation triggered." });
 });
 
+let localDailyTicketSentDate = null;
+
+/**
+ * Daily Outstanding Ticket + CRM Sync Notification
+ * Summarizes tickets that are not Closed/Resolved and shows progress %.
+ * Also includes LOYAL_CRM_ITEM_MST sync status from HOSERVER.
+ */
+async function sendDailyOutstandingTicketsNotification(isManual = false) {
+  console.log('[REPORT] Generating Daily Outstanding Ticket + CRM Sync Notification...');
+  const todayStr = new Date().toISOString().split('T')[0];
+  if (!isManual && localDailyTicketSentDate === todayStr) {
+    console.log('[REPORT] Daily ticket notification already sent today automatically.');
+    return;
+  }
+  try {
+    const pool = await poolPromise;
+    if (!pool) return;
+
+    // 1. Fetch Outstanding Tickets
+    const ticketsRes = await pool.request().query(`
+      SELECT id, title, status, outlet_name, assigned_to, hostname as manual_hostnames
+      FROM TroubleTickets
+      WHERE status NOT IN ('Closed', 'Resolved')
+    `);
+    const tickets = ticketsRes.recordset;
+
+    // 2. Fetch all components to calculate progress in memory
+    const allTargetsRes = await pool.request().query('SELECT ticket_id, hostname, status FROM TicketTargets');
+    const allTargets = allTargetsRes.recordset;
+
+    const allLinkedGroupsRes = await pool.request().query('SELECT ticket_id, group_id FROM TicketGroups');
+    const allLinkedGroups = allLinkedGroupsRes.recordset;
+
+    const devicesRes = await pool.request().query('SELECT hostname, group_ids FROM Devices');
+    const allDevices = devicesRes.recordset;
+
+    let summary = `🎟️ *DAILY OUTSTANDING TICKETS SUMMARY*\n`;
+    summary += `_Date: ${new Date().toLocaleDateString('id-ID')}_\n\n`;
+
+    for (const ticket of tickets) {
+      // Resolve Manual Targets
+      const manualHosts = (ticket.manual_hostnames || '')
+        .split(',')
+        .map(h => h.trim())
+        .filter(h => h.length > 0);
+
+      // Resolve Group Targets
+      const linkedGroupIds = allLinkedGroups
+        .filter(tg => tg.ticket_id === ticket.id)
+        .map(tg => tg.group_id);
+
+      const groupHosts = allDevices.filter(dev => {
+        if (!dev.group_ids) return false;
+        const gids = dev.group_ids.split(',');
+        return linkedGroupIds.some(gid => gids.includes(gid));
+      }).map(dev => dev.hostname);
+
+      // Unique set of all targets
+      const totalTargets = Array.from(new Set([...manualHosts, ...groupHosts]));
+
+      let progress = 0;
+      if (totalTargets.length > 0) {
+        const solvedCount = allTargets.filter(t =>
+          t.ticket_id === ticket.id &&
+          totalTargets.includes(t.hostname) &&
+          t.status === 'Solved'
+        ).length;
+        progress = Math.round((solvedCount / totalTargets.length) * 100);
+      } else {
+        // If no targets defined, use status-based simple progression if In Progress
+        progress = ticket.status === 'In Progress' ? 50 : 0;
+      }
+
+      const statusEmoji = ticket.status === 'In Progress' ? '🚧' : '📋';
+      summary += `${statusEmoji} *[${ticket.id}]* ${ticket.title}\n`;
+      summary += `   • Status: _${ticket.status}_\n`;
+      summary += `   • Progress: *${progress}%*\n`;
+      summary += `   • Assigned To: ${ticket.assigned_to || '*Unassigned*'}\n`;
+      if (ticket.outlet_name) summary += `   • Outlet: ${ticket.outlet_name}\n`;
+      summary += `\n`;
+    }
+
+    if (tickets.length === 0) {
+      summary += `✅ Tidak ada ticket yang outstanding saat ini.\n\n`;
+    }
+
+    // ── 3. LOYAL CRM SYNC STATUS (HOSERVER) — 2 Hari ──────────
+    try {
+      const hoDevRes = await pool.request()
+        .input('hostname', sql.NVarChar, 'HOSERVER')
+        .query('SELECT id, ip FROM Devices WHERE hostname = @hostname');
+
+      if (hoDevRes.recordset.length > 0) {
+        const { id: hoDeviceId, ip: hoIp } = hoDevRes.recordset[0];
+        const hoConnRes = await pool.request()
+          .input('did', sql.NVarChar, hoDeviceId)
+          .query('SELECT * FROM DeviceDbConnections WHERE device_id = @did');
+
+        if (hoConnRes.recordset.length > 0) {
+          const hoConn = hoConnRes.recordset[0];
+          const hoPool = new sql.ConnectionPool({
+            user: hoConn.db_user,
+            password: hoConn.db_password,
+            server: hoIp,
+            database: hoConn.db_name,
+            options: { encrypt: false, enableArithAbort: true, trustServerCertificate: true },
+            connectionTimeout: 10000,
+            requestTimeout: 15000
+          });
+          await hoPool.connect();
+
+          const crmRes = await hoPool.request().query(`
+            SELECT
+              CONVERT(date, last_timestamp) as sync_date,
+              SUM(CASE WHEN is_sync = '1' THEN 1 ELSE 0 END) as synced_count,
+              SUM(CASE WHEN ISNULL(is_sync, '0') <> '1' THEN 1 ELSE 0 END) as pending_count,
+              MAX(CASE WHEN ISNULL(is_sync, '0') <> '1' AND ISNULL(response_msg, '') <> '' THEN response_msg ELSE NULL END) as sample_error
+            FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+            WHERE CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -1, GETDATE()))
+            GROUP BY CONVERT(date, last_timestamp)
+            ORDER BY sync_date DESC
+          `);
+          await hoPool.close();
+
+          summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          summary += `🔄 *LOYAL CRM ITEM SYNC (HOSERVER VS LOYAL CRM)*\n`;
+
+          const todayDate = new Date().toDateString();
+          for (const row of crmRes.recordset) {
+            const rowDate = new Date(row.sync_date);
+            const dayLabel = rowDate.toDateString() === todayDate ? 'today' : 'yesterday';
+            const synced = row.synced_count || 0;
+            const pending = row.pending_count || 0;
+            const total = synced + pending;
+            const pct = total > 0 ? Math.round((synced / total) * 100) : 0;
+            const emoji = pending === 0 ? '✅' : (pending > 5 ? '🔴' : '⚠️');
+
+            summary += `\n${emoji} *${dayLabel}* (${rowDate.toLocaleDateString('id-ID')})\n`;
+            summary += `   • Sync Success : *${synced}* / ${total} (${pct}%)\n`;
+            summary += `   • Pending/Failed : *${pending}*\n`;
+            if (row.sample_error) {
+              summary += `   ⚠️ Error: _${String(row.sample_error).substring(0, 100)}_\n`;
+            }
+          }
+
+          if (crmRes.recordset.length === 0) {
+            summary += `\n_No CRM sync data for the last 2 days._\n`;
+          }
+          summary += `\n`;
+        }
+      }
+    } catch (crmErr) {
+      console.error('[REPORT] CRM Sync section error (non-fatal):', crmErr.message);
+      summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      summary += `⚠️ *LOYAL CRM SYNC*: Data tidak tersedia.\n\n`;
+    }
+
+    summary += `_Pantau detail di http://192.168.85.30:3001/tickets_`;
+
+    // 4. Send Notifications
+    await sendWebhook(`🎟️ Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
+    await sendWhatsapp(summary);
+
+    if (!isManual) {
+      localDailyTicketSentDate = todayStr;
+    }
+    console.log('[REPORT] Daily ticket + CRM notification sent.');
+
+  } catch (err) {
+    console.error('⚠️ Daily ticket report error:', err.message);
+  }
+}
+
+// Schedule Daily Ticketing Notification: Every day at 08:00
+cron.schedule('0 8 * * *', () => {
+  sendDailyOutstandingTicketsNotification(false);
+});
+
+// Manual trigger for testing
+app.post('/api/reports/trigger-daily-tickets', async (req, res) => {
+  await sendDailyOutstandingTicketsNotification(true);
+  res.json({ message: "Daily ticket notification triggered manually." });
+});
+
 // Serve Weekly Reports Folder
 app.use('/reports/weekly', express.static(path.join(__dirname, 'reports', 'weekly')));
 
@@ -3536,6 +3963,22 @@ app.get('/api/workflows/:id/download', async (req, res) => {
   }
 });
 
+// View Workflow File (Inline)
+app.get('/api/workflows/:id/view', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().input('id', sql.NVarChar, req.params.id).query("SELECT file_name, file_path FROM Workflows WHERE id = @id");
+    if (!result.recordset[0] || !result.recordset[0].file_path) return res.status(404).send('File not found');
+
+    const filePath = path.resolve(result.recordset[0].file_path);
+    if (!fs.existsSync(filePath)) return res.status(404).send('File not found on disk');
+
+    res.sendFile(filePath);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
 app.post('/api/workflows/upload', workflowUpload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
@@ -3549,8 +3992,9 @@ app.post('/api/workflows/upload', workflowUpload.single('file'), async (req, res
     } else if (ext === '.txt') {
       extractedText = fs.readFileSync(req.file.path, 'utf8');
     } else if (ext === '.pdf') {
-      // PDF parsing would need another lib, for now just note it
-      extractedText = "PDF Uploaded. (Text extraction for PDF not yet implemented)";
+      const dataBuffer = fs.readFileSync(req.file.path);
+      const pdfResult = await pdfParse(dataBuffer);
+      extractedText = pdfResult.text;
     } else {
       extractedText = `File ${req.file.originalname} uploaded, but auto-text extraction is not supported for this format.`;
     }
@@ -4055,19 +4499,19 @@ app.post('/api/chat', async (req, res) => {
     }
     assistantRequestTimes.set(userId, Date.now());
 
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey || apiKey === 'your-groq-key-here') {
-      return res.status(400).json({ error: "GROQ_API_KEY is missing in .env file. Get a free key from console.groq.com." });
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ error: "OPENROUTER_API_KEY is missing in .env file." });
     }
 
-    const groq = new OpenAI({ apiKey, baseURL: "https://api.groq.com/openai/v1" });
-
-    // Helper: sanitize prompt to avoid accidental tool call leaks
-    let sanitizedPrompt = prompt;
-    if (prompt.includes("<function") || prompt.includes("executeRemoteHostQuery")) {
-      console.log("[SECURITY] Sanitizing potential prompt injection/leak in prompt");
-      sanitizedPrompt = prompt.replace(/<function[\s\S]*?>/gi, '[filtered]').replace(/executeRemoteHostQuery/gi, '[filtered-tool]');
-    }
+    const openai = new OpenAI({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: apiKey,
+      defaultHeaders: {
+        "HTTP-Referer": "http://pepinet.monitoring",
+        "X-Title": "Centaur Deploy Assistant",
+      }
+    });
 
     const tools = [
       {
@@ -4093,7 +4537,7 @@ app.post('/api/chat', async (req, res) => {
             type: "object",
             properties: {
               hostname: { type: "string", description: "The exact hostname of the target PC/Server." },
-              sql_query: { type: "string", description: "The SIMPLE T-SQL SELECT query to execute. AVOID COMPLEX JOINS for performance." }
+              sql_query: { type: "string", description: "The SIMPLE T-SQL SELECT query to execute." }
             },
             required: ["hostname", "sql_query"]
           }
@@ -4108,7 +4552,7 @@ app.post('/api/chat', async (req, res) => {
             type: "object",
             properties: {
               hostname: { type: "string", description: "The exact hostname of the target PC/Server." },
-              sql_command: { type: "string", description: "The T-SQL command to execute (e.g., 'EXEC usp_MyProc' or 'SELECT dbo.MyFunc()')." }
+              sql_command: { type: "string", description: "The T-SQL command to execute." }
             },
             required: ["hostname", "sql_command"]
           }
@@ -4155,39 +4599,36 @@ CURRENT CONTEXT:
 BEHAVIORAL GUIDELINES:
 1. **BE FRIENDLY & DYNAMIC**: Always start with a warm greeting like "Hi!", "Hello!", or "Good morning!". Sound like a helpful colleague, not a formal system.
 2. **STRICT ACCURACY (NO HALLUCINATION)**:
-   - **NEVER INVENT DATA**: If a tool returns no data, null, or empty results, YOU MUST tell the user clearly that no data was found or that the result is zero. Do not create fake numbers or values to "fill" the answer.
-   - **DATE PRECISION**: When the user provides a date (e.g., 28 Maret 2026), ensure your queries and responses strictly respect that year and date. Use the current date (${currentDateTime}) as your reference point.
+   - **NEVER INVENT DATA**: If a tool returns no data, null, or empty results, YOU MUST tell the user clearly that no data was found or that the result is zero.
+   - **DATE PRECISION**: Ensure your queries and responses strictly respect years and dates. Use ${currentDateTime} as your reference.
 3. **PROACTIVE HEALTH CHECKS**:
    - If the user asks a general health question ("How's everything?", "Status?"), use the "getOfflineDevices" tool.
-   - Report with a conversational tone (e.g., "Good news! Everything is running perfectly!" or "I've checked the status, and it looks like a few devices need attention:").
+   - Report with a conversational tone.
 4. **CLEAN RESPONSES (NO RAW TOOLS)**:
-   - **STRICT RULE**: Never show raw tool call syntax, internal markers like <function=...>, or JSON parameters in your final response. 
+   - Never show raw tool call syntax or JSON in your final response. 
    - Perform the tool call behind the scenes and ONLY present the summarized human-readable result.
-5. **PERFORMANCE SAFETY**: 
-   - Stick to simple, efficient SELECT queries for SQL tools. If a user asks for something very heavy (complex JOINs on large tables like sales_hdr/dtl), politely explain the risk to server performance and suggest a simpler filter.
-6. **KNOWLEDGE ACCESS**: Explain "how-to" steps from workflows in your own words to make them more approachable.
+5. **PERFORMANCE SAFETY**: Stick to simple, efficient SELECT queries for SQL tools.
+6. **KNOWLEDGE ACCESS**: Explain "how-to" steps from workflows in your own words.
 
 Style: Warm, technical yet friendly, proactive, and very accurate.`;
 
-    // 3. History Pruning (last 5 messages only for token efficiency)
     let messages = [
       { role: "system", content: sysInstruct },
-      ...(history || []).slice(-5).map(msg => ({
+      ...(history || []).slice(-10).map(msg => ({
         role: msg.role === 'user' ? 'user' : 'assistant',
-        // Critical: Slice each history message text to avoid blowing up the token limit
         content: typeof msg.text === 'string' ? msg.text.substring(0, 2000) : msg.text
       }))
-
     ];
 
-    messages.push({ role: 'user', content: sanitizedPrompt });
+    messages.push({ role: 'user', content: prompt });
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+    const completion = await openai.chat.completions.create({
+      model: "nousresearch/hermes-3-llama-3.1-405b:free",
       messages,
       tools,
       tool_choice: "auto",
-      temperature: 0.4 // Lower temperature for more factual results
+      temperature: 0.4,
+      max_tokens: 4096
     });
 
     let responseMessage = completion.choices[0].message;
@@ -4195,8 +4636,14 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
     const sources = [];
     const usedTools = [];
 
+    // Chain tool calls if necessary
     if (responseMessage.tool_calls) {
       messages.push(responseMessage);
+
+      // Fetch Global Security Settings for tools
+      const safetyRes = await pool.request().query("SELECT sql_safe_mode FROM NotificationSettings WHERE id = 'global'");
+      const rawSafeMode = safetyRes.recordset[0]?.sql_safe_mode;
+      const globalSqlSafe = (rawSafeMode === null || rawSafeMode === undefined) ? true : !!rawSafeMode;
 
       for (const toolCall of responseMessage.tool_calls) {
         const functionName = toolCall.function.name;
@@ -4206,16 +4653,10 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
 
         try {
           if (functionName === 'getOfflineDevices') {
-            const resDb = await pool.request().query(
-              "SELECT TOP 50 hostname, ip, status, last_seen FROM Devices WHERE status = 'offline'"
-            );
-            console.log(`[AI TOOL] getOfflineDevices found ${resDb.recordset.length} devices.`);
+            const resDb = await pool.request().query("SELECT TOP 50 hostname, ip, status, last_seen, location FROM Devices WHERE status = 'offline'");
             toolResultText = JSON.stringify(resDb.recordset);
-            sources.push({ type: 'devices', label: 'Offline Devices', detail: `${resDb.recordset.length} device(s) from Devices` });
+            sources.push({ type: 'devices', label: 'Offline Devices', detail: `${resDb.recordset.length} device(s)` });
           } else if (functionName === 'getDeviceGroups') {
-            console.log(`[AI TOOL] getDeviceGroups requested.`);
-
-
             const resDb = await pool.request().query(`
               SELECT g.name, (SELECT COUNT(*) FROM Devices d WHERE d.group_ids LIKE '%' + g.id + '%') as device_count
               FROM DeviceGroups g
@@ -4224,159 +4665,125 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
             sources.push({ type: 'device-groups', label: 'Device Groups', detail: `${resDb.recordset.length} group row(s)` });
           } else if (functionName === 'executeRemoteHostQuery') {
             const { hostname, sql_query } = args;
-            const normalized = sql_query.toUpperCase();
-            const isReadOnly = normalized.includes('SELECT') &&
-              !normalized.includes('DELETE') && !normalized.includes('UPDATE') &&
-              !normalized.includes('DROP') && !normalized.includes('TRUNCATE') &&
-              !normalized.includes('ALTER') && !normalized.includes('INSERT');
 
-            if (!isReadOnly) {
-              toolResultText = "Error: Only SELECT (read-only) queries are permitted for this tool.";
+            // SECURITY ENFORCEMENT
+            if (globalSqlSafe && !isValidSafeSQL(sql_query)) {
+              toolResultText = "Error: Access Denied. SQL Safe Mode is active. Only 'SELECT' queries are permitted.";
             } else {
-              const hostRes = await pool.request().input('name', sql.NVarChar, hostname)
-                .query("SELECT id, ip FROM Devices WHERE hostname = @name");
+              const hostRes = await pool.request().input('name', sql.NVarChar, hostname).query("SELECT id, ip FROM Devices WHERE hostname = @name");
               const target = hostRes.recordset[0];
               if (!target) {
                 toolResultText = `Error: Hostname '${hostname}' not found.`;
               } else {
-                const connRes = await pool.request().input('did', sql.NVarChar, target.id)
-                  .query("SELECT * FROM DeviceDbConnections WHERE device_id = @did");
+                const connRes = await pool.request().input('did', sql.NVarChar, target.id).query("SELECT * FROM DeviceDbConnections WHERE device_id = @did");
                 const conn = connRes.recordset[0];
                 if (!conn) {
-                  toolResultText = `Error: DB credentials for '${hostname}' not configured.`;
+                  toolResultText = `Error: DB credentials for '${hostname}' missing.`;
                 } else {
+                  // Audit Log for Read Queries
+                  await pool.request()
+                    .input('u', sql.NVarChar, currUser.username || userId)
+                    .input('act', sql.NVarChar, `AI Assistant SELECT: [${hostname}] ${sql_query.substring(0, 200)}`)
+                    .query("INSERT INTO ActivityLog ([user], action) VALUES (@u, @act)")
+                    .catch(() => { });
+
                   const config = {
-                    user: conn.db_user, password: conn.db_password, server: target.ip,
-                    database: conn.db_name,
+                    user: conn.db_user, password: conn.db_password, server: target.ip, database: conn.db_name,
                     options: { encrypt: false, trustServerCertificate: true, connectTimeout: 10000 },
                     pool: { max: 1, min: 0 }
                   };
-                  try {
-                    const remotePool = await remotePoolManager.getPool(target.id, config);
-                    const result = await remotePool.request().query(sql_query);
-                    toolResultText = JSON.stringify(result.recordset);
-                    sources.push({ type: 'remote-sql', label: hostname, detail: `Read-only SQL returned ${result.recordset.length} row(s)` });
-                  } catch (e) {
-                    toolResultText = "Remote connection failed: " + e.message;
-                  }
+                  const remotePool = await remotePoolManager.getPool(target.id, config);
+                  const result = await remotePool.request().query(sql_query);
+                  toolResultText = JSON.stringify(result.recordset);
+                  sources.push({ type: 'remote-sql', label: hostname, detail: `SQL returned ${result.recordset.length} rows` });
                 }
               }
             }
           } else if (functionName === 'executeRemoteProcedure') {
             const { hostname, sql_command } = args;
-
-            // 1. Strict Admin Check
-            if (!currUser.is_admin) {
-              toolResultText = "Error: Access Denied. Only administrators can execute stored procedures or functions.";
+            if (globalSqlSafe) {
+              toolResultText = "Error: Access Denied. SQL Safe Mode is active. Stored procedures / Commands are disabled.";
+            } else if (!currUser.is_admin) {
+              toolResultText = "Error: Access Denied. Admin required for Procedures.";
             } else {
-              const hostRes = await pool.request().input('name', sql.NVarChar, hostname)
-                .query("SELECT id, ip FROM Devices WHERE hostname = @name");
+              const hostRes = await pool.request().input('name', sql.NVarChar, hostname).query("SELECT id, ip FROM Devices WHERE hostname = @name");
               const target = hostRes.recordset[0];
-
-              if (!target) {
-                toolResultText = `Error: Hostname '${hostname}' not found.`;
-              } else {
-                const connRes = await pool.request().input('did', sql.NVarChar, target.id)
-                  .query("SELECT * FROM DeviceDbConnections WHERE device_id = @did");
+              if (target) {
+                const connRes = await pool.request().input('did', sql.NVarChar, target.id).query("SELECT * FROM DeviceDbConnections WHERE device_id = @did");
                 const conn = connRes.recordset[0];
-
-                if (!conn) {
-                  toolResultText = `Error: DB credentials for '${hostname}' not configured.`;
-                } else {
+                if (conn) {
                   const config = {
-                    user: conn.db_user, password: conn.db_password, server: target.ip,
-                    database: conn.db_name,
+                    user: conn.db_user, password: conn.db_password, server: target.ip, database: conn.db_name,
                     options: { encrypt: false, trustServerCertificate: true, connectTimeout: 10000 },
                     pool: { max: 1, min: 0 }
                   };
-                  try {
-                    const remotePool = await remotePoolManager.getPool(target.id, config);
-                    const result = await remotePool.request().query(sql_command);
-                    toolResultText = JSON.stringify(result.recordset || { success: true, message: "Execution completed." });
-                    sources.push({ type: 'remote-exec', label: hostname, detail: 'Administrative SQL command executed' });
+                  const remotePool = await remotePoolManager.getPool(target.id, config);
+                  const result = await remotePool.request().query(sql_command);
+                  toolResultText = JSON.stringify(result.recordset);
+                  sources.push({ type: 'remote-procedure', label: hostname, detail: 'Procedure execution successful' });
 
-                    // 2. Log Activity for Auditing
-                    await pool.request()
-                      .input('time', sql.NVarChar, new Date().toLocaleString())
-                      .input('u', sql.NVarChar, currUser.username || userId)
-                      .input('act', sql.NVarChar, `AI Assistant EXEC: [${hostname}] ${sql_command}`)
-                      .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @u, @act)");
-
-                  } catch (e) {
-                    toolResultText = "Execution failed: " + e.message;
-                  }
+                  // Audit Log
+                  await pool.request()
+                    .input('u', sql.NVarChar, currUser.username || userId)
+                    .input('act', sql.NVarChar, `AI Assistant EXEC: [${hostname}] ${sql_command}`)
+                    .query("INSERT INTO ActivityLog (id, user_id, action, target, timestamp, login_ip) VALUES (REPLACE(NEWID(),'-',''), @uid, @act, 'AI', GETDATE(), '127.0.0.1')");
                 }
               }
             }
           } else if (functionName === 'searchWorkflows') {
             const { query } = args;
-            // Robust search: split query into words and search each using LIKE
             const words = query.split(/\s+/).filter(w => w.length > 2);
             let result;
             if (words.length > 0) {
               let sqlQuery = "SELECT id, title, category FROM Workflows WHERE ";
               let conditions = words.map((w, i) => `(title LIKE @w${i} OR category LIKE @w${i} OR content LIKE @w${i})`).join(" OR ");
               sqlQuery += conditions;
-
               const request = pool.request();
               words.forEach((w, i) => request.input(`w${i}`, sql.NVarChar, `%${w}%`));
               result = await request.query(sqlQuery);
             } else {
-              // Fallback to title search if words are too short
-              result = await pool.request()
-                .input('q', sql.NVarChar, `%${query}%`)
-                .query("SELECT id, title, category FROM Workflows WHERE title LIKE @q OR category LIKE @q");
+              result = await pool.request().input('q', sql.NVarChar, `%${query}%`).query("SELECT id, title, category FROM Workflows WHERE title LIKE @q OR category LIKE @q");
             }
-
-            toolResultText = result.recordset.length > 0
-              ? JSON.stringify(result.recordset)
-              : `No matching tutorials found for '${query}'. Ask the user for closer keywords.`;
-            sources.push({ type: 'workflow-search', label: 'Knowledge Base Search', detail: `${result.recordset.length} workflow match(es)` });
+            toolResultText = JSON.stringify(result.recordset);
+            sources.push({ type: 'search', label: 'Workflows', detail: `Found ${result.recordset.length} match(es)` });
           } else if (functionName === 'getWorkflowDetail') {
             const { id } = args;
-            const resDb = await pool.request()
-              .input('id', sql.NVarChar, id)
-              .query("SELECT title, content FROM Workflows WHERE id = @id");
-            toolResultText = resDb.recordset[0]
-              ? `TITLE: ${resDb.recordset[0].title}\n\nCONTENT:\n${resDb.recordset[0].content}`
-              : "Document not found.";
+            const resDb = await pool.request().input('id', sql.NVarChar, id).query("SELECT title, content FROM Workflows WHERE id = @id");
             if (resDb.recordset[0]) {
-              sources.push({ type: 'workflow-detail', label: resDb.recordset[0].title, detail: 'Knowledge base article' });
+              toolResultText = `Title: ${resDb.recordset[0].title}\n\nContent:\n${resDb.recordset[0].content}`;
+              sources.push({ type: 'workflow', label: resDb.recordset[0].title, detail: 'Workflow content loaded' });
             }
           }
-        } catch (dbErr) {
-          toolResultText = "Tool error: " + dbErr.message;
-        }
-
-        // Safety: Limit tool result size to avoid token errors (6k-ish limit)
-        if (toolResultText.length > 5000) {
-          toolResultText = toolResultText.substring(0, 5000) + "\n\n... [Output truncated for safety]";
+        } catch (e) {
+          toolResultText = "Tool execution failed: " + e.message;
         }
 
         messages.push({ tool_call_id: toolCall.id, role: "tool", name: functionName, content: toolResultText });
       }
 
-
-      const secondResponse = await groq.chat.completions.create({
-        model: "llama-3.1-8b-instant",
-        messages
+      const secondCompletion = await openai.chat.completions.create({
+        model: "nousresearch/hermes-3-llama-3.1-405b:free",
+        messages,
+        temperature: 0.3,
+        max_tokens: 4096
       });
-      finalResponseText = secondResponse.choices[0].message.content;
+
+      finalResponseText = secondCompletion.choices[0].message.content || "";
     }
 
     await pool.request()
-      .input('time', sql.NVarChar, new Date().toLocaleString())
-      .input('u', sql.NVarChar, currUser.username || userId)
-      .input('act', sql.NVarChar, `AI Assistant CHAT: ${prompt.substring(0, 180)}${usedTools.length ? ` | tools=${usedTools.join(',')}` : ''}`)
-      .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @u, @act)");
+      .input('uid', sql.NVarChar, userId)
+      .input('prompt', sql.NVarChar(sql.MAX), prompt)
+      .input('resp', sql.NVarChar(sql.MAX), finalResponseText)
+      .input('act', sql.NVarChar, `AI Assistant (OpenRouter): ${prompt.substring(0, 180)}${usedTools.length ? ` | tools=${usedTools.join(',')}` : ''}`)
+      .query("INSERT INTO ActivityLog (id, user_id, action, target, timestamp, login_ip) VALUES (REPLACE(NEWID(),'-',''), @uid, @act, 'AI', GETDATE(), '127.0.0.1')");
 
     res.json({
       text: finalResponseText,
+      userId,
       sources,
-      meta: {
-        toolsUsed: usedTools,
-        cooldownMs: ASSISTANT_COOLDOWN_MS
-      }
+      timestamp: new Date().toISOString(),
+      meta: { toolsUsed: usedTools, cooldownMs: ASSISTANT_COOLDOWN_MS }
     });
   } catch (err) {
     console.error('[AI Chat Error]', err);
@@ -4491,6 +4898,71 @@ app.get('/api/reports/tickets', async (req, res) => {
   }
 });
 
+// ── GET /api/reports/crm-sync ─────────────────────────────
+// Returns LOYAL_CRM_ITEM_MST sync stats grouped by day (today + yesterday)
+app.get('/api/reports/crm-sync', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    // Fetch HOSERVER connection
+    const hoDevRes = await pool.request()
+      .input('hostname', sql.NVarChar, 'HOSERVER')
+      .query('SELECT id, ip FROM Devices WHERE hostname = @hostname');
+
+    if (hoDevRes.recordset.length === 0) {
+      return res.status(404).json({ error: 'HOSERVER device not found.' });
+    }
+
+    const { id: hoDeviceId, ip: hoIp } = hoDevRes.recordset[0];
+    const hoConnRes = await pool.request()
+      .input('did', sql.NVarChar, hoDeviceId)
+      .query('SELECT * FROM DeviceDbConnections WHERE device_id = @did');
+
+    if (hoConnRes.recordset.length === 0) {
+      return res.status(404).json({ error: 'HOSERVER DB credentials not configured.' });
+    }
+
+    const hoConn = hoConnRes.recordset[0];
+    const hoPool = new sql.ConnectionPool({
+      user: hoConn.db_user,
+      password: hoConn.db_password,
+      server: hoIp,
+      database: hoConn.db_name,
+      options: { encrypt: false, enableArithAbort: true, trustServerCertificate: true },
+      connectionTimeout: 10000,
+      requestTimeout: 15000
+    });
+    await hoPool.connect();
+
+    const crmRes = await hoPool.request().query(`
+      SELECT
+        CONVERT(date, last_timestamp) as sync_date,
+        CASE WHEN CONVERT(date, last_timestamp) = CONVERT(date, GETDATE()) THEN 1 ELSE 0 END as is_today,
+        SUM(CASE WHEN is_sync = '1' THEN 1 ELSE 0 END) as synced_count,
+        SUM(CASE WHEN ISNULL(is_sync, '0') <> '1' THEN 1 ELSE 0 END) as pending_count
+      FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+      WHERE CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -1, GETDATE()))
+      GROUP BY CONVERT(date, last_timestamp)
+      ORDER BY sync_date DESC
+    `);
+    await hoPool.close();
+
+    // Label is determined by SQL Server (is_today flag) — no JS timezone issues
+    const rows = crmRes.recordset.map(r => ({
+      label: r.is_today === 1 ? 'Today' : 'Yesterday',
+      synced_count: r.synced_count || 0,
+      pending_count: r.pending_count || 0,
+      total: (r.synced_count || 0) + (r.pending_count || 0),
+      date: r.sync_date
+    }));
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Reports CRM Sync Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── HELPDESK TICKETS API ──────────────────────────────────────
 app.get('/api/tickets/updates', async (req, res) => {
   try {
@@ -4545,7 +5017,7 @@ app.get('/api/tickets', async (req, res) => {
       tickets.forEach(ticket => {
         // Individual/Manual targets
         const ticketTargets = allTargets.filter(target => target.ticket_id === ticket.id);
-        
+
         // Group targets
         const ticketGroups = allLinkedGroups.filter(tg => tg.ticket_id === ticket.id).map(tg => tg.group_id);
         const groupMembers = allDevices.filter(dev => {
@@ -4750,7 +5222,7 @@ app.put('/api/tickets/:id/targets', async (req, res) => {
         .input('ticket_id', sql.NVarChar, id)
         .query('SELECT hostname FROM TicketTargets WHERE ticket_id = @ticket_id');
       const currentHostnames = currentTargetsRes.recordset.map(r => r.hostname);
-      
+
       const newHostnames = (hostname || '').split(',').map(h => h.trim()).filter(h => h.length > 0);
 
       // Delete removed
@@ -4842,22 +5314,25 @@ app.put('/api/tickets/:id/targets/:targetId', async (req, res) => {
       return res.status(400).json({ error: 'Hostname or valid Target ID required' });
     }
 
+    const nowObj = new Date();
     // 2. Upsert (Update if exists, Insert if doesn't)
     if (targetRecord) {
       await pool.request()
         .input('tid', sql.Int, effectiveTargetId)
         .input('status', sql.NVarChar, status)
         .input('remark', sql.NVarChar, remark || null)
-        .input('now', sql.NVarChar, nowStr)
-        .query(`UPDATE TicketTargets SET status = @status, remark = @remark, updated_at = @now WHERE id = @tid`);
+        .input('now', sql.DateTime, nowObj)
+        .input('solved_by', sql.NVarChar, performed_by || 'System')
+        .query(`UPDATE TicketTargets SET status = @status, remark = @remark, updated_at = @now, solved_by = @solved_by WHERE id = @tid`);
     } else {
       await pool.request()
         .input('ticket_id', sql.NVarChar, id)
         .input('hostname', sql.NVarChar, finalHostname)
         .input('status', sql.NVarChar, status)
         .input('remark', sql.NVarChar, remark || null)
-        .input('now', sql.NVarChar, nowStr)
-        .query(`INSERT INTO TicketTargets (ticket_id, hostname, status, remark, updated_at) VALUES (@ticket_id, @hostname, @status, @remark, @now)`);
+        .input('now', sql.DateTime, nowObj)
+        .input('solved_by', sql.NVarChar, performed_by || 'System')
+        .query(`INSERT INTO TicketTargets (ticket_id, hostname, status, remark, updated_at, solved_by) VALUES (@ticket_id, @hostname, @status, @remark, @now, @solved_by)`);
     }
 
     // 3. Log the action
