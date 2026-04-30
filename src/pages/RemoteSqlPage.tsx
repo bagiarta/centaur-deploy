@@ -318,12 +318,12 @@ export default function RemoteSqlPage() {
   });
 
   return (
-    <div className="h-full flex flex-col p-6 gap-6 animate-fade-up overflow-hidden bg-background">
+    <div className="h-full flex flex-col p-4 lg:p-6 gap-4 lg:gap-6 animate-fade-up overflow-y-auto lg:overflow-hidden bg-background">
       <PageHeader 
         title="Remote SQL Pro" 
         subtitle="Professional DB management with templates, scheduling, and visualization"
         actions={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <div 
               className={cn(
                 "flex items-center gap-2 px-3 py-1.5 rounded-lg border mr-2 cursor-pointer transition-all select-none",
@@ -362,10 +362,10 @@ export default function RemoteSqlPage() {
         }
       />
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="flex-1 lg:min-h-0 flex flex-col lg:grid lg:grid-cols-4 gap-4 lg:gap-6 pb-20 lg:pb-0">
         {/* Sidebar: Target Selection */}
         <div className="lg:col-span-1 min-h-0 flex flex-col gap-4">
-          <SectionCard title="Target Devices" className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <SectionCard title="Target Devices" className="flex-none lg:flex-1 h-[350px] lg:h-auto flex flex-col min-h-0 overflow-hidden">
             <div className="flex-1 flex flex-col min-h-0 p-4 pt-1">
               <div className="space-y-3 mb-4">
                 <div className="relative">
@@ -470,15 +470,15 @@ export default function RemoteSqlPage() {
           </SectionCard>
         </div>
 
-        <div className="lg:col-span-3 min-h-0 flex flex-col gap-4">
+        <div className="lg:col-span-3 min-h-0 flex flex-col gap-4 lg:gap-6">
           {/* SQL Editor */}
-          <SectionCard className="h-[40%] flex flex-col overflow-hidden relative">
-            <div className="flex items-center justify-between mb-3 border-b border-border pb-2">
+          <SectionCard className="h-[300px] lg:h-[40%] flex-none lg:flex-auto flex flex-col overflow-visible relative z-20">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-border pb-2">
               <div className="flex items-center gap-2">
                 <Database className="w-4 h-4 text-primary" />
                 <h3 className="font-bold text-sm">Editor</h3>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
                 <button 
                   onClick={() => setShowTemplates(!showTemplates)}
                   className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold bg-surface-raised border border-border rounded hover:bg-surface-overlay transition-all"
@@ -503,7 +503,7 @@ export default function RemoteSqlPage() {
             </div>
             
             {showTemplates && (
-              <div className="absolute top-12 right-6 z-20 w-64 bg-surface-overlay border border-border rounded-xl shadow-2xl p-2 animate-in fade-in slide-in-from-top-2">
+              <div className="absolute top-14 right-2 md:right-6 z-[100] w-64 bg-surface-overlay border border-border rounded-xl shadow-2xl p-2 animate-in fade-in slide-in-from-top-2">
                 <p className="text-[10px] font-bold text-foreground-muted uppercase p-2 border-b border-border mb-1">Templates</p>
                 <div className="max-h-48 overflow-y-auto">
                   {templates.map(t => (
@@ -563,7 +563,7 @@ export default function RemoteSqlPage() {
           </SectionCard>
 
           {/* Results Pane */}
-          <SectionCard className="flex-1 min-h-0 flex flex-col bg-background-subtle overflow-hidden">
+          <SectionCard className="flex-none h-[400px] lg:flex-1 lg:h-auto flex flex-col bg-background-subtle overflow-hidden relative z-10">
             <div className="flex items-center justify-between mb-4 border-b border-border pb-2">
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-info" />

@@ -436,9 +436,9 @@ export default function TicketsPage() {
   };
 
   return (
-    <div className="flex h-full overflow-hidden p-6 gap-6 max-w-[1600px] mx-auto">
+    <div className="flex h-full overflow-hidden p-4 md:p-6 gap-4 md:gap-6 max-w-[1600px] mx-auto relative">
       {/* ── Left Sidebar (List) ── */}
-      <div className="flex flex-col w-1/3 min-w-[350px] bg-card rounded-xl border border-border overflow-hidden shadow-sm">
+      <div className={cn("flex flex-col w-full md:w-1/3 md:min-w-[350px] bg-card rounded-xl border border-border overflow-hidden shadow-sm", selectedTicket ? "hidden md:flex" : "flex")}>
         <div className="p-4 border-b border-border bg-surface/50">
           <div className="flex justify-between items-start">
             <div>
@@ -584,10 +584,19 @@ export default function TicketsPage() {
       </div>
 
       {/* ── Right Detailed View ── */}
-      <div className="flex-1 flex flex-col bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+      <div className={cn("flex-1 flex-col bg-card border border-border rounded-xl shadow-sm overflow-y-auto", selectedTicket ? "flex" : "hidden md:flex")}>
         {selectedTicket ? (
-          <>
-            <div className="p-6 border-b border-border bg-surface/30">
+          <div className="flex flex-col min-h-full">
+            <div className="p-4 md:p-6 border-b border-border bg-surface/30 shrink-0">
+              {/* Mobile Back Button */}
+              <div className="md:hidden mb-4">
+                <button 
+                  onClick={() => setSelectedTicket(null)}
+                  className="flex items-center gap-1 text-sm font-medium text-foreground-muted hover:text-foreground"
+                >
+                  <ChevronRight className="w-4 h-4 rotate-180" /> Back to Tickets
+                </button>
+              </div>
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h2 className="text-2xl font-bold text-foreground mb-1">{selectedTicket.title}</h2>
@@ -690,7 +699,7 @@ export default function TicketsPage() {
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-8">
+            <div className="flex-1 p-4 md:p-6 flex flex-col gap-6 md:gap-8">
               {selectedTicket.targets && selectedTicket.targets.length > 0 && (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-2">
@@ -742,18 +751,18 @@ export default function TicketsPage() {
                       .filter(t => targetStatusFilter === "All" || t.status === targetStatusFilter)
                       .map(target => (
                       <div key={target.id} className="bg-background border border-border rounded-lg p-3 flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono text-sm font-bold text-foreground">{target.hostname}</span>
                             <span className={cn(
-                              "text-[10px] px-2 py-0.5 rounded font-bold uppercase",
+                              "text-[10px] px-2 py-0.5 rounded font-bold uppercase shrink-0",
                               target.status === 'Solved' ? "bg-success/10 text-success border border-success/20" : "bg-warning/10 text-warning border border-warning/20"
                             )}>
                               {target.status}
                             </span>
                             {target.isFromGroup && (
-                              <span className="text-[9px] bg-primary/5 text-primary-hover px-1.5 py-0.5 rounded border border-primary/10 italic">
-                                from dynamic group
+                              <span className="text-[9px] bg-primary/5 text-primary-hover px-1.5 py-0.5 rounded border border-primary/10 italic shrink-0">
+                                dynamic group
                               </span>
                             )}
                           </div>
@@ -762,7 +771,7 @@ export default function TicketsPage() {
                               onClick={() => handleUpdateTarget(target.id, target.status === 'Solved' ? 'Pending' : 'Solved', target.remark, target.hostname)}
                               disabled={actionLoading}
                               className={cn(
-                                "px-3 py-1 text-xs font-bold rounded transition-colors",
+                                "px-3 py-1.5 text-xs font-bold rounded transition-colors w-full sm:w-auto shrink-0",
                                 target.status === 'Solved' 
                                   ? "bg-warning/10 text-warning hover:bg-warning/20 border border-warning/30" 
                                   : "bg-success text-white hover:bg-success/90"
@@ -816,9 +825,8 @@ export default function TicketsPage() {
               <div className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted border-b border-border pb-2">Audit Trail</h3>
                 <div className="space-y-4 pt-2">
-                  {ticketLogs.map((log, i) => (
+                  {ticketLogs.slice(-1).map((log) => (
                     <div key={log.id} className="flex gap-4 relative">
-                      {i !== ticketLogs.length - 1 && <div className="absolute left-4 top-8 bottom-[-16px] w-[2px] bg-border" />}
                       <div className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center shrink-0 z-10 text-foreground-muted">
                         <MessageSquare className="w-3.5 h-3.5" />
                       </div>
@@ -910,7 +918,7 @@ export default function TicketsPage() {
                 )}
               </div>
             )}
-          </>
+          </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-foreground-muted p-6">
             {pieData.length > 0 ? (
