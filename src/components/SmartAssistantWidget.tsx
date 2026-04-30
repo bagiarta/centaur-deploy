@@ -104,7 +104,7 @@ export function SmartAssistantWidget() {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+    <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-50 flex flex-col items-end">
 
       {isOpen && (
         <div className={cn(
@@ -218,7 +218,7 @@ export function SmartAssistantWidget() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="h-14 w-14 rounded-full bg-white hover:bg-zinc-50 shadow-xl flex items-center justify-center transform hover:scale-105 transition-all shadow-blue-500/30 overflow-hidden border-2 border-zinc-100"
+          className="h-14 w-14 rounded-full bg-white hover:bg-zinc-50 shadow-xl flex items-center justify-center transform hover:scale-105 transition-all shadow-blue-500/30 overflow-hidden border-2 border-zinc-100 opacity-60 hover:opacity-100"
         >
           <img
             src={pepiLogo}

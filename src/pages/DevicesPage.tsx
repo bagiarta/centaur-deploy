@@ -409,7 +409,8 @@ export default function DevicesPage() {
       {/* Main Content Area */}
       {viewMode === 'list' ? (
         <SectionCard>
-        <div className="overflow-x-auto max-h-[600px] overflow-y-auto pr-1">
+        {/* Desktop Table View */}
+        <div className="hidden md:block overflow-x-auto max-h-[600px] overflow-y-auto pr-1">
           <table className="table-enterprise">
             <thead>
               <tr>
@@ -504,7 +505,54 @@ export default function DevicesPage() {
             </tbody>
           </table>
         </div>
-        <div className="px-5 py-2.5 border-t border-border text-xs text-foreground-muted">
+
+        {/* Mobile Card View */}
+        <div className="md:hidden flex flex-col gap-3 max-h-[65vh] overflow-y-auto pb-6">
+          {filtered.length === 0 && (
+            <div className="p-8 text-center text-foreground-muted border border-dashed border-border rounded-xl">
+              No devices found.
+            </div>
+          )}
+          {filtered.map(d => (
+            <div 
+              key={d.id} 
+              className="p-4 rounded-xl border border-border bg-surface-raised flex flex-col gap-3 cursor-pointer hover:border-primary/40 active:scale-[0.98] transition-all shadow-sm" 
+              onClick={() => setSelected(d)}
+            >
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                   <div className={cn(
+                     "w-2.5 h-2.5 rounded-full shadow-sm", 
+                     d.status === "online" ? "bg-success" :
+                     d.status === "offline" ? "bg-muted-foreground" :
+                     d.status === "deploying" ? "bg-primary animate-pulse-dot" :
+                     d.status === "error" ? "bg-danger" : "bg-foreground-subtle"
+                   )} />
+                   <span className="font-bold text-sm text-foreground flex items-center gap-2">
+                     {d.device_type === 'Network' ? <Wifi className="w-3.5 h-3.5 text-primary" /> : <HardDrive className="w-3.5 h-3.5 text-foreground-muted" />}
+                     {d.hostname}
+                   </span>
+                 </div>
+                 <StatusBadge status={d.status} />
+               </div>
+               
+               <div className="flex items-center justify-between text-xs text-foreground-muted">
+                 <div className="flex items-center gap-1.5 font-mono bg-background border border-border px-2 py-1 rounded-md shadow-inner">
+                    {d.ip}
+                 </div>
+                 <span className="flex items-center gap-1"><Activity className="w-3 h-3" /> {d.last_seen}</span>
+               </div>
+               
+               {d.location && (
+                 <div className="text-[10px] text-primary font-bold uppercase tracking-wider flex items-center gap-1.5 bg-primary/5 p-1.5 rounded-md w-fit">
+                    <MapIcon className="w-3 h-3" /> {d.location}
+                 </div>
+               )}
+            </div>
+          ))}
+        </div>
+
+        <div className="px-3 md:px-5 py-3 md:py-2.5 border-t border-border text-xs text-foreground-muted font-medium mt-2 md:mt-0 text-center md:text-left">
           Showing {filtered.length} of {devices.length} devices
         </div>
         </SectionCard>
@@ -528,7 +576,7 @@ export default function DevicesPage() {
         <div className="fixed inset-0 z-40 flex" onClick={() => setSelected(null)}>
           <div className="flex-1 bg-black/50 backdrop-blur-sm" />
           <div
-            className="w-96 bg-surface border-l border-border overflow-y-auto animate-slide-in flex flex-col"
+            className="w-full sm:w-96 max-w-full bg-surface border-l border-border overflow-y-auto animate-slide-in flex flex-col"
             onClick={e => e.stopPropagation()}
           >
             <div className="p-5 border-b border-border flex items-center justify-between">

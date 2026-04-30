@@ -35,6 +35,16 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [users, setUsers] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/users')
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        if (Array.isArray(data)) setUsers(data);
+      })
+      .catch(err => console.error("Failed to load users:", err));
+  }, []);
 
   useEffect(() => {
     if (!userKey) {
@@ -146,7 +156,7 @@ export default function LogsPage() {
         }
       />
 
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: "Total Events", count: logs.length, cls: "text-foreground" },
           { label: "Success", count: logs.filter((e) => e.level === "success").length, cls: "text-success" },
@@ -160,8 +170,8 @@ export default function LogsPage() {
         ))}
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-48">
+      <div className="flex flex-col md:flex-row gap-3">
+        <div className="relative w-full md:flex-1 md:min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" />
           <input
             value={search}
@@ -175,24 +185,26 @@ export default function LogsPage() {
           type="date"
           value={dateFilter}
           onChange={(e) => setDateFilter(e.target.value)}
-          className="px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          className="w-full md:w-auto px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           aria-label="Filter by date"
         />
 
-        {["all", "success", "error", "warning", "info"].map((level) => (
-          <button
-            key={level}
-            onClick={() => setLevelFilter(level)}
-            className={cn(
-              "px-3 py-1.5 text-xs font-medium rounded-md border transition-all capitalize",
-              levelFilter === level
-                ? "bg-primary/15 border-primary/40 text-primary"
-                : "bg-surface border-border text-foreground-muted hover:text-foreground"
-            )}
-          >
-            {level}
-          </button>
-        ))}
+        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+          {["all", "success", "error", "warning", "info"].map((level) => (
+            <button
+              key={level}
+              onClick={() => setLevelFilter(level)}
+              className={cn(
+                "px-3 py-1.5 text-xs font-medium rounded-md border transition-all capitalize flex-1 md:flex-none text-center",
+                levelFilter === level
+                  ? "bg-primary/15 border-primary/40 text-primary"
+                  : "bg-surface border-border text-foreground-muted hover:text-foreground"
+              )}
+            >
+              {level}
+            </button>
+          ))}
+        </div>
       </div>
 
       <SectionCard>
@@ -200,16 +212,24 @@ export default function LogsPage() {
           {filtered.map((entry) => {
             const levelKey = entry.level ?? "info";
             const style = levelStyles[levelKey] ?? levelStyles.info;
+            const matchedUser = users.find(u => u.id === entry.user || u.username === entry.user);
+            const displayUser = matchedUser ? matchedUser.username : entry.user;
 
             return (
-              <div key={entry.id} className="flex items-start gap-3 px-5 py-2.5 hover:bg-surface/30 transition-colors">
+              <div key={entry.id} className="flex items-start gap-3 px-4 md:px-5 py-3 hover:bg-surface/30 transition-colors">
                 <span className={cn("w-2 h-2 rounded-full shrink-0 mt-1.5", style.dot)} />
-                <span className="text-xs font-mono text-foreground-subtle shrink-0 w-36">{entry.time}</span>
-                <span className={cn("badge-pill shrink-0 text-[10px]", style.bg, style.text, "capitalize")}>{levelKey}</span>
-                <span className="text-xs font-mono text-primary shrink-0 w-24 truncate" title={entry.user}>
-                  {entry.user}
-                </span>
-                <span className="text-xs text-foreground">{entry.action}</span>
+                <div className="flex-1 flex flex-col md:flex-row md:items-start gap-1 md:gap-3 min-w-0">
+                  <div className="flex items-center flex-wrap gap-2 md:w-[320px] shrink-0">
+                    <span className="text-[11px] md:text-xs font-mono text-foreground-subtle">{entry.time}</span>
+                    <span className={cn("badge-pill text-[10px]", style.bg, style.text, "capitalize")}>{levelKey}</span>
+                    <span className="text-[11px] md:text-xs font-mono text-primary truncate max-w-[120px]" title={displayUser}>
+                      @{displayUser}
+                    </span>
+                  </div>
+                  <span className="text-sm md:text-xs text-foreground leading-relaxed break-words mt-1 md:mt-0">
+                    {entry.action}
+                  </span>
+                </div>
               </div>
             );
           })}
@@ -219,7 +239,7 @@ export default function LogsPage() {
           )}
         </div>
 
-        <div className="px-5 py-2.5 border-t border-border text-xs text-foreground-muted flex items-center justify-between gap-3">
+        <div className="px-5 py-3 border-t border-border text-xs text-foreground-muted flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
           <span>{filtered.length} of {logs.length} events</span>
           <span>Export mengambil semua log dalam scope akses Anda{dateFilter ? ` untuk tanggal ${dateFilter}` : ""}.</span>
         </div>

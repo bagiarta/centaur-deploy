@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Monitor, Package, Rocket, Download,
   Terminal, History, Settings, ChevronLeft, ChevronRight,
   Server, Shield, Bell, User, Activity, Users, Database,
-  UserCog, ShieldCheck, LogOut, Bot, BookMarked, Globe
+  UserCog, ShieldCheck, LogOut, Bot, BookMarked, Globe, Menu, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -172,6 +172,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [logoSize, setLogoSize] = useState(32);
   const [appName, setAppName] = useState("pepinetupdater");
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const applyThemeToShell = (rawTheme?: Partial<ThemeSettings> | null) => {
     const theme = normalizeTheme(rawTheme);
@@ -309,11 +310,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
-      {/* ── Sidebar ────────────────────────────────────── */}
+    <div className="flex h-screen bg-background overflow-hidden relative">
+      {/* ── Desktop Sidebar ────────────────────────────────────── */}
       <aside
         className={cn(
-          "flex flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 ease-in-out shrink-0 relative z-10",
+          "hidden md:flex flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 ease-in-out shrink-0 relative z-10",
           collapsed ? "w-16" : "w-64"
         )}
       >
@@ -424,38 +425,49 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ── Main ───────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Topbar */}
-        <header className="flex items-center justify-between h-14 px-6 border-b border-border bg-surface/50 shrink-0 backdrop-blur-sm">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden pb-16 md:pb-0">
+        {/* Topbar (Desktop & Mobile combined logic) */}
+        <header className="flex items-center justify-between h-14 px-4 md:px-6 border-b border-border bg-surface/50 shrink-0 backdrop-blur-sm z-20">
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
+            {/* Mobile Branding (hidden on desktop) */}
+            <div className="md:hidden flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center bg-primary/10">
+                {customLogo ? (
+                  <img src={customLogo} alt="Logo" className="w-full h-full object-contain" />
+                ) : (
+                  <Server className="w-5 h-5 text-primary" />
+                )}
+              </div>
+              <span className="font-bold text-foreground text-sm tracking-wide">{appName}</span>
+            </div>
+
+            {/* Desktop Branding info (hidden on mobile) */}
+            <div className="hidden md:flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-success animate-pulse-dot" />
               <span className="text-xs text-foreground-muted font-mono">v2.7.2</span>
             </div>
-            <span className="text-foreground-subtle text-xs">|</span>
-            <span className="text-xs text-foreground-muted font-medium">
+            <span className="hidden md:inline text-foreground-subtle text-xs">|</span>
+            <span className="hidden md:inline text-xs text-foreground-muted font-medium">
               Logged in as <span className="text-foreground">{user?.full_name || user?.username}</span>
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          
+          <div className="flex items-center gap-1 md:gap-2">
             <button
               onClick={() => setIsReportModalOpen(true)}
               title="Report an Issue"
-              className="px-3 py-1.5 rounded-md hover:bg-danger/10 text-danger hover:text-danger-foreground font-medium text-xs flex items-center gap-2 transition-colors border border-danger/20"
+              className="px-2 md:px-3 py-1.5 rounded-md hover:bg-danger/10 text-danger hover:text-danger-foreground font-medium text-xs flex items-center gap-2 transition-colors md:border border-danger/20"
             >
-              <LifeBuoy className="w-3.5 h-3.5" />
-              <span>Report Issue</span>
+              <LifeBuoy className="w-4 h-4 md:w-3.5 md:h-3.5" />
+              <span className="hidden md:inline">Report Issue</span>
             </button>
             <button className="relative p-2 rounded-md hover:bg-surface-raised text-foreground-muted hover:text-foreground transition-colors">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-danger rounded-full" />
+              <Bell className="w-5 h-5 md:w-4 md:h-4" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 md:w-1.5 md:h-1.5 bg-danger rounded-full border-2 border-surface" />
             </button>
-            <button className="p-2 rounded-md hover:bg-surface-raised text-foreground-muted hover:text-foreground transition-colors">
-              <Activity className="w-4 h-4" />
-            </button>
-            <div className="flex items-center gap-2 pl-2 border-l border-border">
+            <div className="flex items-center gap-2 pl-2 border-l border-border ml-1">
               <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/20 text-primary">
-                <User className="w-3.5 h-3.5" />
+                <User className="w-4 h-4 md:w-3.5 md:h-3.5" />
               </div>
               <div className="hidden sm:block">
                 <p className="text-xs font-semibold text-foreground leading-tight truncate max-w-[100px]">{user?.username}</p>
@@ -470,6 +482,90 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* ── Mobile Bottom Navigation ────────────────────── */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border z-50 flex items-center justify-around h-16 pb-safe">
+        {[
+          { to: "/", icon: LayoutDashboard, label: "Home" },
+          { to: "/tickets", icon: Ticket, label: "Tickets" },
+          { to: "/devices", icon: Monitor, label: "Devices" },
+        ].map(item => {
+          const active = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
+          return (
+            <NavLink key={item.to} to={item.to} className={cn("flex flex-col items-center justify-center flex-1 h-full transition-colors", active ? "text-primary" : "text-foreground-muted hover:text-foreground")}>
+              <item.icon className={cn("w-6 h-6", active && "drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]")} />
+              <span className="text-[10px] mt-1 font-medium">{item.label}</span>
+            </NavLink>
+          );
+        })}
+        <button 
+          onClick={() => setMobileMenuOpen(true)} 
+          className={cn("flex flex-col items-center justify-center flex-1 h-full transition-colors", mobileMenuOpen ? "text-primary" : "text-foreground-muted hover:text-foreground")}
+        >
+          <Menu className="w-6 h-6" />
+          <span className="text-[10px] mt-1 font-medium">Menu</span>
+        </button>
+      </div>
+
+      {/* ── Mobile Side Drawer (Menu) ───────────────────── */}
+      {mobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 z-[100] flex">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => setMobileMenuOpen(false)} />
+          <div className="relative w-72 max-w-[80vw] h-full bg-sidebar border-r border-sidebar-border shadow-2xl flex flex-col animate-in slide-in-from-left duration-300">
+            <div className="flex items-center justify-between p-4 border-b border-sidebar-border/50 bg-sidebar-primary/5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl overflow-hidden bg-sidebar-primary flex items-center justify-center shadow-lg">
+                   {customLogo ? <img src={customLogo} alt="Logo" className="w-full h-full object-contain" /> : <Server className="w-6 h-6 text-sidebar-primary-foreground" />}
+                </div>
+                <div>
+                  <span className="font-extrabold text-sidebar-foreground text-lg tracking-tight leading-none">{appName}</span>
+                  <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">v2.7.2 - Logged in as {user?.username}</p>
+                </div>
+              </div>
+              <button onClick={() => setMobileMenuOpen(false)} className="p-2 -mr-2 text-sidebar-foreground/50 hover:text-sidebar-foreground rounded-full hover:bg-sidebar-accent transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
+              {groups.map(group => {
+                  const items = navItems.filter(item => {
+                    if (item.hidden) return false;
+                    if (item.group !== group.key) return false;
+                    if (item.adminOnly && !user?.is_admin) return false;
+                    if (item.id && !hasPermission(item.id)) return false;
+                    return true;
+                  });
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={group.key}>
+                      <p className="px-2 mb-2 text-[11px] font-bold uppercase tracking-widest text-sidebar-foreground/40">{group.label}</p>
+                      <ul className="space-y-1">
+                        {items.map(item => {
+                          const active = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
+                          return (
+                            <li key={item.to}>
+                              <NavLink onClick={() => setMobileMenuOpen(false)} to={item.to} className={cn("flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors", active ? "text-sidebar-primary bg-sidebar-primary/10" : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground")}>
+                                <item.icon className={cn("w-5 h-5", active ? "text-sidebar-primary" : "text-sidebar-foreground/50")} />
+                                <span>{item.label}</span>
+                              </NavLink>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )
+              })}
+            </nav>
+            
+            <div className="p-4 border-t border-sidebar-border bg-sidebar-accent/30">
+               <button onClick={() => { setMobileMenuOpen(false); handleLogout(); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-danger-foreground font-semibold rounded-lg bg-danger hover:bg-danger/90 transition-colors shadow-lg">
+                 <LogOut className="w-5 h-5" /> <span>Sign Out</span>
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ReportTroubleModal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} />
 

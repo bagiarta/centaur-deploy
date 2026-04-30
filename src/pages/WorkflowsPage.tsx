@@ -157,8 +157,8 @@ export default function WorkflowsPage() {
   };
 
   const handleSave = async () => {
-    if (!editingWorkflow?.title || !editingWorkflow?.content) {
-      toast.error("Title and content are required");
+    if (!editingWorkflow?.title || (!editingWorkflow?.content && !editingWorkflow?.file_name)) {
+      toast.error("Title and content (or document) are required");
       return;
     }
 
@@ -391,7 +391,15 @@ export default function WorkflowsPage() {
 
           <div className="mt-4 flex-1 min-h-[600px] flex flex-col bg-surface/30 rounded-xl border border-border overflow-hidden relative">
             {selectedWorkflow.file_path ? (
-              <div className="flex-1 w-full h-full min-h-[600px] relative">
+              <div className="flex-1 w-full h-full min-h-[600px] relative pdf-viewer-container">
+                <style>{`
+                  .react-pdf__Page__textContent {
+                    display: none !important;
+                  }
+                  .react-pdf__Page__annotations {
+                    display: none !important;
+                  }
+                `}</style>
                 <DocViewer 
                   documents={[{
                     uri: `${window.location.origin}/api/workflows/${selectedWorkflow.id}/view`,
@@ -528,18 +536,28 @@ export default function WorkflowsPage() {
               )}
             </div>
 
-            <div className="flex-1 flex flex-col gap-1.5 min-h-[300px]">
-              <label className="text-xs font-semibold uppercase tracking-wider text-foreground-muted flex justify-between">
-                <span>Text Content (Markdown)</span>
-                <span className="text-[10px] lowercase normal-case opacity-70">Used for search and if no document is attached</span>
-              </label>
-              <textarea 
-                className="flex-1 p-4 bg-background border border-border rounded-md font-mono text-xs focus:ring-1 focus:ring-primary outline-none resize-none"
-                value={editingWorkflow?.content || ""}
-                onChange={e => setEditingWorkflow(prev => ({ ...prev, content: e.target.value }))}
-                placeholder="# Procedure Title\n\n1. Step one\n2. Step two..."
-              />
-            </div>
+            {!editingWorkflow?.file_name ? (
+              <div className="flex-1 flex flex-col gap-1.5 min-h-[300px]">
+                <label className="text-xs font-semibold uppercase tracking-wider text-foreground-muted flex justify-between">
+                  <span>Text Content (Markdown)</span>
+                  <span className="text-[10px] lowercase normal-case opacity-70">Used for search and if no document is attached</span>
+                </label>
+                <textarea 
+                  className="flex-1 p-4 bg-background border border-border rounded-md font-mono text-xs focus:ring-1 focus:ring-primary outline-none resize-none"
+                  value={editingWorkflow?.content || ""}
+                  onChange={e => setEditingWorkflow(prev => ({ ...prev, content: e.target.value }))}
+                  placeholder="# Procedure Title\n\n1. Step one\n2. Step two..."
+                />
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center bg-surface/30 border border-dashed border-border rounded-xl min-h-[200px]">
+                <div className="text-center text-foreground-muted max-w-sm px-6">
+                  <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm font-medium text-foreground">Document Attached</p>
+                  <p className="text-xs mt-1">Teks di dalam dokumen PDF ini otomatis diekstrak di latar belakang agar bisa dicari melalui sistem pencarian. Teks Markdown disembunyikan agar Anda tidak bingung.</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="gap-2 pt-2 border-t border-border mt-auto">

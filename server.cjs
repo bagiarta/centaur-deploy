@@ -5423,6 +5423,28 @@ app.listen(port, '0.0.0.0', async () => {
     setTimeout(detectorLoop, 60 * 1000);
   }
   detectorLoop();
+  // Start log cleanup loop — runs every 24 hours
+  async function logCleanupLoop() {
+    try {
+      const pool = await poolPromise;
+      const result = await pool.request()
+        .query(`
+          DELETE FROM ActivityLog 
+          WHERE id NOT IN (
+            SELECT TOP 1000 id FROM ActivityLog ORDER BY id DESC
+          )
+        `);
+        
+      if (result.rowsAffected[0] > 0) {
+        console.log(`🧹 [Cleanup] Deleted ${result.rowsAffected[0]} old ActivityLog entries (kept latest 1000)`);
+      }
+    } catch (err) {
+      console.error('Log Cleanup Loop Error:', err);
+    }
+    setTimeout(logCleanupLoop, 24 * 60 * 60 * 1000);
+  }
+  logCleanupLoop();
+
   console.log('🔍 Offline detector started (monitoring heartbeats, with proactive ping check)');
 });
 
