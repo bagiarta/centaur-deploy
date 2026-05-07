@@ -1,4 +1,4 @@
-# --- Centaur Deploy Agent v2.7.2 ---
+# --- Centaur Deploy Agent v2.7.4 ---
 # Capabilities:
 #   1. Send hardware/resource heartbeat
 #   2. Self-update check (download new version if server has newer)
@@ -8,7 +8,7 @@ param(
     [string]$ServerUrl = "http://192.168.85.30:3001"
 )
 
-$Version    = "2.7.2"
+$Version    = "2.7.4"
 $Hostname   = $env:COMPUTERNAME
 # --- IP Selection Logic (Prioritize Internal IPv4) ---
 $allIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" }
@@ -104,10 +104,17 @@ try {
     $freeRam   = [Math]::Round($os.FreePhysicalMemory / 1MB, 2)
     $ramInfo   = "$([Math]::Round(($totalRam - $freeRam), 2))GB / $($totalRam)GB"
 
-    $disk      = Get-WmiObject win32_logicaldisk -Filter "DeviceID='C:'"
-    $totalDisk = [Math]::Round($disk.Size / 1GB, 2)
-    $freeDisk  = [Math]::Round($disk.FreeSpace / 1GB, 2)
-    $diskInfo  = "$([Math]::Round(($totalDisk - $freeDisk), 2))GB / $($totalDisk)GB"
+    $disks = Get-WmiObject win32_logicaldisk -Filter "DriveType=3"
+    $diskInfoParts = @()
+    foreach ($d in $disks) {
+        $t = [Math]::Round($d.Size / 1GB, 2)
+        if ($t -lt 10) { continue } # Ignore disks smaller than 10GB (temporary/recovery drives)
+        
+        $f = [Math]::Round($d.FreeSpace / 1GB, 2)
+        $u = [Math]::Round($t - $f, 2)
+        $diskInfoParts += "$($d.DeviceID) $u GB / $t GB"
+    }
+    $diskInfo = $diskInfoParts -join " | "
 
     $osVersion = $os.Caption
 } catch {

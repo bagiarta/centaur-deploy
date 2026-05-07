@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { 
-  Database, Play, CheckCircle, XCircle, ChevronDown, ChevronRight, Server, 
+  Database, Play, CheckCircle, XCircle, ChevronDown, ChevronRight, ChevronLeft, Server, 
   Activity, Search, Trash2, Filter, Info, Save, Clock, Download, ShieldAlert,
   BarChart, LineChart, PieChart, LayoutDashboard
 } from "lucide-react";
@@ -39,6 +39,7 @@ export default function RemoteSqlPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   const [editorView, setEditorView] = useState<any>(null);
+  const [devicesCollapsed, setDevicesCollapsed] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -362,9 +363,12 @@ export default function RemoteSqlPage() {
         }
       />
 
-      <div className="flex-1 lg:min-h-0 flex flex-col lg:grid lg:grid-cols-4 gap-4 lg:gap-6 pb-20 lg:pb-0">
+      <div className="flex-1 lg:min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-6 pb-20 lg:pb-0 relative">
         {/* Sidebar: Target Selection */}
-        <div className="lg:col-span-1 min-h-0 flex flex-col gap-4">
+        <div className={cn(
+          "transition-all duration-300 ease-in-out flex flex-col gap-4 overflow-hidden",
+          devicesCollapsed ? "lg:w-0 lg:opacity-0 lg:pointer-events-none" : "lg:w-80 w-full opacity-100"
+        )}>
           <SectionCard title="Target Devices" className="flex-none lg:flex-1 h-[350px] lg:h-auto flex flex-col min-h-0 overflow-hidden">
             <div className="flex-1 flex flex-col min-h-0 p-4 pt-1">
               <div className="space-y-3 mb-4">
@@ -470,7 +474,23 @@ export default function RemoteSqlPage() {
           </SectionCard>
         </div>
 
-        <div className="lg:col-span-3 min-h-0 flex flex-col gap-4 lg:gap-6">
+        {/* Floating Toggle Button */}
+        <button 
+          onClick={() => setDevicesCollapsed(!devicesCollapsed)}
+          className={cn(
+            "hidden lg:flex absolute top-1/2 -translate-y-1/2 z-30 w-6 h-20 bg-surface border border-border shadow-xl items-center justify-center hover:bg-primary/10 group transition-all duration-300 rounded-r-xl",
+            devicesCollapsed ? "left-0" : "left-80"
+          )}
+          title={devicesCollapsed ? "Expand device list" : "Collapse device list"}
+        >
+          {devicesCollapsed ? (
+            <ChevronRight className="w-4 h-4 text-primary group-hover:scale-125 transition-transform" />
+          ) : (
+            <ChevronLeft className="w-4 h-4 text-foreground-muted group-hover:text-primary group-hover:scale-125 transition-transform" />
+          )}
+        </button>
+
+        <div className="flex-1 min-h-0 flex flex-col gap-4 lg:gap-6">
           {/* SQL Editor */}
           <SectionCard className="h-[300px] lg:h-[40%] flex-none lg:flex-auto flex flex-col overflow-visible relative z-20">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-border pb-2">

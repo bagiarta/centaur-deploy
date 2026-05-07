@@ -409,22 +409,33 @@ export default function ReportsPage() {
                       <div className="flex items-center gap-2">
                         <Cpu className={cn("w-3.5 h-3.5", d.isLowRam ? "text-warning" : "text-foreground-muted")} />
                         <span className={cn("text-sm font-mono", d.isLowRam && "text-warning font-bold")}>
-                          {d.ram || "Unknown"}
+                          {d.totalRam || "Unknown"}
                         </span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <HardDrive className={cn("w-3.5 h-3.5", d.isLowDisk ? "text-danger" : "text-foreground-muted")} />
-                        <span className={cn("text-sm font-mono", d.isLowDisk && "text-danger font-bold")}>
-                          {d.disk ? d.disk.split('/')[0].replace('Free: ', '') : "Unknown"}
-                        </span>
+                        <div className="flex flex-wrap gap-x-2 gap-y-1">
+                          {d.freeDisk && d.freeDisk.split(' | ').map((part: string, idx: number) => {
+                            const valMatch = part.match(/(\d+(?:\.\d+)?)/);
+                            const val = valMatch ? parseFloat(valMatch[1]) : 100;
+                            return (
+                              <span key={idx} className={cn("text-sm font-mono whitespace-nowrap", val < 50 ? "text-danger font-bold" : "text-foreground-muted")}>
+                                {part}{idx < d.freeDisk.split(' | ').length - 1 && <span className="text-foreground-muted ml-2">|</span>}
+                              </span>
+                            );
+                          })}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-warning/10 text-warning border border-warning/20">
                         <AlertTriangle className="w-3 h-3" />
-                        {d.isLowRam && d.isLowDisk ? "Upgrade RAM & Disk" : d.isLowRam ? "Upgrade RAM" : "Upgrade Disk"}
+                        {d.isLowRam && d.isLowDisk 
+                          ? `Upgrade RAM & Disk (${d.lowDiskDrives.join(', ')})` 
+                          : d.isLowRam ? "Upgrade RAM" 
+                          : `Upgrade Disk (${d.lowDiskDrives.join(', ')})`}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -479,7 +490,7 @@ export default function ReportsPage() {
                   <div>
                     <p className="text-xs text-foreground-muted">RAM</p>
                     <p className={cn("text-sm font-medium", selectedDevice.isLowRam ? "text-warning font-bold" : "text-foreground")}>
-                      {selectedDevice.ram || "Unknown"}
+                      {selectedDevice.totalRam || "Unknown"}
                       {selectedDevice.isLowRam && " ⚠️ Low RAM"}
                     </p>
                   </div>
@@ -489,10 +500,18 @@ export default function ReportsPage() {
                   <div className="text-foreground-muted shrink-0"><HardDrive className="w-4 h-4" /></div>
                   <div>
                     <p className="text-xs text-foreground-muted">Disk (Free)</p>
-                    <p className={cn("text-sm font-medium", selectedDevice.isLowDisk ? "text-danger font-bold" : "text-foreground")}>
-                      {selectedDevice.disk ? selectedDevice.disk.split('/')[0].replace('Free: ', '') : "Unknown"}
-                      {selectedDevice.isLowDisk && " ⚠️ Low Disk"}
-                    </p>
+                    <div className="flex flex-wrap gap-x-2 gap-y-1">
+                      {selectedDevice.freeDisk && selectedDevice.freeDisk.split(' | ').map((part: string, idx: number) => {
+                        const valMatch = part.match(/(\d+(?:\.\d+)?)/);
+                        const val = valMatch ? parseFloat(valMatch[1]) : 100;
+                        return (
+                          <span key={idx} className={cn("text-sm font-medium", val < 50 ? "text-danger font-bold" : "text-foreground")}>
+                            {part}{selectedDevice.isLowDisk && val < 50 && " ⚠️"}
+                            {idx < selectedDevice.freeDisk.split(' | ').length - 1 && <span className="text-foreground-muted ml-2">|</span>}
+                          </span>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -501,7 +520,10 @@ export default function ReportsPage() {
                 <p className="text-xs text-foreground-muted uppercase tracking-wider font-semibold mb-2">Upgrade Recommendation</p>
                 <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-warning/10 text-warning border border-warning/20">
                   <AlertTriangle className="w-3 h-3" />
-                  {selectedDevice.isLowRam && selectedDevice.isLowDisk ? "Upgrade RAM & Disk" : selectedDevice.isLowRam ? "Upgrade RAM" : "Upgrade Disk"}
+                  {selectedDevice.isLowRam && selectedDevice.isLowDisk 
+                    ? `Upgrade RAM & Disk (${selectedDevice.lowDiskDrives.join(', ')})` 
+                    : selectedDevice.isLowRam ? "Upgrade RAM" 
+                    : `Upgrade Disk (${selectedDevice.lowDiskDrives.join(', ')})`}
                 </div>
               </div>
 

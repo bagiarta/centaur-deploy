@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { motion, useDragControls } from 'framer-motion';
 import { Bot, X, Send, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -22,6 +23,8 @@ interface AssistantSource {
 export function SmartAssistantWidget() {
   const { user, hasPermission } = useAuth();
   const userKey = user?.id || user?.username;
+  const dragControls = useDragControls();
+  const constraintsRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [input, setInput] = useState('');
@@ -104,7 +107,13 @@ export function SmartAssistantWidget() {
   };
 
   return (
-    <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-50 flex flex-col items-end">
+    <motion.div 
+      drag
+      dragControls={dragControls}
+      dragListener={false}
+      dragMomentum={false}
+      className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[9999] flex flex-col items-end pointer-events-auto"
+    >
 
       {isOpen && (
         <div className={cn(
@@ -112,12 +121,17 @@ export function SmartAssistantWidget() {
           isExpanded ? "w-[80vw] h-[80vh] fixed bottom-1/2 right-1/2 translate-x-1/2 translate-y-1/2" : "w-[350px] h-[500px]"
         )}>
           {/* Header */}
-          <div className="bg-blue-600 px-4 py-3 flex items-center justify-between text-white shadow-sm">
-            <div className="flex items-center gap-2">
+          <div 
+            className="bg-blue-600 px-4 py-3 flex items-center justify-between text-white shadow-sm cursor-move select-none"
+            onPointerDown={(e) => dragControls.start(e)}
+            style={{ touchAction: 'none' }}
+          >
+            <div className="flex items-center gap-2 pointer-events-none">
               <img
                 src={pepiLogo}
                 alt="Pepi"
-                className="w-7 h-7 object-contain"
+                draggable={false}
+                className="w-7 h-7 object-contain pointer-events-none"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                   e.currentTarget.parentElement?.querySelector('.fallback-bot')?.classList.remove('hidden');
@@ -216,23 +230,26 @@ export function SmartAssistantWidget() {
 
       {/* Floating Button */}
       {!isOpen && (
-        <button
+        <motion.button
           onClick={() => setIsOpen(true)}
-          className="h-14 w-14 rounded-full bg-white hover:bg-zinc-50 shadow-xl flex items-center justify-center transform hover:scale-105 transition-all shadow-blue-500/30 overflow-hidden border-2 border-zinc-100 opacity-60 hover:opacity-100"
+          onPointerDown={(e) => dragControls.start(e)}
+          style={{ touchAction: 'none' }}
+          className="h-14 w-14 rounded-full bg-white hover:bg-zinc-50 shadow-xl flex items-center justify-center transform hover:scale-105 transition-all shadow-blue-500/30 overflow-hidden border-2 border-zinc-100 opacity-60 hover:opacity-100 cursor-move"
         >
           <img
             src={pepiLogo}
             alt="Pepi"
-            className="h-full w-full object-contain p-1"
+            draggable={false}
+            className="h-full w-full object-contain p-1 pointer-events-none"
             onError={(e) => {
               e.currentTarget.style.display = 'none';
               e.currentTarget.parentElement?.querySelector('.fallback-bot-btn')?.classList.remove('hidden');
             }}
           />
-          <Bot size={28} className="fallback-bot-btn hidden text-blue-600" />
-        </button>
+          <Bot size={28} className="fallback-bot-btn hidden text-blue-600 pointer-events-none" />
+        </motion.button>
       )}
 
-    </div>
+    </motion.div>
   );
 }

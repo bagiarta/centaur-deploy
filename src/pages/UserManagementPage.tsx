@@ -269,7 +269,7 @@ export default function UserManagementPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground-muted">
-                    {editingUser?.id ? "Reset Password (optional)" : "Password"}
+                    {editingUser?.id ? "Reset Password (Leave blank to keep current)" : "Password"}
                   </label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground-muted" />
@@ -278,7 +278,7 @@ export default function UserManagementPage() {
                       value={editingUser?.password || ""}
                       onChange={(e) => setEditingUser(prev => ({ ...prev!, password: e.target.value }))}
                       className="w-full bg-background border border-border rounded-lg py-2.5 pl-10 pr-4 text-sm outline-none focus:border-primary transition-all"
-                      placeholder="••••••••"
+                      placeholder={editingUser?.id ? "Enter new password to reset" : "••••••••"}
                     />
                   </div>
                 </div>

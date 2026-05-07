@@ -101,9 +101,9 @@ export function ReportTroubleModal({ isOpen, onClose }: ReportTroubleModalProps)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-card w-full max-w-lg rounded-xl border border-border shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="bg-card w-full max-w-lg max-h-[95vh] rounded-xl border border-border shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-surface/50">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-surface/50 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-danger/10 flex items-center justify-center text-danger">
                <AlertTriangle className="w-5 h-5" />
@@ -127,7 +127,7 @@ export function ReportTroubleModal({ isOpen, onClose }: ReportTroubleModalProps)
              <p className="text-foreground-subtle text-sm max-w-xs">Your trouble ticket has been successfully submitted to the IT team. You can view its status in the Helpdesk menu.</p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <form onSubmit={handleSubmit} className="p-6 space-y-4 flex-1 min-h-0 overflow-y-auto">
             <div>
               <label className="block text-xs font-semibold text-foreground-muted uppercase tracking-wider mb-1.5">Issue Subject</label>
               <input required type="text" name="title" value={formData.title} onChange={handleChange} placeholder="e.g., Cannot connect to database" className="w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all" />
@@ -223,11 +223,11 @@ export function ReportTroubleModal({ isOpen, onClose }: ReportTroubleModalProps)
               </div>
             )}
 
-            <div className="pt-2 flex justify-end gap-3">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-foreground hover:bg-surface-raised rounded-md transition-colors">
+            <div className="pt-2 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+              <button type="button" onClick={onClose} className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-foreground hover:bg-surface-raised border border-border sm:border-transparent rounded-md transition-colors">
                 Cancel
               </button>
-              <button disabled={loading} type="submit" className="px-5 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white text-sm font-medium rounded-md transition-colors flex items-center gap-2">
+              <button disabled={loading} type="submit" className="w-full sm:w-auto justify-center px-5 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white text-sm font-medium rounded-md transition-colors flex items-center gap-2">
                 {loading ? "Submitting..." : <><Send className="w-4 h-4" /> Submit Report</>}
               </button>
             </div>

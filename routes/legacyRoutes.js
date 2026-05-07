@@ -1,0 +1,5092 @@
+
+import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import multer from 'multer';
+import sql from 'mssql';
+import { exec } from 'child_process';
+import util from 'util';
+import https from 'https';
+import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import mammoth from 'mammoth';
+import PDFDocument from 'pdfkit';
+import cron from 'node-cron';
+import ExcelJS from 'exceljs';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
+
+import { poolPromise, dbConfig } from '../config/db.js';
+import { h2hConfig, getH2hToken } from '../config/h2h.js';
+import { getCurrentTimestamp, getCurrentTimeHHMM, getISOTimestamp } from '../utils/timeUtils.js';
+
+// Recreate some missing utility constants/functions from server.cjs
+const execPromise = (cmd, options = {}) => {
+  return new Promise((resolve, reject) => {
+    exec(cmd, { windowsHide: true, ...options }, (error, stdout, stderr) => {
+      if (error) reject(error);
+      else resolve({ stdout, stderr });
+    });
+  });
+};
+
+const workflowStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/workflows/'),
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+});
+const workflowUpload = multer({ storage: workflowStorage });
+
+// CRM Pool recreated
+let crmPoolPromise = null;
+
+async function getCrmPool() {
+  if (crmPoolPromise) return crmPoolPromise;
+  try {
+    const pool = await poolPromise;
+    const deviceRes = await pool.request()
+      .input('name', sql.NVarChar, 'DBWH SERVER')
+      .input('ip', sql.NVarChar, '192.168.85.55')
+      .query(`
+        SELECT TOP 1 d.*, c.db_user, c.db_password, c.db_name 
+        FROM Devices d
+        LEFT JOIN DeviceDbConnections c ON d.id = c.device_id
+        WHERE d.hostname = @name OR d.ip = @ip
+      `);
+
+    const device = deviceRes.recordset[0];
+    let config;
+
+    if (device && device.db_user && device.db_password) {
+      config = {
+        user: device.db_user,
+        password: device.db_password,
+        server: device.ip,
+        database: device.db_name,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+        connectionTimeout: 15000, requestTimeout: 60000
+      };
+    } else {
+      config = {
+        user: process.env.CRM_DB_USER || 'sa',
+        password: process.env.CRM_DB_PASS || 'default_pass',
+        server: process.env.CRM_DB_SERVER || '192.168.85.55',
+        database: process.env.CRM_DB_NAME || 'DBWH_8555',
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+        connectionTimeout: 15000, requestTimeout: 60000
+      };
+    }
+
+    const crmPool = new sql.ConnectionPool(config);
+    crmPoolPromise = crmPool.connect();
+    return crmPoolPromise;
+  } catch (err) {
+    console.error('❌ Failed to initialize CRM Pool:', err.message);
+    crmPoolPromise = null;
+    throw err;
+  }
+}
+
+// Ensure __dirname is available for file uploads
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.resolve(path.dirname(__filename), '..');
+const REPO_PATH = path.resolve('F:\\PepiUpdater\\Repo');
+const packageStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, REPO_PATH),
+  filename: (req, file, cb) => cb(null, file.originalname)
+});
+const packageUpload = multer({ storage: packageStorage });
+
+const router = express.Router();
+
+router.get('/api/deployments', async (req, res) => {
+  try {
+    console.log('GET /api/deployments called');
+    const pool = await poolPromise;
+    console.log('Pool obtained');
+    const result = await pool.request().query('SELECT * FROM Deployments');
+    console.log('Query executed, records:', result.recordset.length);
+    res.json(result.recordset);
+  } catch (err) {
+    console.error('Error in /api/deployments:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/deployment-targets ───────────────────────────
+router.get('/api/deployment-targets', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT t.* 
+      FROM DeploymentTargets t
+      INNER JOIN Devices d ON t.device_id = d.id
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper to expand IP ranges (e.g. "192.168.1.1-50" or "192.168.1.1 - 192.168.1.50")
+function parseIPRange(input) {
+  if (!input) return [];
+  const allIps = [];
+  const normalized = input.replace(/[–—]/g, '-').replace(/\s*-\s*/g, '-');
+  const parts = normalized.split(/[,;\s]+/).filter(Boolean);
+  for (const part of parts) {
+    let m = part.match(/^(\d+\.\d+\.\d+\.\d+)-(\d+\.\d+\.\d+\.\d+)$/);
+    if (m) {
+      const start = m[1].split('.').map(Number);
+      const end = m[2].split('.').map(Number);
+      if (start[0] === end[0] && start[1] === end[1] && start[2] === end[2]) {
+        for (let j = Math.min(start[3], end[3]); j <= Math.max(start[3], end[3]); j++) {
+          allIps.push(`${start[0]}.${start[1]}.${start[2]}.${j}`);
+        }
+      }
+      continue;
+    }
+    m = part.match(/^(\d+\.\d+\.\d+)\.(\d+)-(\d+)$/);
+    if (m) {
+      const base = m[1];
+      const start = parseInt(m[2]);
+      const end = parseInt(m[3]);
+      for (let j = Math.min(start, end); j <= Math.max(start, end); j++) {
+        allIps.push(`${base}.${j}`);
+      }
+      continue;
+    }
+    if (part.match(/^(\d{1,3}\.){3}\d{1,3}$/)) {
+      allIps.push(part);
+    }
+  }
+  return [...new Set(allIps)];
+}
+
+// ── GET /api/agent-jobs ───────────────────────────────────
+router.get('/api/agent-jobs', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM AgentJobs ORDER BY created_at DESC');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/agent-jobs ──────────────────────────────────
+router.post('/api/agent-jobs', async (req, res) => {
+  try {
+    const { id, ip_range, created_by, username, password, device_targets } = req.body;
+    const pool = await poolPromise;
+
+    let serverUrl = `${req.protocol}://${req.get('host')}`;
+    if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
+    const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
+    const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
+
+    // ── MODE A: device_targets (per-device, from device list) ──
+    if (device_targets && Array.isArray(device_targets) && device_targets.length > 0) {
+      const total = device_targets.length;
+
+      await pool.request()
+        .input('id', sql.NVarChar, id)
+        .input('created_at', sql.NVarChar, new Date().toISOString())
+        .input('created_by', sql.NVarChar, created_by || 'admin')
+        .input('ip_range', sql.NVarChar(sql.MAX), ip_range || device_targets.map(d => d.hostname).join(', ').substring(0, 500))
+        .input('total', sql.Int, total)
+        .query(`INSERT INTO AgentJobs (id, created_at, created_by, ip_range, total, success_count, failed_count, pending_count) VALUES (@id, @created_at, @created_by, @ip_range, @total, 0, 0, @total)`);
+
+      res.status(201).json({ message: 'Job started', total_targets: total });
+
+      // Background sequential execution per device
+      (async () => {
+        for (const target of device_targets) {
+          const tIp = target.ip || '0.0.0.0';
+          const tHost = target.hostname || `UNKNOWN-${tIp.split('.').pop()}`;
+          const tUser = target.username || username || 'Administrator';
+          const tPass = target.password || password || '';
+
+          try {
+            await pool.request()
+              .input('job_id', sql.NVarChar, id)
+              .input('device_ip', sql.NVarChar, tIp)
+              .input('hostname', sql.NVarChar, tHost)
+              .query(`
+                IF NOT EXISTS (SELECT 1 FROM AgentInstallTargets WHERE job_id=@job_id AND device_ip=@device_ip)
+                  INSERT INTO AgentInstallTargets (job_id, device_ip, hostname, status, log, updated_at)
+                  VALUES (@job_id, @device_ip, @hostname, 'running', 'Starting...', LEFT(CONVERT(VARCHAR, GETDATE(), 108), 5))
+              `);
+          } catch (e) { /* ignore */ }
+
+          let statusResult = 'failed';
+          let logMsg = '';
+          try {
+            const cmd = `powershell.exe -ExecutionPolicy Bypass -File "${psScript}" -TargetIP "${tIp}" -Username "${tUser}" -Password "${tPass}" -InstallerPath "${installerPath}" -ServerUrl "${serverUrl}"`;
+            const { stdout, stderr } = await execPromise(cmd, { timeout: 60000 }).catch(e => ({ stdout: '', stderr: e.message }));
+            logMsg = (stdout + '\n' + stderr).trim();
+            if (stdout.includes('STATUS:SUCCESS')) {
+              statusResult = 'success';
+              logMsg = stdout.split('|LOG:')[1]?.trim() || 'Success';
+            } else {
+              logMsg = stdout.split('|LOG:')[1]?.trim() || logMsg.substring(0, 500) || 'Timeout or error';
+            }
+          } catch (err) {
+            logMsg = err.message || 'Execution error';
+          }
+
+          await pool.request()
+            .input('job_id', sql.NVarChar, id).input('ip', sql.NVarChar, tIp)
+            .input('status', sql.NVarChar, statusResult).input('log', sql.NVarChar, logMsg.substring(0, 500))
+            .query(`UPDATE AgentInstallTargets SET status=@status, log=@log, updated_at=LEFT(CONVERT(VARCHAR,GETDATE(),108),5) WHERE job_id=@job_id AND device_ip=@ip`);
+
+          await pool.request()
+            .input('id', sql.NVarChar, id)
+            .input('s', sql.Int, statusResult === 'success' ? 1 : 0)
+            .input('f', sql.Int, statusResult === 'failed' ? 1 : 0)
+            .query(`UPDATE AgentJobs SET success_count=success_count+@s, failed_count=failed_count+@f, pending_count=pending_count-1 WHERE id=@id`);
+        }
+      })();
+      return;
+    }
+
+    // ── MODE B: IP Range (legacy) ──────────────────────────
+    const ips = parseIPRange(ip_range);
+    const total = ips.length;
+    if (total === 0) return res.status(400).json({ error: "No valid IPs found." });
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('created_at', sql.NVarChar, new Date().toISOString())
+      .input('created_by', sql.NVarChar, created_by || 'admin')
+      .input('ip_range', sql.NVarChar, ip_range)
+      .input('total', sql.Int, total)
+      .query(`INSERT INTO AgentJobs (id, created_at, created_by, ip_range, total, success_count, failed_count, pending_count) VALUES (@id, @created_at, @created_by, @ip_range, @total, 0, 0, @total)`);
+
+    res.status(201).json({ message: 'Job started', total_targets: total });
+
+    (async () => {
+      let currentIdx = 0;
+      const worker = async () => {
+        while (currentIdx < total) {
+          const ip = ips[currentIdx++];
+          if (!ip) break;
+          try {
+            await pool.request()
+              .input('job_id', sql.NVarChar, id)
+              .input('device_ip', sql.NVarChar, ip)
+              .input('hostname', sql.NVarChar, `UNKNOWN-${ip.split('.')[3]}`)
+              .input('status', sql.NVarChar, 'running')
+              .query(`INSERT INTO AgentInstallTargets (job_id, device_ip, hostname, status, log, updated_at) VALUES (@job_id, @device_ip, @hostname, @status, 'Starting...', LEFT(CONVERT(VARCHAR, GETDATE(), 108), 5))`);
+
+            const command = `powershell.exe -ExecutionPolicy Bypass -File "${psScript}" -TargetIP "${ip}" -Username "${username}" -Password "${password}" -InstallerPath "${installerPath}" -ServerUrl "${serverUrl}"`;
+            const { stdout, stderr } = await execPromise(command, { timeout: 45000 }).catch(e => ({ stdout: '', stderr: e.message }));
+            let statusResult = 'failed';
+            let logMsg = (stdout + "\n" + stderr).trim();
+            if (stdout.includes('STATUS:SUCCESS')) {
+              statusResult = 'success';
+              logMsg = stdout.split('|LOG:')[1]?.trim() || 'Success';
+            } else {
+              logMsg = stdout.split('|LOG:')[1]?.trim() || logMsg.substring(0, 500) || 'Timeout';
+            }
+
+            await pool.request()
+              .input('job_id', sql.NVarChar, id).input('ip', sql.NVarChar, ip)
+              .input('status', sql.NVarChar, statusResult).input('log', sql.NVarChar, logMsg.substring(0, 500))
+              .query(`UPDATE AgentInstallTargets SET status=@status, log=@log, updated_at=LEFT(CONVERT(VARCHAR,GETDATE(),108),5) WHERE job_id=@job_id AND device_ip=@ip`);
+
+            await pool.request()
+              .input('id', sql.NVarChar, id)
+              .input('s', sql.Int, statusResult === 'success' ? 1 : 0)
+              .input('f', sql.Int, statusResult === 'failed' ? 1 : 0)
+              .query(`UPDATE AgentJobs SET success_count=success_count+@s, failed_count=failed_count+@f, pending_count=pending_count-1 WHERE id=@id`);
+          } catch (err) {
+            console.error(`Worker error for ${ip}:`, err.message);
+          }
+        }
+      };
+      const workers = Array(Math.min(8, total)).fill(null).map(() => worker());
+      await Promise.all(workers);
+    })();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/agent-jobs/retry ──────────────────────────
+router.post('/api/agent-jobs/retry', async (req, res) => {
+  const { job_id, device_ip, username, password } = req.body;
+  console.log(`[AGENT] Retry requested for Job: ${job_id}, IP: ${device_ip}, User: ${username}`);
+
+  if (!job_id || !device_ip) return res.status(400).json({ error: "Missing job_id or device_ip" });
+
+  try {
+    const pool = await poolPromise;
+
+    // 1. Get job and target info
+    const jobRes = await pool.request().input('id', sql.NVarChar, job_id).query("SELECT * FROM AgentJobs WHERE id = @id");
+    const tarRes = await pool.request()
+      .input('jid', sql.NVarChar, job_id)
+      .input('ip', sql.NVarChar, device_ip)
+      .query("SELECT * FROM AgentInstallTargets WHERE job_id = @jid AND device_ip = @ip");
+
+    const job = jobRes.recordset[0];
+    const target = tarRes.recordset[0];
+
+    if (!job) {
+      console.warn(`[AGENT] Retry failed: Job ${job_id} not found.`);
+      return res.status(404).json({ error: `Job ${job_id} not found.` });
+    }
+    if (!target) {
+      console.warn(`[AGENT] Retry failed: Target ${device_ip} not found in job ${job_id}.`);
+      return res.status(404).json({ error: `Target ${device_ip} not found in this job.` });
+    }
+
+    // 2. Set target back to running
+    await pool.request()
+      .input('jid', sql.NVarChar, job_id)
+      .input('ip', sql.NVarChar, device_ip)
+      .query("UPDATE AgentInstallTargets SET status = 'running', log = 'Retrying...', updated_at = LEFT(CONVERT(VARCHAR, GETDATE(), 108), 5) WHERE job_id = @jid AND device_ip = @ip");
+
+    // 3. Adjust counts
+    if (target.status === 'success') {
+      await pool.request().input('id', sql.NVarChar, job_id).query("UPDATE AgentJobs SET success_count = success_count - 1, pending_count = pending_count + 1 WHERE id = @id");
+    } else if (target.status === 'failed') {
+      await pool.request().input('id', sql.NVarChar, job_id).query("UPDATE AgentJobs SET failed_count = failed_count - 1, pending_count = pending_count + 1 WHERE id = @id");
+    }
+
+    res.json({ success: true, message: "Retry initiated" });
+
+    // 4. Run installation in background (reusing the logic from POST /api/agent-jobs)
+    (async () => {
+      const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
+      const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
+      let serverUrl = `${req.protocol}://${req.get('host')}`;
+      if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
+
+      let statusResult = 'failed';
+      let logMsg = '';
+      try {
+        // Using default credentials from job if available or relying on script defaults
+        // Note: we don't store passwords, so we might need them passed in or use fallback
+        // Using provided credentials
+        const cmd = `powershell.exe -ExecutionPolicy Bypass -File "${psScript}" -TargetIP "${device_ip}" -Username "${username || 'Administrator'}" -Password "${password || ''}" -InstallerPath "${installerPath}" -ServerUrl "${serverUrl}"`;
+        const { stdout, stderr } = await execPromise(cmd, { timeout: 60000 }).catch(e => ({ stdout: '', stderr: e.message }));
+
+        logMsg = (stdout + '\n' + stderr).trim();
+        if (stdout.includes('STATUS:SUCCESS')) {
+          statusResult = 'success';
+          logMsg = stdout.split('|LOG:')[1]?.trim() || 'Success';
+        } else {
+          logMsg = stdout.split('|LOG:')[1]?.trim() || logMsg.substring(0, 500) || 'Retry failed';
+        }
+      } catch (err) {
+        logMsg = err.message || 'Execution error during retry';
+      }
+
+      await pool.request()
+        .input('job_id', sql.NVarChar, job_id).input('ip', sql.NVarChar, device_ip)
+        .input('status', sql.NVarChar, statusResult).input('log', sql.NVarChar, logMsg.substring(0, 500))
+        .query(`UPDATE AgentInstallTargets SET status=@status, log=@log, updated_at=LEFT(CONVERT(VARCHAR,GETDATE(),108),5) WHERE job_id=@job_id AND device_ip=@ip`);
+
+      await pool.request()
+        .input('id', sql.NVarChar, job_id)
+        .input('s', sql.Int, statusResult === 'success' ? 1 : 0)
+        .input('f', sql.Int, statusResult === 'failed' ? 1 : 0)
+        .query(`UPDATE AgentJobs SET success_count=success_count+@s, failed_count=failed_count+@f, pending_count=pending_count-1 WHERE id=@id`);
+    })();
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/agent-jobs/:id ───────────────────────────
+router.delete('/api/agent-jobs/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = await poolPromise;
+    await pool.request().input('id', sql.NVarChar, id).query(`
+      DELETE FROM AgentInstallTargets WHERE job_id = @id;
+      DELETE FROM AgentJobs WHERE id = @id;
+    `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/agent-install-targets ────────────────────────
+router.get('/api/agent-install-targets', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT t.* 
+      FROM AgentInstallTargets t
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/activity-log ─────────────────────────────────
+router.get('/api/activity-log', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const requestUser = await getRequestUser(req, pool);
+    if (!requestUser) {
+      return res.status(401).json({ error: 'Unauthorized: user not found.' });
+    }
+
+    const logs = await fetchActivityLogs(pool, requestUser, { date: req.query.date });
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/activity-log/export', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const requestUser = await getRequestUser(req, pool);
+    if (!requestUser) {
+      return res.status(401).json({ error: 'Unauthorized: user not found.' });
+    }
+
+    const dateFilter = normalizeDateFilter(req.query.date);
+    const logs = await fetchActivityLogs(pool, requestUser, { date: dateFilter });
+    const headers = ['Time', 'Level', 'User', 'Action', 'Created At'];
+    const rows = logs.map((entry) => [
+      entry.time,
+      entry.level,
+      entry.user,
+      entry.action,
+      entry.created_at instanceof Date ? entry.created_at.toISOString() : entry.created_at,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map(escapeCsvCell).join(','))
+      .join('\r\n');
+
+    const scopeLabel = requestUser.is_admin ? 'all-users' : requestUser.username;
+    const dateLabel = dateFilter || 'all-dates';
+    const filename = `activity-log-${scopeLabel}-${dateLabel}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(`\uFEFF${csv}`);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/packages/:id ──────────────────────────────
+router.delete('/api/packages/:id', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, req.params.id)
+      .query('DELETE FROM Packages WHERE id = @id');
+    res.json({ message: 'Package deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/deployments/:id ───────────────────────────
+router.delete('/api/deployments/:id', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      await transaction.request()
+        .input('id', sql.NVarChar, req.params.id)
+        .query('DELETE FROM DeploymentTargets WHERE deployment_id = @id');
+
+      await transaction.request()
+        .input('id', sql.NVarChar, req.params.id)
+        .query('DELETE FROM Deployments WHERE id = @id');
+
+      await transaction.commit();
+      res.json({ message: 'Deployment deleted successfully' });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/packages ─────────────────────────────────────
+router.post('/api/packages', packageUpload.single('file'), async (req, res) => {
+  try {
+    const { id, name, version, type, uploaded_by } = req.body;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const fileName = file.originalname;
+    const fileSize = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('version', sql.NVarChar, version || '')
+      .input('checksum', sql.NVarChar, 'sha256:temp')
+      .input('file_path', sql.NVarChar, fileName)
+      .input('size', sql.NVarChar, fileSize)
+      .input('type', sql.NVarChar, type || path.extname(fileName).replace('.', ''))
+      .input('uploaded_at', sql.NVarChar, new Date().toISOString())
+      .input('uploaded_by', sql.NVarChar, uploaded_by || 'admin')
+      .query(`
+        INSERT INTO Packages (id, name, version, checksum, file_path, size, type, uploaded_at, uploaded_by)
+        VALUES (@id, @name, @version, @checksum, @file_path, @size, @type, @uploaded_at, @uploaded_by)
+      `);
+
+    res.json({ success: true, id, file_path: fileName });
+  } catch (err) {
+    console.error('Package upload error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/deployments ──────────────────────────────────
+router.post('/api/deployments', async (req, res) => {
+  try {
+    const {
+      id, package_id, package_name, package_version,
+      target_path, schedule_time, created_by, created_at,
+      status, targets
+    } = req.body;
+
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      // 1. Insert Deployment
+      await transaction.request()
+        .input('id', sql.NVarChar, id)
+        .input('package_id', sql.NVarChar, package_id)
+        .input('package_name', sql.NVarChar, package_name)
+        .input('package_version', sql.NVarChar, package_version)
+        .input('target_path', sql.NVarChar, target_path)
+        .input('schedule_time', sql.NVarChar, schedule_time || null)
+        .input('created_by', sql.NVarChar, created_by || 'admin')
+        .input('created_at', sql.NVarChar, created_at || new Date().toISOString())
+        .input('status', sql.NVarChar, status || 'pending')
+        .input('total_targets', sql.Int, targets ? targets.length : 0)
+        .input('success_count', sql.Int, 0)
+        .input('failed_count', sql.Int, 0)
+        .input('pending_count', sql.Int, targets ? targets.length : 0)
+        .query(`
+          INSERT INTO Deployments 
+          (id, package_id, package_name, package_version, target_path, schedule_time, created_by, created_at, status, total_targets, success_count, failed_count, pending_count)
+          VALUES 
+          (@id, @package_id, @package_name, @package_version, @target_path, @schedule_time, @created_by, @created_at, @status, @total_targets, @success_count, @failed_count, @pending_count)
+        `);
+
+      // 2. Insert Deployment Targets
+      if (targets && targets.length > 0) {
+        for (const t of targets) {
+          await transaction.request()
+            .input('deployment_id', sql.NVarChar, id)
+            .input('device_id', sql.NVarChar, t.device_id)
+            .input('hostname', sql.NVarChar, t.hostname)
+            .input('ip', sql.NVarChar, t.ip)
+            .input('status', sql.NVarChar, 'pending')
+            .input('log', sql.NVarChar, 'Waiting for agent...')
+            .input('updated_at', sql.NVarChar, new Date().toISOString())
+            .input('progress', sql.Int, 0)
+            .query(`
+              INSERT INTO DeploymentTargets 
+              (deployment_id, device_id, hostname, ip, status, log, updated_at, progress)
+              VALUES 
+              (@deployment_id, @device_id, @hostname, @ip, @status, @log, @updated_at, @progress)
+            `);
+        }
+      }
+
+      await transaction.commit();
+      res.status(201).json({ message: 'Deployment created successfully', deployment: req.body });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+// ── POST /api/agent/heartbeat ──────────────────────────
+router.post('/api/agent/heartbeat', async (req, res) => {
+  try {
+    const { hostname, ip, cpu, ram, disk, agent_version, os_version } = req.body;
+    if (!hostname) return res.status(400).json({ error: "Hostname is required" });
+
+    const pool = await poolPromise;
+    const now = new Date().toISOString();
+
+    // Deterministic ID based on hostname to avoid collisions
+    const safeId = `dev-${hostname.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
+    // Atomic MERGE for registration and updates
+    await pool.request()
+      .input('id', sql.NVarChar, safeId)
+      .input('h', sql.NVarChar, hostname)
+      .input('ip', sql.NVarChar, ip || '0.0.0.0')
+      .input('cpu', sql.NVarChar, cpu || 'N/A')
+      .input('ram', sql.NVarChar, ram || 'N/A')
+      .input('disk', sql.NVarChar, disk || 'N/A')
+      .input('ver', sql.NVarChar, agent_version || '2.5.0')
+      .input('os', sql.NVarChar, os_version || 'Windows')
+      .input('seen', sql.NVarChar, now)
+      .query(`
+        MERGE INTO Devices WITH (HOLDLOCK) AS target
+        USING (SELECT @h AS hostname) AS source
+        ON target.hostname = source.hostname
+        WHEN MATCHED THEN
+          UPDATE SET 
+            ip = @ip, cpu = @cpu, ram = @ram, disk = @disk, 
+            agent_version = @ver, os_version = @os, 
+            last_seen = @seen, status = 'online'
+        WHEN NOT MATCHED THEN
+          INSERT (id, hostname, ip, os_version, status, last_seen, cpu, ram, disk, agent_version)
+          VALUES (@id, @h, @ip, @os, 'online', @seen, @cpu, @ram, @disk, @ver);
+      `);
+
+    // Fetch config for auto-update response
+    const configRes = await pool.request().query("SELECT [key], [value] FROM SystemConfigs WHERE [key] IN ('LATEST_AGENT_VERSION', 'AGENT_UPDATE_URL')");
+    const configs = {};
+    configRes.recordset.forEach(r => configs[r.key] = r.value);
+
+    res.json({
+      status: 'ok',
+      timestamp: now,
+      latest_agent_version: configs.LATEST_AGENT_VERSION || '2.5.0',
+      update_url: configs.AGENT_UPDATE_URL || ''
+    });
+
+  } catch (err) {
+    console.error(`[AGENT] Heartbeat error for ${req.body?.hostname || 'unknown'}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/devices/:id/software ──────────────────────────
+router.get('/api/devices/:id/software', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('device_id', sql.NVarChar, id)
+      .query(`SELECT name, version, publisher, updated_at FROM DeviceSoftware WHERE device_id = @device_id ORDER BY name ASC`);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/agent/software-inventory ─────────────────────
+router.post('/api/agent/software-inventory', async (req, res) => {
+  try {
+    const { hostname, software } = req.body;
+    if (!hostname) return res.status(400).json({ error: "Hostname is required" });
+    if (!Array.isArray(software)) return res.status(400).json({ error: "Software array is required" });
+
+    const pool = await poolPromise;
+    const safeId = `dev-${hostname.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      await transaction.request()
+        .input('device_id', sql.NVarChar, safeId)
+        .query(`DELETE FROM DeviceSoftware WHERE device_id = @device_id`);
+
+      if (software.length > 0) {
+        const chunkSize = 100;
+        for (let i = 0; i < software.length; i += chunkSize) {
+          const chunk = software.slice(i, i + chunkSize);
+          const reqBatch = transaction.request();
+          reqBatch.input('device_id', sql.NVarChar, safeId);
+
+          let insertValues = [];
+          chunk.forEach((app, idx) => {
+            reqBatch.input(`n${idx}`, sql.NVarChar, (app.name || 'Unknown').substring(0, 490));
+            reqBatch.input(`v${idx}`, sql.NVarChar, (app.version || '').substring(0, 90));
+            reqBatch.input(`p${idx}`, sql.NVarChar, (app.publisher || '').substring(0, 190));
+            insertValues.push(`(@device_id, @n${idx}, @v${idx}, @p${idx}, GETDATE())`);
+          });
+
+          await reqBatch.query(`INSERT INTO DeviceSoftware (device_id, name, version, publisher, updated_at) VALUES ${insertValues.join(', ')}`);
+        }
+      }
+
+      await transaction.commit();
+      res.json({ message: "Inventory updated" });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error(`[AGENT] Software inventory error for ${req.body?.hostname}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/agent/config ──────────────────────────────
+router.get('/api/agent/config', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT [key], [value] FROM SystemConfigs WHERE [key] IN ('LATEST_AGENT_VERSION', 'AGENT_UPDATE_URL')");
+    const configs = {};
+    result.recordset.forEach(r => configs[r.key] = r.value);
+    res.json(configs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/agent/config ─────────────────────────────
+router.post('/api/agent/config', async (req, res) => {
+  const { LATEST_AGENT_VERSION, AGENT_UPDATE_URL } = req.body;
+  try {
+    const pool = await poolPromise;
+
+    if (LATEST_AGENT_VERSION !== undefined) {
+      await pool.request()
+        .input('key', sql.NVarChar, 'LATEST_AGENT_VERSION')
+        .input('val', sql.NVarChar, LATEST_AGENT_VERSION)
+        .query(`
+          MERGE INTO SystemConfigs WITH (HOLDLOCK) AS target
+          USING (SELECT @key AS [key]) AS source
+          ON target.[key] = source.[key]
+          WHEN MATCHED THEN UPDATE SET [value] = @val, updated_at = GETDATE()
+          WHEN NOT MATCHED THEN INSERT ([key], [value]) VALUES (@key, @val);
+        `);
+    }
+
+    if (AGENT_UPDATE_URL !== undefined) {
+      await pool.request()
+        .input('key', sql.NVarChar, 'AGENT_UPDATE_URL')
+        .input('val', sql.NVarChar, AGENT_UPDATE_URL)
+        .query(`
+          MERGE INTO SystemConfigs WITH (HOLDLOCK) AS target
+          USING (SELECT @key AS [key]) AS source
+          ON target.[key] = source.[key]
+          WHEN MATCHED THEN UPDATE SET [value] = @val, updated_at = GETDATE()
+          WHEN NOT MATCHED THEN INSERT ([key], [value]) VALUES (@key, @val);
+        `);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Config save error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/agent/version ───────────────────────────────
+router.get('/api/agent/version', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT [value] FROM SystemConfigs WHERE [key] = 'LATEST_AGENT_VERSION'");
+    const version = result.recordset[0]?.value || '2.5.0';
+    res.json({ version });
+  } catch (err) {
+    res.json({ version: '2.5.0' });
+  }
+});
+
+// ── GET /api/agent/pending?hostname=... ──────────────────
+router.get('/api/agent/pending', async (req, res) => {
+  const { hostname } = req.query;
+  if (!hostname) return res.json({ commands: [] });
+  try {
+    const pool = await poolPromise;
+    // Find device_id by hostname
+    const devRes = await pool.request()
+      .input('h', sql.NVarChar, hostname)
+      .query("SELECT id FROM Devices WHERE hostname = @h");
+    if (!devRes.recordset[0]) return res.json({ commands: [] });
+    const device_id = devRes.recordset[0].id;
+
+    // Fetch pending commands for this device
+    const cmdsRes = await pool.request()
+      .input('device_id', sql.NVarChar, device_id)
+      .query("SELECT id, exec_id, command FROM PendingCommands WHERE device_id = @device_id AND status = 'pending'");
+
+    res.json({ commands: cmdsRes.recordset });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/agent/pending-deployments?hostname=... ──────
+router.get('/api/agent/pending-deployments', async (req, res) => {
+  const { hostname } = req.query;
+  if (!hostname) return res.json({ deployments: [] });
+  try {
+    const pool = await poolPromise;
+    const devRes = await pool.request()
+      .input('h', sql.NVarChar, hostname)
+      .query("SELECT id FROM Devices WHERE hostname = @h");
+    if (!devRes.recordset[0]) return res.json({ deployments: [] });
+    const device_id = devRes.recordset[0].id;
+
+    const depRes = await pool.request()
+      .input('dev_id', sql.NVarChar, device_id)
+      .query(`
+        SELECT 
+          t.deployment_id, 
+          t.device_id, 
+          d.package_name, 
+          d.target_path, 
+          p.file_path as file_name
+        FROM DeploymentTargets t
+        INNER JOIN Deployments d ON t.deployment_id = d.id
+        LEFT JOIN Packages p ON d.package_id = p.id
+        WHERE t.device_id = @dev_id AND t.status IN ('pending', 'failed', 'running')
+      `);
+
+    res.json({ deployments: depRes.recordset });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/agent/software-inventory ───────────────────
+router.post('/api/agent/software-inventory', async (req, res) => {
+  const { hostname, software } = req.body;
+  if (!hostname || !Array.isArray(software)) return res.status(400).json({ error: 'Missing hostname or software list' });
+  try {
+    const pool = await poolPromise;
+    const devRes = await pool.request()
+      .input('h', sql.NVarChar, hostname)
+      .query("SELECT id FROM Devices WHERE hostname = @h");
+    if (!devRes.recordset[0]) return res.json({ status: 'device_not_found' });
+    const device_id = devRes.recordset[0].id;
+
+    // Clear old entries for this device then re-insert
+    await pool.request()
+      .input('device_id', sql.NVarChar, device_id)
+      .query("DELETE FROM DeviceSoftware WHERE device_id = @device_id");
+
+    for (const sw of software.slice(0, 300)) {
+      if (!sw.name) continue;
+      await pool.request()
+        .input('device_id', sql.NVarChar, device_id)
+        .input('name', sql.NVarChar(500), (sw.name || '').substring(0, 500))
+        .input('version', sql.NVarChar(100), (sw.version || '').substring(0, 100))
+        .input('publisher', sql.NVarChar(200), (sw.publisher || '').substring(0, 200))
+        .query(`
+          IF NOT EXISTS (SELECT 1 FROM DeviceSoftware WHERE device_id=@device_id AND name=@name)
+            INSERT INTO DeviceSoftware (device_id, name, version, publisher)
+            VALUES (@device_id, @name, @version, @publisher)
+        `);
+    }
+    res.json({ status: 'ok', count: software.length });
+  } catch (err) {
+    console.error('Software inventory error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/agent/command-result ───────────────────────
+router.post('/api/agent/command-result', async (req, res) => {
+  const { command_id, exec_id, hostname, status, result_log } = req.body;
+  if (!command_id) return res.status(400).json({ error: 'Missing command_id' });
+  try {
+    const pool = await poolPromise;
+
+    // 1. Update PendingCommands row
+    await pool.request()
+      .input('id', sql.NVarChar, command_id)
+      .input('status', sql.NVarChar, status === 'success' ? 'done' : 'failed')
+      .input('log', sql.NVarChar, result_log || '')
+      .query("UPDATE PendingCommands SET status = @status, result_log = @log, executed_at = GETDATE() WHERE id = @id");
+
+    // 2. Update in-memory commandExecutions map so frontend polling works
+    if (exec_id && commandExecutions.has(exec_id)) {
+      const execData = commandExecutions.get(exec_id);
+      const existing = execData.logs.find(l => l.hostname === hostname);
+      const logEntry = {
+        hostname: hostname,
+        ip: existing?.ip || '',
+        status: status,
+        log: result_log || 'Command executed.',
+        updated_at: new Date().toISOString()
+      };
+      if (existing) {
+        Object.assign(existing, logEntry);
+      } else {
+        execData.logs.push(logEntry);
+      }
+
+      // Check if all commands for this exec are done
+      const allCmds = await pool.request()
+        .input('exec_id', sql.NVarChar, exec_id)
+        .query("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending FROM PendingCommands WHERE exec_id = @exec_id");
+      const { total, pending } = allCmds.recordset[0];
+      if (pending === 0) execData.is_complete = true;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/agent/deploy-status ─────────────────────────
+router.post('/api/agent/deploy-status', async (req, res) => {
+  const { deployment_id, device_id, status, progress, log } = req.body;
+  try {
+    const pool = await poolPromise;
+
+    // 1. Update target
+    const currentStatusRes = await pool.request()
+      .input('dep_id', sql.NVarChar, deployment_id)
+      .input('dev_id', sql.NVarChar, device_id)
+      .query('SELECT status, retry_count FROM DeploymentTargets WHERE deployment_id = @dep_id AND device_id = @dev_id');
+
+    const currentTarget = currentStatusRes.recordset[0];
+    let newRetryCount = currentTarget ? (currentTarget.retry_count || 0) : 0;
+
+    if (status === 'failed') {
+      newRetryCount += 1;
+    } else if (status === 'success') {
+      newRetryCount = 0; // reset on success if needed
+    }
+
+    await pool.request()
+      .input('dep_id', sql.NVarChar, deployment_id)
+      .input('dev_id', sql.NVarChar, device_id)
+      .input('status', sql.NVarChar, status)
+      .input('progress', sql.Int, progress)
+      .input('log', sql.NVarChar, log)
+      .input('retry_count', sql.Int, newRetryCount)
+      .input('updated_at', sql.NVarChar, new Date().toISOString())
+      .query(`
+        UPDATE DeploymentTargets 
+        SET status = @status, progress = @progress, log = @log, 
+            retry_count = @retry_count, last_error = (CASE WHEN @status = 'failed' THEN @log ELSE last_error END),
+            updated_at = @updated_at
+        WHERE deployment_id = @dep_id AND device_id = @dev_id
+      `);
+
+    // 2. Recalculate deployment overall status
+    const statsResult = await pool.request()
+      .input('dep_id', sql.NVarChar, deployment_id)
+      .query(`
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+          SUM(CASE WHEN status NOT IN ('success', 'failed') THEN 1 ELSE 0 END) as pending
+        FROM DeploymentTargets
+        WHERE deployment_id = @dep_id
+      `);
+
+    const stats = statsResult.recordset[0];
+    const overallStatus = stats.pending === 0 ? (stats.failed > 0 ? 'failed' : 'success') : 'running';
+
+    await pool.request()
+      .input('dep_id', sql.NVarChar, deployment_id)
+      .input('success', sql.Int, stats.success)
+      .input('failed', sql.Int, stats.failed)
+      .input('pending', sql.Int, stats.pending)
+      .input('status', sql.NVarChar, overallStatus)
+      .query(`
+        UPDATE Deployments 
+        SET success_count = @success, failed_count = @failed, pending_count = @pending, status = @status
+        WHERE id = @dep_id
+      `);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── AUTHENTICATION ────────────────────────────────────────
+router.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('username', sql.NVarChar, username)
+      .query(`
+        SELECT u.id, u.username, u.full_name, u.role_id, u.password_hash,
+               r.name as role_name, r.menu_permissions, r.is_admin 
+        FROM Users u
+        JOIN Roles r ON u.role_id = r.id
+        WHERE u.username = @username
+      `);
+
+    const user = result.recordset[0];
+    if (user && user.password_hash === password) {
+      const { password_hash, ...userSafe } = user;
+      // Ensure ID is present in userSafe
+      userSafe.id = user.id;
+      console.log('[DEBUG] Login Success. User ID:', userSafe.id);
+      res.json({ success: true, user: userSafe });
+    } else {
+      res.status(401).json({ error: 'Invalid username or password' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/auth/change-password', async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  const userId = req.headers['x-user-id'];
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const pool = await poolPromise;
+    const userResult = await pool.request()
+      .input('id', sql.NVarChar, userId)
+      .query('SELECT password_hash FROM Users WHERE id = @id');
+
+    const user = userResult.recordset[0];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.password_hash !== oldPassword) {
+      return res.status(400).json({ error: 'Incorrect old password' });
+    }
+
+    await pool.request()
+      .input('id', sql.NVarChar, userId)
+      .input('newPassword', sql.NVarChar, newPassword)
+      .query('UPDATE Users SET password_hash = @newPassword WHERE id = @id');
+
+    // Log the action
+    await pool.request()
+      .input('user', sql.NVarChar, userId)
+      .input('action', sql.NVarChar, 'Changed password')
+      .query("INSERT INTO ActivityLog (time, [user], action) VALUES (GETDATE(), @user, @action)");
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── USER MANAGEMENT ────────────────────────────────────────
+async function getRequestUser(req, pool) {
+  const headerUserId = req.headers['x-user-id'];
+  const userId = (typeof headerUserId === 'string' && headerUserId) || req.body?.userId || req.query?.userId;
+  if (!userId) return null;
+
+  const result = await pool.request()
+    .input('uid', sql.NVarChar, userId)
+    .query(`
+      SELECT u.id, u.username, u.full_name, u.role_id, r.name as role_name, r.menu_permissions, r.is_admin
+      FROM Users u
+      JOIN Roles r ON u.role_id = r.id
+      WHERE u.id = @uid OR u.username = @uid
+    `);
+
+  return result.recordset[0] || null;
+}
+
+async function requireAdminUser(req, res, pool) {
+  const user = await getRequestUser(req, pool);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized: user not found.' });
+    return null;
+  }
+  if (!user.is_admin) {
+    res.status(403).json({ error: 'Access denied: admin only.' });
+    return null;
+  }
+  return user;
+}
+
+function normalizeDateFilter(value) {
+  if (typeof value !== 'string') return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+function escapeCsvCell(value) {
+  const text = value == null ? '' : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+async function fetchActivityLogs(pool, requestUser, options = {}) {
+  const dateFilter = normalizeDateFilter(options.date);
+  const request = pool.request();
+  const filters = [];
+
+  if (!requestUser.is_admin) {
+    request.input('username', sql.NVarChar, requestUser.username);
+    filters.push('[user] = @username');
+  }
+
+  if (dateFilter) {
+    request.input('dateFilter', sql.Date, dateFilter);
+    // Note: created_at column does not exist, date filter disabled
+    filters.push('1=1');
+  }
+
+  const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const result = await request.query(`
+    SELECT
+      id,
+      time,
+      [user],
+      action,
+      GETDATE() as created_at, -- Placeholder since column doesn't exist
+      CASE
+        WHEN LOWER(action) LIKE '%error%' OR LOWER(action) LIKE '%failed%' OR LOWER(action) LIKE '%denied%' THEN 'error'
+        WHEN LOWER(action) LIKE '%warning%' OR LOWER(action) LIKE '%offline%' THEN 'warning'
+        WHEN LOWER(action) LIKE '%success%' OR LOWER(action) LIKE '%completed%' OR LOWER(action) LIKE '%synced%' THEN 'success'
+        ELSE 'info'
+      END AS level
+    FROM ActivityLog
+    ${whereClause}
+    ORDER BY id DESC
+  `);
+
+  return result.recordset;
+}
+
+router.get('/api/users', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT u.id, u.username, u.full_name, u.role_id, u.created_at, r.name as role_name 
+      FROM Users u
+      JOIN Roles r ON u.role_id = r.id
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/users', async (req, res) => {
+  const { username, password, full_name, role_id } = req.body;
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, `user-${Date.now()}`)
+      .input('username', sql.NVarChar, username)
+      .input('password', sql.NVarChar, password)
+      .input('full_name', sql.NVarChar, full_name)
+      .input('role_id', sql.NVarChar, role_id)
+      .query(`
+        INSERT INTO Users (id, username, password_hash, full_name, role_id)
+        VALUES (@id, @username, @password, @full_name, @role_id)
+      `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const { username, full_name, role_id, password } = req.body;
+  try {
+    const pool = await poolPromise;
+    let query = `
+      UPDATE Users 
+      SET username = @username, full_name = @full_name, role_id = @role_id
+    `;
+    if (password) {
+      query += `, password_hash = @password`;
+    }
+    query += ` WHERE id = @id`;
+
+    const request = pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('username', sql.NVarChar, username)
+      .input('full_name', sql.NVarChar, full_name)
+      .input('role_id', sql.NVarChar, role_id);
+
+    if (password) {
+      request.input('password', sql.NVarChar, password);
+    }
+
+    await request.query(query);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = await poolPromise;
+    await pool.request().input('id', sql.NVarChar, id).query('DELETE FROM Users WHERE id = @id');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── ROLE MANAGEMENT ────────────────────────────────────────
+router.get('/api/roles', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM Roles');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/roles', async (req, res) => {
+  const { name, menu_permissions, is_admin } = req.body;
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, `role-${Date.now()}`)
+      .input('name', sql.NVarChar, name)
+      .input('permissions', sql.NVarChar, menu_permissions)
+      .input('is_admin', sql.Bit, is_admin ? 1 : 0)
+      .query(`
+        INSERT INTO Roles (id, name, menu_permissions, is_admin)
+        VALUES (@id, @name, @permissions, @is_admin)
+      `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/roles/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, menu_permissions, is_admin } = req.body;
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('permissions', sql.NVarChar, menu_permissions)
+      .input('is_admin', sql.Bit, is_admin ? 1 : 0)
+      .query(`
+        UPDATE Roles 
+        SET name = @name, menu_permissions = @permissions, is_admin = @is_admin
+        WHERE id = @id
+      `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/roles/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = await poolPromise;
+    // Check if role is used by any user
+    const check = await pool.request().input('role_id', sql.NVarChar, id).query('SELECT COUNT(*) as count FROM Users WHERE role_id = @role_id');
+    if (check.recordset[0].count > 0) {
+      return res.status(400).json({ error: 'Cannot delete role that is assigned to users' });
+    }
+    await pool.request().input('id', sql.NVarChar, id).query('DELETE FROM Roles WHERE id = @id');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── NOTIFICATION SETTINGS ────────────────────────────────────
+router.get('/api/assistant-keywords', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const adminUser = await requireAdminUser(req, res, pool);
+    if (!adminUser) return;
+
+    const result = await pool.request().query(`
+      SELECT * FROM AssistantKeywords
+      ORDER BY keyword ASC, created_at DESC
+    `);
+
+    res.json(result.recordset.map((row) => ({
+      ...row,
+      target_host: sanitizeKeywordTargetHost(row.target_host),
+      parameter_keys: parseKeywordParameterKeys(row.parameter_keys)
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/assistant-keywords', async (req, res) => {
+  const {
+    keyword, description, action_type, target_host, script_text,
+    parameter_keys, requires_admin, requires_confirmation, is_enabled
+  } = req.body;
+
+  try {
+    const pool = await poolPromise;
+    const adminUser = await requireAdminUser(req, res, pool);
+    if (!adminUser) return;
+    if (!keyword?.trim() || !script_text?.trim() || !['query', 'procedure', 'workflow'].includes(action_type)) {
+      return res.status(400).json({ error: 'Keyword, action type, and script are required.' });
+    }
+
+    await pool.request()
+      .input('id', sql.NVarChar, `keyword-${Date.now()}`)
+      .input('keyword', sql.NVarChar, keyword?.trim())
+      .input('description', sql.NVarChar, description?.trim() || '')
+      .input('action_type', sql.NVarChar, action_type)
+      .input('target_host', sql.NVarChar, sanitizeKeywordTargetHost(target_host))
+      .input('script_text', sql.NVarChar(sql.MAX), script_text || '')
+      .input('parameter_keys', sql.NVarChar(sql.MAX), JSON.stringify(parseKeywordParameterKeys(parameter_keys)))
+      .input('requires_admin', sql.Bit, requires_admin ? 1 : 0)
+      .input('requires_confirmation', sql.Bit, requires_confirmation ? 1 : 0)
+      .input('is_enabled', sql.Bit, is_enabled === false ? 0 : 1)
+      .query(`
+        INSERT INTO AssistantKeywords (
+          id, keyword, description, action_type, target_host, script_text,
+          parameter_keys, requires_admin, requires_confirmation, is_enabled
+        )
+        VALUES (
+          @id, @keyword, @description, @action_type, @target_host, @script_text,
+          @parameter_keys, @requires_admin, @requires_confirmation, @is_enabled
+        )
+      `);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/assistant-keywords/:id', async (req, res) => {
+  const {
+    keyword, description, action_type, target_host, script_text,
+    parameter_keys, requires_admin, requires_confirmation, is_enabled
+  } = req.body;
+
+  try {
+    const pool = await poolPromise;
+    const adminUser = await requireAdminUser(req, res, pool);
+    if (!adminUser) return;
+    if (!keyword?.trim() || !script_text?.trim() || !['query', 'procedure', 'workflow'].includes(action_type)) {
+      return res.status(400).json({ error: 'Keyword, action type, and script are required.' });
+    }
+
+    await pool.request()
+      .input('id', sql.NVarChar, req.params.id)
+      .input('keyword', sql.NVarChar, keyword?.trim())
+      .input('description', sql.NVarChar, description?.trim() || '')
+      .input('action_type', sql.NVarChar, action_type)
+      .input('target_host', sql.NVarChar, sanitizeKeywordTargetHost(target_host))
+      .input('script_text', sql.NVarChar(sql.MAX), script_text || '')
+      .input('parameter_keys', sql.NVarChar(sql.MAX), JSON.stringify(parseKeywordParameterKeys(parameter_keys)))
+      .input('requires_admin', sql.Bit, requires_admin ? 1 : 0)
+      .input('requires_confirmation', sql.Bit, requires_confirmation ? 1 : 0)
+      .input('is_enabled', sql.Bit, is_enabled === false ? 0 : 1)
+      .query(`
+        UPDATE AssistantKeywords
+        SET keyword = @keyword,
+            description = @description,
+            action_type = @action_type,
+            target_host = @target_host,
+            script_text = @script_text,
+            parameter_keys = @parameter_keys,
+            requires_admin = @requires_admin,
+            requires_confirmation = @requires_confirmation,
+            is_enabled = @is_enabled,
+            updated_at = GETDATE()
+        WHERE id = @id
+      `);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/assistant-keywords/:id', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const adminUser = await requireAdminUser(req, res, pool);
+    if (!adminUser) return;
+
+    await pool.request()
+      .input('id', sql.NVarChar, req.params.id)
+      .query(`DELETE FROM AssistantKeywords WHERE id = @id`);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/assistant-keywords/test', async (req, res) => {
+  const { keyword, test_input } = req.body;
+
+  try {
+    const pool = await poolPromise;
+    const adminUser = await requireAdminUser(req, res, pool);
+    if (!adminUser) return;
+
+    if (!keyword?.keyword || !keyword?.action_type || !keyword?.script_text) {
+      return res.status(400).json({ error: 'Keyword, action type, and script are required for testing.' });
+    }
+
+    const runtimeKeyword = {
+      ...keyword,
+      target_host: sanitizeKeywordTargetHost(keyword.target_host),
+      parameter_keys: parseKeywordParameterKeys(keyword.parameter_keys)
+    };
+    const args = parseAssistantKeywordArgs(test_input || '');
+
+    const result = runtimeKeyword.action_type === 'workflow'
+      ? await executeWorkflowKeyword(pool, runtimeKeyword, args)
+      : await executeKeywordSql(pool, runtimeKeyword, args);
+
+    res.json({
+      success: true,
+      text: result.text,
+      sources: result.sources || []
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/notification-settings', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
+    res.json(result.recordset[0] || {});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/notification-settings', async (req, res) => {
+  const {
+    webhook_url, whatsapp_token, whatsapp_target, whatsapp_group,
+    alert_offline, alert_deployment_success, alert_deployment_failed,
+    offline_timeout_mins, sql_safe_mode
+  } = req.body;
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('url', sql.NVarChar, webhook_url || '')
+      .input('token', sql.NVarChar, whatsapp_token || '')
+      .input('target', sql.NVarChar, whatsapp_target || '')
+      .input('group', sql.NVarChar, whatsapp_group || '')
+      .input('alert_offline', sql.Bit, alert_offline ? 1 : 0)
+      .input('alert_dep_success', sql.Bit, alert_deployment_success ? 1 : 0)
+      .input('alert_dep_failed', sql.Bit, alert_deployment_failed ? 1 : 0)
+      .input('timeout_mins', sql.Int, offline_timeout_mins || 5)
+      .input('sql_safe_mode', sql.Bit, sql_safe_mode ? 1 : 0)
+      .query(`
+        IF EXISTS (SELECT 1 FROM NotificationSettings WHERE id = 'global')
+          UPDATE NotificationSettings SET
+            webhook_url = @url, whatsapp_token = @token, whatsapp_target = @target,
+            whatsapp_group = @group, alert_offline = @alert_offline,
+            alert_deployment_success = @alert_dep_success,
+            alert_deployment_failed = @alert_dep_failed,
+            offline_timeout_mins = @timeout_mins,
+            sql_safe_mode = @sql_safe_mode
+          WHERE id = 'global'
+        ELSE
+          INSERT INTO NotificationSettings (id, webhook_url, whatsapp_token, whatsapp_target, whatsapp_group, alert_offline, alert_deployment_success, alert_deployment_failed, offline_timeout_mins, sql_safe_mode)
+          VALUES ('global', @url, @token, @target, @group, @alert_offline, @alert_dep_success, @alert_dep_failed, @timeout_mins, @sql_safe_mode)
+      `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/test-notification (Discord/Webhook) ─────────────
+const DEFAULT_THEME_SETTINGS = {
+  sidebarBg: "#10331f",
+  sidebarText: "#d1fae5",
+  sidebarAccent: "#f59e0b",
+  mainBg: "#0f172a",
+  contentText: "#f1f5f9",
+  cardBg: "#1e293b",
+  primaryBrand: "#3b82f6",
+  appLogo: "",
+  logoSize: 32,
+  appName: "pepinetupdater"
+};
+
+router.get('/api/theme', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT TOP 1 * FROM ThemeSettings WHERE id = 'global'");
+    const row = result.recordset[0];
+
+    if (!row) {
+      return res.json(DEFAULT_THEME_SETTINGS);
+    }
+
+    res.json({
+      sidebarBg: row.sidebarBg || DEFAULT_THEME_SETTINGS.sidebarBg,
+      sidebarText: row.sidebarText || DEFAULT_THEME_SETTINGS.sidebarText,
+      sidebarAccent: row.sidebarAccent || DEFAULT_THEME_SETTINGS.sidebarAccent,
+      mainBg: row.mainBg || DEFAULT_THEME_SETTINGS.mainBg,
+      contentText: row.contentText || DEFAULT_THEME_SETTINGS.contentText,
+      cardBg: row.cardBg || DEFAULT_THEME_SETTINGS.cardBg,
+      primaryBrand: row.primaryBrand || DEFAULT_THEME_SETTINGS.primaryBrand,
+      appLogo: row.appLogo || "",
+      logoSize: row.logoSize || DEFAULT_THEME_SETTINGS.logoSize,
+      appName: row.appName || DEFAULT_THEME_SETTINGS.appName
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/theme', async (req, res) => {
+  const theme = {
+    ...DEFAULT_THEME_SETTINGS,
+    ...(req.body || {}),
+    appLogo: req.body?.appLogo || '',
+    logoSize: Number(req.body?.logoSize) || DEFAULT_THEME_SETTINGS.logoSize,
+    appName: req.body?.appName || DEFAULT_THEME_SETTINGS.appName
+  };
+
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('sidebarBg', sql.NVarChar(20), theme.sidebarBg)
+      .input('sidebarText', sql.NVarChar(20), theme.sidebarText)
+      .input('sidebarAccent', sql.NVarChar(20), theme.sidebarAccent)
+      .input('mainBg', sql.NVarChar(20), theme.mainBg)
+      .input('contentText', sql.NVarChar(20), theme.contentText)
+      .input('cardBg', sql.NVarChar(20), theme.cardBg)
+      .input('primaryBrand', sql.NVarChar(20), theme.primaryBrand)
+      .input('appLogo', sql.NVarChar(sql.MAX), theme.appLogo)
+      .input('logoSize', sql.Int, theme.logoSize)
+      .input('appName', sql.NVarChar(200), theme.appName)
+      .query(`
+        IF EXISTS (SELECT 1 FROM ThemeSettings WHERE id = 'global')
+          UPDATE ThemeSettings SET
+            sidebarBg = @sidebarBg,
+            sidebarText = @sidebarText,
+            sidebarAccent = @sidebarAccent,
+            mainBg = @mainBg,
+            contentText = @contentText,
+            cardBg = @cardBg,
+            primaryBrand = @primaryBrand,
+            appLogo = @appLogo,
+            logoSize = @logoSize,
+            appName = @appName,
+            updated_at = GETDATE()
+          WHERE id = 'global'
+        ELSE
+          INSERT INTO ThemeSettings (id, sidebarBg, sidebarText, sidebarAccent, mainBg, contentText, cardBg, primaryBrand, appLogo, logoSize, appName)
+          VALUES ('global', @sidebarBg, @sidebarText, @sidebarAccent, @mainBg, @contentText, @cardBg, @primaryBrand, @appLogo, @logoSize, @appName)
+      `);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/test-notification', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
+    const settings = settingsRes.recordset[0];
+
+    if (!settings || !settings.webhook_url) {
+      return res.status(400).json({ success: false, error: 'Webhook URL not configured.' });
+    }
+
+    const payload = JSON.stringify({
+      embeds: [{
+        title: '🔔 Test Notification',
+        description: 'This is a test notification from **Centaur Deploy**. Your webhook is working correctly!',
+        color: 0x10b981,
+        timestamp: getISOTimestamp(),
+        footer: { text: 'Centaur Deploy Monitoring System' }
+      }]
+    });
+
+    const url = new URL(settings.webhook_url);
+    await new Promise((resolve, reject) => {
+      const options = {
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+      };
+      const request = https.request(options, (response) => {
+        if (response.statusCode >= 200 && response.statusCode < 300) resolve();
+        else reject(new Error(`HTTP ${response.statusCode}`));
+      });
+      request.on('error', reject);
+      request.write(payload);
+      request.end();
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[TEST-NOTIF] Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /api/test-whatsapp ───────────────────────────────────
+router.post('/api/test-whatsapp', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
+    const settings = settingsRes.recordset[0];
+
+    if (!settings || !settings.whatsapp_token) {
+      return res.status(400).json({ success: false, error: 'WhatsApp token not configured.' });
+    }
+
+    const targets = [settings.whatsapp_target, settings.whatsapp_group].filter(Boolean).join(',');
+    if (!targets) {
+      return res.status(400).json({ success: false, error: 'No WhatsApp target or group configured.' });
+    }
+
+    const message = `🔔 *Test Notification*\n\nIni adalah pesan test dari *Centaur Deploy*.\nNotifikasi WhatsApp Anda berfungsi dengan benar!\n\n_${new Date().toLocaleString('id-ID')}_`;
+    const payload = JSON.stringify({ token: settings.whatsapp_token, target: targets, message, countryCode: '62' });
+
+    await new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'api.fonnte.com',
+        path: '/send',
+        method: 'POST',
+        headers: {
+          'Authorization': settings.whatsapp_token,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        }
+      };
+      const request = https.request(options, (response) => {
+        let body = '';
+        response.on('data', chunk => body += chunk);
+        response.on('end', () => {
+          try {
+            const parsed = JSON.parse(body);
+            if (parsed.status === true || response.statusCode < 300) resolve();
+            else reject(new Error(parsed.reason || `HTTP ${response.statusCode}`));
+          } catch { resolve(); }
+        });
+      });
+      request.on('error', reject);
+      request.write(payload);
+      request.end();
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[TEST-WA] Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── SQL TEMPLATES ─────────────────────────────────────────────
+router.get('/api/sql/templates', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM SqlTemplates ORDER BY name ASC');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/sql/templates', async (req, res) => {
+  const { id, name, description, script, created_by } = req.body;
+  try {
+    const pool = await poolPromise;
+    if (id) {
+      // Update
+      await pool.request()
+        .input('id', sql.NVarChar, id)
+        .input('name', sql.NVarChar, name)
+        .input('description', sql.NVarChar, description || '')
+        .input('script', sql.NVarChar, script)
+        .query(`UPDATE SqlTemplates SET name=@name, description=@description, script=@script WHERE id=@id`);
+      res.json({ success: true, message: 'Template updated' });
+    } else {
+      // Create
+      await pool.request()
+        .input('id', sql.NVarChar, `tpl-${Date.now()}`)
+        .input('name', sql.NVarChar, name)
+        .input('description', sql.NVarChar, description || '')
+        .input('script', sql.NVarChar, script)
+        .input('created_by', sql.NVarChar, created_by || 'admin')
+        .query(`INSERT INTO SqlTemplates (id, name, description, script, created_by) VALUES (@id, @name, @description, @script, @created_by)`);
+      res.json({ success: true, message: 'Template created' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/sql/templates/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, description, script } = req.body;
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('description', sql.NVarChar, description || '')
+      .input('script', sql.NVarChar, script)
+      .query(`UPDATE SqlTemplates SET name=@name, description=@description, script=@script WHERE id=@id`);
+    res.json({ success: true, message: 'Template updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/sql/templates/:id', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request().input('id', sql.NVarChar, req.params.id).query('DELETE FROM SqlTemplates WHERE id = @id');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Alias for older/other parts if needed
+router.get('/api/sql-templates', (req, res) => res.redirect('/api/sql/templates'));
+
+// ── REMOTE COMMAND SCRIPTS ──────────────────────────────────────
+router.get('/api/remote-commands/scripts', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM RemoteCommandScripts ORDER BY name ASC');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/remote-commands/scripts', async (req, res) => {
+  const { id, name, description, script, created_by } = req.body;
+  try {
+    const pool = await poolPromise;
+    if (id) {
+      await pool.request()
+        .input('id', sql.NVarChar, id)
+        .input('name', sql.NVarChar, name)
+        .input('description', sql.NVarChar, description || '')
+        .input('script', sql.NVarChar, script)
+        .query(`UPDATE RemoteCommandScripts SET name=@name, description=@description, script=@script WHERE id=@id`);
+      res.json({ success: true, message: 'Script updated' });
+    } else {
+      await pool.request()
+        .input('id', sql.NVarChar, `rcs-${Date.now()}`)
+        .input('name', sql.NVarChar, name)
+        .input('description', sql.NVarChar, description || '')
+        .input('script', sql.NVarChar, script)
+        .input('created_by', sql.NVarChar, created_by || 'admin')
+        .query(`INSERT INTO RemoteCommandScripts (id, name, description, script, created_by) VALUES (@id, @name, @description, @script, @created_by)`);
+      res.json({ success: true, message: 'Script created' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/remote-commands/scripts/:id', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request().input('id', sql.NVarChar, req.params.id).query('DELETE FROM RemoteCommandScripts WHERE id = @id');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper for remote command execution (DB-based polling — no WinRM needed)
+async function executeRemoteCommand(targets, command, res) {
+  if (!targets || !command || targets.length === 0) {
+    return res.status(400).json({ error: 'Missing targets or command' });
+  }
+
+  const exec_id = `exec-${Date.now()}`;
+  // Pre-populate logs with 'pending' so frontend shows devices immediately
+  const execData = {
+    exec_id,
+    is_complete: false,
+    logs: targets.map(t => ({ hostname: t.hostname, ip: t.ip, status: 'pending', log: '', updated_at: new Date().toISOString() }))
+  };
+  commandExecutions.set(exec_id, execData);
+
+  try {
+    res.json({ success: true, exec_id });
+
+    // Insert pending commands into DB — agent will pick these up on next poll (≤5 min)
+    const pool = await poolPromise;
+    for (const t of targets) {
+      const cmdId = `cmd-${Date.now()}-${t.id}`;
+      await pool.request()
+        .input('id', sql.NVarChar, cmdId)
+        .input('exec_id', sql.NVarChar, exec_id)
+        .input('device_id', sql.NVarChar, t.id)
+        .input('hostname', sql.NVarChar, t.hostname)
+        .input('ip', sql.NVarChar, t.ip)
+        .input('command', sql.NVarChar, command)
+        .query(`
+          INSERT INTO PendingCommands (id, exec_id, device_id, hostname, ip, command, status)
+          VALUES (@id, @exec_id, @device_id, @hostname, @ip, @command, 'pending')
+        `);
+    }
+
+    console.log(`[CMD] Queued ${targets.length} commands for exec_id=${exec_id}. Waiting for agents to poll.`);
+
+    // Auto-cleanup after 30 minutes
+    setTimeout(async () => {
+      try {
+        const p = await poolPromise;
+        // Mark any still-pending commands as timed_out
+        await p.request()
+          .input('exec_id', sql.NVarChar, exec_id)
+          .query("UPDATE PendingCommands SET status = 'timed_out' WHERE exec_id = @exec_id AND status = 'pending'");
+
+        // Finalize execData for timed-out entries
+        const execD = commandExecutions.get(exec_id);
+        if (execD && !execD.is_complete) {
+          execD.logs.forEach(l => { if (l.status === 'pending') { l.status = 'failed'; l.log = 'Timed out — agent did not respond within 30 minutes.'; } });
+          execD.is_complete = true;
+        }
+      } catch (e) { /* silent */ }
+    }, 30 * 60 * 1000);
+
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+}
+
+router.post('/api/remote-commands/run', async (req, res) => {
+  const { device_ids, command, admin_user, admin_pass } = req.body;
+
+  try {
+    const pool = await poolPromise;
+    // 1. Fetch devices to get IPs
+    const result = await pool.request().query('SELECT id, hostname, ip FROM Devices');
+    const allDevs = result.recordset;
+
+    const targets = device_ids.map(id => {
+      const dev = allDevs.find(d => d.id === id);
+      return dev ? { id: dev.id, hostname: dev.hostname, ip: dev.ip } : null;
+    }).filter(t => t !== null);
+
+    if (targets.length === 0) return res.status(400).json({ error: 'No valid devices selected' });
+
+    // 2. Execute directly
+    await executeRemoteCommand(targets, command, res);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── AGENT REMOTE COMMANDS ─────────────────────────────────────
+const commandExecutions = new Map();
+
+// ── SQL EXPORT & SCHEDULES ────────────────────────────────────
+router.post('/api/sql/export', (req, res) => {
+  const { results } = req.body;
+  if (!results) return res.status(400).json({ error: 'No results to export' });
+
+  // Simple CSV generation
+  let csv = "Device ID,Hostname,IP,Status,Log/Error,Recordset JSON\n";
+  for (const [did, data] of Object.entries(results)) {
+    const row = [
+      did,
+      data.hostname || "",
+      data.ip || "",
+      data.status || "",
+      (data.error || "").replace(/,/g, ";"),
+      JSON.stringify(data.recordset || []).replace(/,/g, ";")
+    ].join(",");
+    csv += row + "\n";
+  }
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=sql_export.csv');
+  res.send(csv);
+});
+
+router.post('/api/sql/schedules', async (req, res) => {
+  const { name, script, target_device_ids, next_run_at } = req.body;
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, `sqls-${Date.now()}`)
+      .input('name', sql.NVarChar, name)
+      .input('script', sql.NVarChar, script)
+      .input('targets', sql.NVarChar, JSON.stringify(target_device_ids))
+      .input('next_run', sql.DateTime, new Date(next_run_at))
+      .query(`INSERT INTO RemoteSqlSchedules (id, name, script, target_device_ids, next_run_at) VALUES (@id, @name, @script, @targets, @next_run)`);
+    res.json({ success: true, message: 'SQL Job scheduled' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/remote-commands/schedules', async (req, res) => {
+  const { name, script, target_device_ids, next_run_at } = req.body;
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, `rcs-${Date.now()}`)
+      .input('name', sql.NVarChar, name)
+      .input('script', sql.NVarChar, script)
+      .input('targets', sql.NVarChar, JSON.stringify(target_device_ids))
+      .input('next_run', sql.DateTime, new Date(next_run_at))
+      .query(`INSERT INTO RemoteCommandSchedules (id, name, script, target_device_ids, next_run_at) VALUES (@id, @name, @script, @targets, @next_run)`);
+    res.json({ success: true, message: 'Command Job scheduled' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remote pool manager to reuse connections
+const remotePoolManager = {
+  _pools: new Map(),
+  async getPool(deviceId, config) {
+    if (!this._pools.has(deviceId)) {
+      const pool = new sql.ConnectionPool(config);
+      await pool.connect();
+      this._pools.set(deviceId, pool);
+    }
+    return this._pools.get(deviceId);
+  }
+};
+
+router.post('/api/agent/commands/execute', async (req, res) => {
+  const { targets, command } = req.body;
+  await executeRemoteCommand(targets, command, res);
+});
+
+router.get('/api/agent/commands/results', (req, res) => {
+  const { exec_id } = req.query;
+  const data = commandExecutions.get(exec_id);
+  if (!data) return res.status(404).json({ error: 'Exec ID not found' });
+  res.json(data);
+});
+
+// ── OFFLINE DETECTOR (Background Loop) ──────────────────────
+
+async function sendWebhook(title, description, color = 0x5865F2) {
+  try {
+    const pool = await poolPromise;
+    const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
+    const settings = settingsRes.recordset[0];
+    if (!settings || !settings.webhook_url) return;
+
+    const payload = JSON.stringify({
+      embeds: [{ title, description, color, timestamp: getISOTimestamp() }]
+    });
+    const url = new URL(settings.webhook_url);
+    const options = {
+      hostname: url.hostname, path: url.pathname + url.search,
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+    };
+    const req = https.request(options);
+    req.on('error', () => { });
+    req.write(payload);
+    req.end();
+  } catch (err) {
+    console.error('[WEBHOOK] Error:', err.message);
+  }
+}
+
+async function sendWhatsapp(message) {
+  try {
+    const pool = await poolPromise;
+    const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
+    const settings = settingsRes.recordset[0];
+    if (!settings || !settings.whatsapp_token) return;
+
+    // Deduplicate targets (ensure number doesn't appear in both individual and group fields)
+    const targets = Array.from(new Set(
+      [settings.whatsapp_target, settings.whatsapp_group]
+        .filter(Boolean)
+        .map(t => t.trim())
+    )).join(',');
+
+    if (!targets) return;
+
+    const payload = JSON.stringify({ token: settings.whatsapp_token, target: targets, message, countryCode: '62' });
+    const options = {
+      hostname: 'api.fonnte.com', path: '/send', method: 'POST',
+      headers: { 'Authorization': settings.whatsapp_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+    };
+    const req = https.request(options);
+    req.on('error', () => { });
+    req.write(payload);
+    req.end();
+  } catch (err) {
+    console.error('[WHATSAPP] Error:', err.message);
+  }
+}
+
+async function runOfflineDetector() {
+  try {
+    const pool = await poolPromise;
+    if (!pool) return;
+
+    const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
+    const settings = settingsRes.recordset[0];
+    if (!settings || !settings.alert_offline) return;
+
+    const timeoutMins = settings.offline_timeout_mins || 10;
+
+    // Ensure last_offline_alert_at column exists
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='Devices' AND COLUMN_NAME='last_offline_alert_at')
+        ALTER TABLE Devices ADD last_offline_alert_at DATETIME NULL
+    `).catch(() => { });
+
+    // 1. Get all devices AND all groups to verify status and context
+    const devicesToCheckRes = await pool.request().query("SELECT id, hostname, ip, last_seen, status, last_offline_alert_at, group_ids FROM Devices");
+    const devicesToCheck = devicesToCheckRes.recordset || [];
+
+    const groupsRes = await pool.request().query("SELECT id, name FROM DeviceGroups");
+    const groupsMap = (groupsRes.recordset || []).reduce((acc, g) => {
+      acc[g.id] = g.name.toLowerCase();
+      return acc;
+    }, {});
+
+    const now = new Date();
+    const currentHour = now.getHours();
+    const isLateNight = currentHour >= 23 || currentHour < 7;
+
+    let newlyOffline = [];
+
+    // 2. Perform Ping-Check and Heartbeat-Check
+    for (const dev of devicesToCheck) {
+      let isHeartbeatStale = false;
+      if (dev.last_seen) {
+        let lastSeenDate;
+        if (dev.last_seen instanceof Date) {
+          lastSeenDate = dev.last_seen;
+        } else {
+          lastSeenDate = new Date(dev.last_seen);
+        }
+
+        if (!isNaN(lastSeenDate.getTime())) {
+          const diffMins = (now - lastSeenDate) / (1000 * 60);
+          if (diffMins > timeoutMins) isHeartbeatStale = true;
+        } else {
+          isHeartbeatStale = true;
+        }
+      } else {
+        isHeartbeatStale = true;
+      }
+
+      // Proactive Ping Check (Only if heartbeat is stale)
+      let isPingFailing = false;
+      const canPing = dev.ip && dev.ip !== 'Unknown' && dev.ip !== '127.0.0.1' && !dev.ip.startsWith('169.');
+
+      if (isHeartbeatStale && canPing) {
+        try {
+          const { stdout } = await execPromise(`ping -n 2 -w 1000 ${dev.ip}`);
+          if (!stdout.includes("TTL=")) {
+            isPingFailing = true;
+          } else {
+            // Ping Success logic: RECOVERY
+            if (dev.status === 'offline') {
+              const recRes = await pool.request()
+                .input('id', sql.NVarChar, dev.id)
+                .query("UPDATE Devices SET status = 'online', last_offline_alert_at = NULL WHERE id = @id AND status = 'offline'");
+
+              if (recRes.rowsAffected[0] > 0) {
+                console.log(`[DETECTOR] Device ${dev.hostname} RECOVERED (Ping Success)`);
+              }
+            }
+            // If it responds to ping, it is NOT failing
+            isPingFailing = false;
+          }
+        } catch (e) {
+          isPingFailing = true;
+        }
+      }
+
+      // OFFLINE RULE: Stale AND Ping Fails
+      if (isHeartbeatStale && isPingFailing) {
+        if (dev.status === 'online') {
+          // 1. Calculate Priority (Server/Network/Router groups)
+          const gids = (dev.group_ids || "").split(',').map((s) => s.trim());
+          const isPriority = gids.some((gid) => {
+            if (gid === 'g2') return true; // Default Servers ID
+            const gName = groupsMap[gid] || "";
+            return gName.includes('server') || gName.includes('network') || gName.includes('router');
+          });
+
+          // 2. ALWAYS Update DB status to Offline for Dashboard visibility
+          // BUT only set the alert timestamp if it's a priority device.
+          // Atomic Check: only proceed if status is still 'online'
+          const updateQuery = isPriority
+            ? "UPDATE Devices SET status = 'offline', last_offline_alert_at = @now WHERE id = @id AND status = 'online'"
+            : "UPDATE Devices SET status = 'offline' WHERE id = @id AND status = 'online'";
+
+          const offUpdateRes = await pool.request()
+            .input('id', sql.NVarChar, dev.id)
+            .input('now', sql.DateTime, now)
+            .query(updateQuery);
+
+          // 3. ONLY add to notification list if Priority AND we were the one who updated it
+          if (isPriority && offUpdateRes.rowsAffected[0] > 0) {
+            newlyOffline.push({ ...dev, alertNeeded: true, reason: "Heartbeat Stale & Ping Fail" });
+          } else if (isPriority) {
+            // Already handled by another process
+          } else {
+            console.log(`[DETECTOR] Silent offline (non-priority device) for: ${dev.hostname}`);
+          }
+        }
+      }
+
+      // Small pause to prevent terminal spamming
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    // 3. LOG newly offline devices to ActivityLog (Only for those in newlyOffline)
+    for (const dev of newlyOffline) {
+      const ts = getCurrentTimeHHMM();
+      await pool.request()
+        .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
+        .input('action', sql.NVarChar, `⚠️ Device offline (${dev.reason}): ${dev.hostname} (${dev.ip})`)
+        .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
+        .catch(() => { });
+    }
+
+    // 4. Recovery Detection: Find devices that were offline but are now responding
+    // Fetch and filter in JS to avoid SQL conversion issues with different locale settings
+    const allRecoverable = await pool.request().query(`
+      SELECT id, hostname, ip, last_seen, status, last_offline_alert_at 
+      FROM Devices 
+      WHERE (status = 'offline' OR last_offline_alert_at IS NOT NULL)
+        AND last_seen IS NOT NULL
+    `);
+
+    // const now is already declared at the top of the function
+    const recovered = (allRecoverable.recordset || []).filter(dev => {
+      let lastSeenDate;
+      if (dev.last_seen instanceof Date) {
+        lastSeenDate = dev.last_seen;
+      } else {
+        lastSeenDate = new Date(dev.last_seen);
+      }
+
+      if (isNaN(lastSeenDate.getTime())) return false;
+      const diffMins = (now - lastSeenDate) / (1000 * 60);
+      return diffMins <= timeoutMins;
+    });
+
+    if (recovered.length > 0) {
+      const actualRecovered = [];
+
+      for (const dev of recovered) {
+        // Atomic Update: Only process if the device is still recorded as 'offline' or has a pending alert
+        // This prevents multiple processes from sending the same recovery notification.
+        const updateRes = await pool.request()
+          .input('id', sql.NVarChar, dev.id)
+          .query("UPDATE Devices SET status = 'online', last_offline_alert_at = NULL WHERE id = @id AND (status = 'offline' OR last_offline_alert_at IS NOT NULL)");
+
+        if (updateRes.rowsAffected[0] === 0) {
+          // Another process already recovered this device
+          continue;
+        }
+
+        const ts = getCurrentTimeHHMM();
+        await pool.request()
+          .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
+          .input('action', sql.NVarChar, `✅ Device recovered: ${dev.hostname} (${dev.ip})`)
+          .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
+          .catch(() => { });
+
+        // Add to list of devices that were actually recovered by THIS process
+        actualRecovered.push(dev);
+      }
+
+      if (actualRecovered.length > 0) {
+        let recoveryWA = `✅ *NET RECOVERY: ${actualRecovered.length} DEVICES ONLINE*\n`;
+        for (const dev of actualRecovered) {
+          let durationStr = "";
+          if (dev.last_offline_alert_at) {
+            const diffMs = now - new Date(dev.last_offline_alert_at);
+            const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+            const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+            durationStr = ` (Down: ${diffHrs}h ${diffMins}m)`;
+          }
+          recoveryWA += `- *${dev.hostname}* (${dev.ip})${durationStr}\n`;
+        }
+
+        console.log(`[NOTIF] Sending recovery summary for ${actualRecovered.length} devices.`);
+        await sendWebhook(`✅ Network Recovery Report`, recoveryWA.replace(/\*/g, '**'), 0x22c55e);
+        await sendWhatsapp(recoveryWA);
+      }
+    }
+
+    // 5. Send Notification if we caught NEW offline devices
+    if (newlyOffline.length > 0) {
+      // Fetch ALL currently offline devices to provide full context (the "7 devices" requested)
+      const allOfflineRes = await pool.request().query("SELECT hostname, ip, last_seen FROM Devices WHERE status = 'offline'");
+      const allOffline = allOfflineRes.recordset || [];
+
+      let summaryWA = `🚨 *NETWORK ALERT: ${newlyOffline.length} NEW OFFLINE*\n`;
+      summaryWA += `Total currently offline: *${allOffline.length} devices*\n\n`;
+
+      summaryWA += `*Detected Just Now:*\n`;
+      newlyOffline.forEach(d => {
+        summaryWA += `- *${d.hostname}* (${d.ip}) | ${d.reason}\n`;
+      });
+
+      if (allOffline.length > newlyOffline.length) {
+        summaryWA += `\n*Also Currently Offline:*\n`;
+        const others = allOffline.filter(a => !newlyOffline.find(n => n.hostname === a.hostname));
+        others.slice(0, 10).forEach(d => {
+          summaryWA += `- ${d.hostname} (${d.ip})\n`;
+        });
+        if (others.length > 10) summaryWA += `...and ${others.length - 10} more.`;
+      }
+
+      const summaryDiscord = summaryWA.replace(/\*/g, '**');
+
+      console.log(`[NOTIF] Sending summary alert for ${allOffline.length} total offline devices.`);
+      await sendWebhook(`🚨 Network Connectivity Report`, summaryDiscord, 0xef4444);
+      await sendWhatsapp(summaryWA);
+    }
+  } catch (err) {
+    console.error('⚠️ Offline detector error:', err.message);
+  }
+}
+
+router.get('/api/devices/offline-summary', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const settingsRes = await pool.request().query("SELECT offline_timeout_mins FROM NotificationSettings WHERE id = 'global'");
+    const timeoutMins = settingsRes.recordset[0]?.offline_timeout_mins || 30;
+    const result = await pool.request()
+      .input('timeout', sql.Int, timeoutMins)
+      .query(`
+        SELECT id, hostname, ip, last_seen, status,
+          DATEDIFF(MINUTE, CAST(last_seen AS DATETIME2), GETDATE()) AS minutes_since_seen
+        FROM Devices WHERE last_seen IS NOT NULL AND ISDATE(last_seen) = 1
+        ORDER BY minutes_since_seen DESC
+      `);
+    res.json(result.recordset.map(d => ({ ...d, is_offline: d.minutes_since_seen > timeoutMins })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── WEEKLY REPORT PDF GENERATOR ───────────────────────────────
+async function generateWeeklyReportPDF() {
+  console.log('[REPORT] V2 - Generating Automated Weekly Report PDF...');
+  try {
+    const pool = await poolPromise;
+    if (!pool) return;
+
+    // 1. Gather Stats
+    const totalDevices = (await pool.request().query("SELECT COUNT(*) as count FROM Devices")).recordset[0].count;
+    const offlineDevices = (await pool.request().query("SELECT COUNT(*) as count FROM Devices WHERE status = 'offline'")).recordset[0].count;
+    const uptime = totalDevices > 0 ? (((totalDevices - offlineDevices) / totalDevices) * 100).toFixed(1) : 0;
+
+    // Top problematic devices (from ActivityLog)
+    const problematicRes = await pool.request().query(`
+      SELECT TOP 5 action, COUNT(*) as fail_count 
+      FROM ActivityLog 
+      WHERE action LIKE '%offline%'
+      GROUP BY action ORDER BY fail_count DESC
+    `);
+
+    // 1.5. Gather Ticket Stats (Last 7 Days)
+    const ticketStatsRes = await pool.request().query(`
+      SELECT status, COUNT(*) as count 
+      FROM TroubleTickets 
+      WHERE created_at >= DATEADD(day, -7, GETDATE())
+      GROUP BY status
+    `);
+    const ticketSummary = {
+      Total: 0,
+      Open: 0,
+      'In Progress': 0,
+      Resolved: 0,
+      Closed: 0
+    };
+    ticketStatsRes.recordset.forEach(row => {
+      ticketSummary.Total += row.count;
+      if (ticketSummary.hasOwnProperty(row.status)) {
+        ticketSummary[row.status] = row.count;
+      }
+    });
+
+    // 2. Create PDF
+    const reportsDir = path.join(__dirname, 'reports', 'weekly');
+    if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive: true });
+
+    const fileName = `weekly-report-${new Date().toISOString().split('T')[0]}.pdf`;
+    const filePath = path.join(reportsDir, fileName);
+    const doc = new PDFDocument({ margin: 50 });
+    const stream = fs.createWriteStream(filePath);
+    doc.pipe(stream);
+
+    // Header
+    doc.fontSize(24).font('Helvetica-Bold').text('NETWORK WEEKLY SUMMARY', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(10).font('Helvetica').text(`Generated on: ${new Date().toLocaleString()}`, { align: 'center' });
+    doc.moveDown(2);
+
+    // Stats Section
+    doc.fontSize(16).fillColor('#3b82f6').font('Helvetica-Bold').text('System Health Overview');
+    doc.moveDown(0.5);
+    doc.fontSize(12).fillColor('#000000').font('Helvetica');
+    doc.text(`• Overall Uptime: ${uptime}%`);
+    doc.text(`• Total Monitored Devices: ${totalDevices}`);
+    doc.text(`• Currently Offline: ${offlineDevices}`);
+    doc.moveDown();
+
+    // Problematic Stores
+    if (problematicRes.recordset.length > 0) {
+      doc.fontSize(16).fillColor('#ef4444').font('Helvetica-Bold').text('Top 5 Problematic Assets (Last 7 Days)');
+      doc.moveDown(0.5);
+      doc.fontSize(10).fillColor('#000000').font('Helvetica');
+      problematicRes.recordset.forEach((row, i) => {
+        doc.text(`${i + 1}. ${row.action.split(':')[1]?.trim() || row.action} (${row.fail_count} incidents)`);
+      });
+      doc.moveDown();
+    }
+
+    // Ticket Summary Section
+    doc.fontSize(16).fillColor('#8b5cf6').font('Helvetica-Bold').text('Helpdesk Ticket Summary (Last 7 Days)');
+    doc.moveDown(0.5);
+    doc.fontSize(12).fillColor('#000000').font('Helvetica');
+    doc.text(`• Total Tickets Created: ${ticketSummary.Total}`);
+    doc.text(`• Open: ${ticketSummary.Open}`);
+    doc.text(`• In Progress: ${ticketSummary['In Progress']}`);
+    doc.text(`• Resolved: ${ticketSummary.Resolved}`);
+    doc.text(`• Closed: ${ticketSummary.Closed}`);
+    doc.moveDown();
+
+    doc.end();
+
+    stream.on('finish', async () => {
+      console.log(`[REPORT] Weekly PDF saved: ${filePath}`);
+      const summary = `📊 *WEEKLY SYSTEM REPORT IS READY*\n` +
+        `Period: Last 7 Days\n` +
+        `Avg Uptime: *${uptime}%*\n` +
+        `Total Devices: ${totalDevices}\n` +
+        `Critical Incidents: ${problematicRes.recordset.length}\n\n` +
+        `🎟️ *Helpdesk Tickets (7d):*\n` +
+        `- Created: ${ticketSummary.Total}\n` +
+        `- Resolved/Closed: ${ticketSummary.Resolved + ticketSummary.Closed}\n` +
+        `- Active (Open/IP): ${ticketSummary.Open + ticketSummary['In Progress']}\n\n` +
+        `_Weekly PDF has been archived on the server._`;
+
+      await sendWebhook(`📊 Weekly Performance Report`, summary.replace(/\*/g, '**'), 0x3b82f6);
+      await sendWhatsapp(summary);
+    });
+  } catch (err) {
+    console.error('⚠️ Weekly report error:', err.message);
+  }
+}
+
+// Schedule Cron: Every Sunday at 00:00
+cron.schedule('0 0 * * 0', () => {
+  generateWeeklyReportPDF();
+});
+
+// Manual trigger API (for testing)
+router.post('/api/reports/trigger-weekly', async (req, res) => {
+  await generateWeeklyReportPDF();
+  res.json({ message: "Weekly report generation triggered." });
+});
+
+/**
+ * Daily Outstanding Ticket + CRM Sync Notification
+ * Summarizes tickets that are not Closed/Resolved and shows progress %.
+ * Also includes LOYAL_CRM_ITEM_MST sync status from HOSERVER.
+ */
+async function sendDailyOutstandingTicketsNotification(isManual = false) {
+  console.log('[REPORT] Generating Daily Outstanding Ticket + CRM Sync Notification...');
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  try {
+    const pool = await poolPromise;
+    if (!pool) return;
+
+    if (!isManual) {
+      // 1. Database-backed Deduplication: Check if already sent today across ANY process
+      const settingsCheck = await pool.request().query("SELECT last_daily_report_date FROM NotificationSettings WHERE id = 'global'");
+      const lastSentDate = settingsCheck.recordset[0]?.last_daily_report_date;
+
+      if (lastSentDate === todayStr) {
+        console.log('[REPORT] Daily ticket notification already sent today (DB check).');
+        return;
+      }
+
+      // 2. Atomic Reservation: Mark as sent BEFORE proceeding to prevent race conditions
+      // If multiple processes hit this at 08:00:00, only one will successfully update if we use a strict WHERE
+      const reserveRes = await pool.request()
+        .input('today', sql.NVarChar, todayStr)
+        .query("UPDATE NotificationSettings SET last_daily_report_date = @today WHERE id = 'global' AND (last_daily_report_date IS NULL OR last_daily_report_date <> @today)");
+
+      if (reserveRes.rowsAffected[0] === 0) {
+        console.log('[REPORT] Daily ticket notification just claimed by another process.');
+        return;
+      }
+    }
+
+    // 1. Fetch Outstanding Tickets
+    const ticketsRes = await pool.request().query(`
+      SELECT id, title, status, outlet_name, assigned_to, hostname as manual_hostnames
+      FROM TroubleTickets
+      WHERE status NOT IN ('Closed', 'Resolved')
+    `);
+    const tickets = ticketsRes.recordset;
+
+    // 2. Fetch all components to calculate progress in memory
+    const allTargetsRes = await pool.request().query('SELECT ticket_id, hostname, status FROM TicketTargets');
+    const allTargets = allTargetsRes.recordset;
+
+    const allLinkedGroupsRes = await pool.request().query('SELECT ticket_id, group_id FROM TicketGroups');
+    const allLinkedGroups = allLinkedGroupsRes.recordset;
+
+    const devicesRes = await pool.request().query('SELECT hostname, group_ids FROM Devices');
+    const allDevices = devicesRes.recordset;
+
+    let summary = `🎟️ *DAILY OUTSTANDING TICKETS SUMMARY*\n`;
+    summary += `_Date: ${new Date().toLocaleDateString('id-ID')}_\n\n`;
+
+    for (const ticket of tickets) {
+      // Resolve Manual Targets
+      const manualHosts = (ticket.manual_hostnames || '')
+        .split(',')
+        .map(h => h.trim())
+        .filter(h => h.length > 0);
+
+      // Resolve Group Targets
+      const linkedGroupIds = allLinkedGroups
+        .filter(tg => tg.ticket_id === ticket.id)
+        .map(tg => tg.group_id);
+
+      const groupHosts = allDevices.filter(dev => {
+        if (!dev.group_ids) return false;
+        const gids = dev.group_ids.split(',');
+        return linkedGroupIds.some(gid => gids.includes(gid));
+      }).map(dev => dev.hostname);
+
+      // Unique set of all targets
+      const totalTargets = Array.from(new Set([...manualHosts, ...groupHosts]));
+
+      let progress = 0;
+      if (totalTargets.length > 0) {
+        const solvedCount = allTargets.filter(t =>
+          t.ticket_id === ticket.id &&
+          totalTargets.includes(t.hostname) &&
+          t.status === 'Solved'
+        ).length;
+        progress = Math.round((solvedCount / totalTargets.length) * 100);
+      } else {
+        // If no targets defined, use status-based simple progression if In Progress
+        progress = ticket.status === 'In Progress' ? 50 : 0;
+      }
+
+      const statusEmoji = ticket.status === 'In Progress' ? '🚧' : '📋';
+      summary += `${statusEmoji} *[${ticket.id}]* ${ticket.title}\n`;
+      summary += `   • Status: _${ticket.status}_\n`;
+      summary += `   • Progress: *${progress}%*\n`;
+      summary += `   • Assigned To: ${ticket.assigned_to || '*Unassigned*'}\n`;
+      if (ticket.outlet_name) summary += `   • Outlet: ${ticket.outlet_name}\n`;
+      summary += `\n`;
+    }
+
+    if (tickets.length === 0) {
+      summary += `✅ Tidak ada ticket yang outstanding saat ini.\n\n`;
+    }
+
+    // ── 3. LOYAL CRM SYNC STATUS (HOSERVER) — 2 Hari ──────────
+    try {
+      const hoDevRes = await pool.request()
+        .input('hostname', sql.NVarChar, 'HOSERVER')
+        .query('SELECT id, ip FROM Devices WHERE hostname = @hostname');
+
+      if (hoDevRes.recordset.length > 0) {
+        const { id: hoDeviceId, ip: hoIp } = hoDevRes.recordset[0];
+        const hoConnRes = await pool.request()
+          .input('did', sql.NVarChar, hoDeviceId)
+          .query('SELECT * FROM DeviceDbConnections WHERE device_id = @did');
+
+        if (hoConnRes.recordset.length > 0) {
+          const hoConn = hoConnRes.recordset[0];
+          const hoPool = new sql.ConnectionPool({
+            user: hoConn.db_user,
+            password: hoConn.db_password,
+            server: hoIp,
+            database: hoConn.db_name,
+            options: { encrypt: false, enableArithAbort: true, trustServerCertificate: true },
+            connectionTimeout: 10000,
+            requestTimeout: 15000
+          });
+          await hoPool.connect();
+
+          const crmRes = await hoPool.request().query(`
+            SELECT
+              CONVERT(date, last_timestamp) as sync_date,
+              SUM(CASE WHEN is_sync = '1' THEN 1 ELSE 0 END) as synced_count,
+              SUM(CASE WHEN ISNULL(is_sync, '0') <> '1' THEN 1 ELSE 0 END) as pending_count,
+              MAX(CASE WHEN ISNULL(is_sync, '0') <> '1' AND ISNULL(response_msg, '') <> '' THEN response_msg ELSE NULL END) as sample_error
+            FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+            WHERE CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -1, GETDATE()))
+            GROUP BY CONVERT(date, last_timestamp)
+            ORDER BY sync_date DESC
+          `);
+          await hoPool.close();
+
+          summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          summary += `🔄 *LOYAL CRM ITEM SYNC (HOSERVER VS LOYAL CRM)*\n`;
+
+          const todayDate = new Date().toDateString();
+          for (const row of crmRes.recordset) {
+            const rowDate = new Date(row.sync_date);
+            const dayLabel = rowDate.toDateString() === todayDate ? 'today' : 'yesterday';
+            const synced = row.synced_count || 0;
+            const pending = row.pending_count || 0;
+            const total = synced + pending;
+            const pct = total > 0 ? Math.round((synced / total) * 100) : 0;
+            const emoji = pending === 0 ? '✅' : (pending > 5 ? '🔴' : '⚠️');
+
+            summary += `\n${emoji} *${dayLabel}* (${rowDate.toLocaleDateString('id-ID')})\n`;
+            summary += `   • Sync Success : *${synced}* / ${total} (${pct}%)\n`;
+            summary += `   • Pending/Failed : *${pending}*\n`;
+            if (row.sample_error) {
+              summary += `   ⚠️ Error: _${String(row.sample_error).substring(0, 100)}_\n`;
+            }
+          }
+
+          if (crmRes.recordset.length === 0) {
+            summary += `\n_No CRM sync data for the last 2 days._\n`;
+          }
+          summary += `\n`;
+        }
+      }
+    } catch (crmErr) {
+      console.error('[REPORT] CRM Sync section error (non-fatal):', crmErr.message);
+      summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      summary += `⚠️ *LOYAL CRM SYNC*: Data tidak tersedia.\n\n`;
+    }
+
+    // ── 3.5 CRM FRAUD ANALYSIS (YESTERDAY) ──────────
+    try {
+      const crmPool = await getCrmPool();
+      const fraudRes = await crmPool.request().query(`
+        WITH trx AS (
+          SELECT
+            q.RLITQ_ORG_CD AS org_cd,
+            q.RLITQ_CARD_NO AS card_no,
+            m.RLICM_NAME AS cust_name,
+            d.ORG_NAME AS store_name,
+            h.SESSION_NO,
+            h.NET_VALUE,
+            CAST(h.BILL_DT AS DATE) AS trx_date,
+            CAST(h.BILL_TIME AS TIME) AS bill_time,
+            LAG(CAST(h.BILL_TIME AS TIME)) OVER (
+              PARTITION BY q.RLITQ_CARD_NO, q.RLITQ_ORG_CD, h.SESSION_NO, CAST(h.BILL_DT AS DATE)
+              ORDER BY CAST(h.BILL_TIME AS TIME)
+            ) AS prev_bill_time
+          FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
+          LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+          LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+          LEFT JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO
+          WHERE CAST(h.BILL_DT AS DATE) = CAST(DATEADD(day, -1, GETDATE()) AS DATE)
+        ),
+        trx_interval AS (
+          SELECT
+            *,
+            CASE
+              WHEN DATEDIFF(SECOND, prev_bill_time, bill_time) < 0 THEN NULL
+              ELSE DATEDIFF(SECOND, prev_bill_time, bill_time)
+            END AS interval_sec
+          FROM trx
+        )
+        SELECT
+          trx_date AS trans_date,
+          card_no,
+          cust_name,
+          org_cd,
+          store_name,
+          SESSION_NO,
+          COUNT(*) AS frequently,
+          ROUND(AVG(CAST(ISNULL(NET_VALUE, 0) AS FLOAT)), 0) AS avg_value
+        FROM trx_interval
+        GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
+        HAVING COUNT(*) > 5
+        ORDER BY frequently DESC
+      `);
+
+      if (fraudRes.recordset.length > 0) {
+        summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        summary += `🚨 *CRM FRAUD ANALYSIS: Suspicious Activity Detected*\n`;
+        summary += `_Harap segera melakukan review pada report CRM Fraud Analysis!_\n\n`;
+
+        for (const row of fraudRes.recordset) {
+          summary += `📅 Date: ${new Date(row.trans_date).toLocaleDateString('id-ID')}\n`;
+          summary += `🏪 Store: ${row.org_cd} - ${row.store_name}\n`;
+          summary += `💳 Card No: ${row.card_no}\n`;
+          summary += `👤 Customer: ${row.cust_name || 'N/A'}\n`;
+          summary += `⚠️ Frequency: *${row.frequently}* transactions\n`;
+          summary += `💰 Avg Value: *Rp ${new Intl.NumberFormat('id-ID').format(row.avg_value || 0)}*\n\n`;
+        }
+      }
+    } catch (fraudErr) {
+      console.error('[REPORT] CRM Fraud Analysis error (non-fatal):', fraudErr.message);
+    }
+
+    summary += `_Pantau detail di http://192.168.85.30:3001/tickets_`;
+
+    // 4. Send Notifications
+    await sendWebhook(`🎟️ Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
+    await sendWhatsapp(summary);
+
+    console.log('[REPORT] Daily ticket + CRM notification sent.');
+
+  } catch (err) {
+    console.error('⚠️ Daily ticket report error:', err.message);
+  }
+}
+
+// Schedule Daily Ticketing Notification: Every day at 08:00
+cron.schedule('0 8 * * *', () => {
+  sendDailyOutstandingTicketsNotification(false);
+});
+
+// Manual trigger for testing
+router.post('/api/reports/trigger-daily-tickets', async (req, res) => {
+  await sendDailyOutstandingTicketsNotification(true);
+  res.json({ message: "Daily ticket notification triggered manually." });
+});
+
+// Serve Weekly Reports Folder
+router.use('/reports/weekly', express.static(path.join(__dirname, 'reports', 'weekly')));
+
+// ── WORKFLOW KNOWLEDGE BASE ──────────────────────────────────
+router.get('/api/workflows', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT id, title, category, file_name, created_by, created_at, updated_at FROM Workflows ORDER BY category, title");
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Categories for UI filtering
+router.get('/api/workflows/categories', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT DISTINCT category FROM Workflows WHERE category IS NOT NULL ORDER BY category");
+    res.json(result.recordset.map(r => r.category));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get specific workflow details
+router.get('/api/workflows/:id', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('id', sql.NVarChar, req.params.id)
+      .query("SELECT * FROM Workflows WHERE id = @id");
+    if (result.recordset.length > 0) {
+      res.json(result.recordset[0]);
+    } else {
+      res.status(404).json({ error: "Workflow not found" });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download Workflow File
+router.get('/api/workflows/:id/download', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().input('id', sql.NVarChar, req.params.id).query("SELECT file_name, file_path FROM Workflows WHERE id = @id");
+    if (!result.recordset[0] || !result.recordset[0].file_path) return res.status(404).send('File not found');
+
+    const filePath = path.resolve(result.recordset[0].file_path);
+    if (!fs.existsSync(filePath)) return res.status(404).send('File not found on disk');
+
+    res.download(filePath, result.recordset[0].file_name);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
+// View Workflow File (Inline)
+router.get('/api/workflows/:id/view', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().input('id', sql.NVarChar, req.params.id).query("SELECT file_name, file_path FROM Workflows WHERE id = @id");
+    if (!result.recordset[0] || !result.recordset[0].file_path) return res.status(404).send('File not found');
+
+    const filePath = path.resolve(result.recordset[0].file_path);
+    if (!fs.existsSync(filePath)) return res.status(404).send('File not found on disk');
+
+    res.sendFile(filePath);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
+router.post('/api/workflows/upload', workflowUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  try {
+    let extractedText = "";
+    const ext = path.extname(req.file.originalname).toLowerCase();
+
+    if (ext === '.docx') {
+      const result = await mammoth.extractRawText({ path: req.file.path });
+      extractedText = result.value;
+    } else if (ext === '.txt') {
+      extractedText = fs.readFileSync(req.file.path, 'utf8');
+    } else if (ext === '.pdf') {
+      const dataBuffer = fs.readFileSync(req.file.path);
+      const pdfResult = await pdfParse(dataBuffer);
+      extractedText = pdfResult.text;
+    } else {
+      extractedText = `File ${req.file.originalname} uploaded, but auto-text extraction is not supported for this format.`;
+    }
+
+    res.json({
+      text: extractedText,
+      fileName: req.file.originalname,
+      filePath: req.file.path.replace(/\\/g, '/')
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to parse file: " + err.message });
+  }
+});
+
+router.post('/api/workflows', async (req, res) => {
+  const { id, title, content, category, created_by, fileName, filePath, userId: bodyUid } = req.body;
+  const uid = req.headers['x-user-id'] || bodyUid;
+
+  try {
+    const pool = await poolPromise;
+    // Admin Check
+    const userRes = await pool.request().input('uid', sql.NVarChar, uid).query("SELECT r.is_admin FROM Users u JOIN Roles r ON u.role_id = r.id WHERE u.id = @uid");
+    if (!userRes.recordset[0]?.is_admin) return res.status(403).json({ error: "Only admins can create instructions" });
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('title', sql.NVarChar, title)
+      .input('content', sql.NVarChar, content)
+      .input('category', sql.NVarChar, category)
+      .input('fname', sql.NVarChar, fileName || null)
+      .input('fpath', sql.NVarChar, filePath || null)
+      .input('created_by', sql.NVarChar, created_by)
+      .query(`
+        INSERT INTO Workflows (id, title, content, category, file_name, file_path, created_by, created_at, updated_at)
+        VALUES (@id, @title, @content, @category, @fname, @fpath, @created_by, GETDATE(), GETDATE())
+      `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/workflows/:id', async (req, res) => {
+  const { title, content, category, fileName, filePath, userId: bodyUid } = req.body;
+  const uid = req.headers['x-user-id'] || bodyUid;
+
+  try {
+    const pool = await poolPromise;
+    // Admin Check
+    const userRes = await pool.request().input('uid', sql.NVarChar, uid).query("SELECT r.is_admin FROM Users u JOIN Roles r ON u.role_id = r.id WHERE u.id = @uid");
+    if (!userRes.recordset[0]?.is_admin) return res.status(403).json({ error: "Only admins can edit instructions" });
+
+    await pool.request()
+      .input('id', sql.NVarChar, req.params.id)
+      .input('title', sql.NVarChar, title)
+      .input('content', sql.NVarChar, content)
+      .input('category', sql.NVarChar, category)
+      .input('fname', sql.NVarChar, fileName || null)
+      .input('fpath', sql.NVarChar, filePath || null)
+      .query(`
+        UPDATE Workflows 
+        SET title = @title, content = @content, category = @category, 
+            file_name = COALESCE(@fname, file_name), 
+            file_path = COALESCE(@fpath, file_path),
+            updated_at = GETDATE()
+        WHERE id = @id
+      `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/workflows/:id', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, req.params.id)
+      .query("DELETE FROM Workflows WHERE id = @id");
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── AI SMART ASSISTANT (Groq Llama) ──────────────────────────
+function normalizeAssistantKeywordText(value = '') {
+  return value.toString().trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+const ASSISTANT_RESERVED_ARGS = ['host', 'hostname', 'target_host', 'confirm'];
+const ASSISTANT_TARGET_HOST_PLACEHOLDER = 'isi host tetap, atau kosongkan lalu pakai host=HOST01 saat runtime';
+
+function parseAssistantKeywordArgs(input = '') {
+  const args = {};
+  let remaining = input;
+  const regex = /(\w+)=("([^"]*)"|'([^']*)'|[^\s]+)/g;
+  let match;
+
+  while ((match = regex.exec(input)) !== null) {
+    const key = match[1];
+    const value = match[3] ?? match[4] ?? match[2] ?? '';
+    args[key] = value.replace(/^['"]|['"]$/g, '');
+    remaining = remaining.replace(match[0], ' ');
+  }
+
+  const freeText = remaining.trim().replace(/\s+/g, ' ');
+  if (freeText && !args.query) {
+    args.query = freeText;
+  }
+
+  return args;
+}
+
+function parseKeywordParameterKeys(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((item) => item?.toString().trim()).filter((item) => item && !ASSISTANT_RESERVED_ARGS.includes(item.toLowerCase())))];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? [...new Set(parsed.map((item) => item?.toString().trim()).filter((item) => item && !ASSISTANT_RESERVED_ARGS.includes(item.toLowerCase())))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function sanitizeKeywordTargetHost(value) {
+  const normalized = (value || '').toString().trim();
+  if (!normalized) return '';
+  if (normalized.toLowerCase() === ASSISTANT_TARGET_HOST_PLACEHOLDER.toLowerCase()) return '';
+  return normalized;
+}
+
+function buildMissingParameterPrompt(keyword, missingParameters, args = {}) {
+  const examples = missingParameters.map((key) => `${key}=...`).join(' ');
+  const hostHint = !sanitizeKeywordTargetHost(keyword.target_host) && !args.host && !args.hostname && !args.target_host
+    ? '\nJika keyword ini memakai database host tertentu, tambahkan juga `host=HOSTNAME` atau `hostname=HOSTNAME`.'
+    : '';
+
+  return `Keyword \`${keyword.keyword}\` membutuhkan parameter berikut: ${missingParameters.join(', ')}.\n\nSilakan kirim ulang dengan format seperti:\n\`${keyword.keyword} ${examples}\`${hostHint}`;
+}
+
+function applyKeywordParameters(request, args, parameterKeys) {
+  parameterKeys.forEach((key) => {
+    const rawValue = args[key];
+    if (rawValue === undefined) return;
+
+    if (/^(true|false)$/i.test(rawValue)) {
+      request.input(key, sql.Bit, /^true$/i.test(rawValue) ? 1 : 0);
+      return;
+    }
+
+    if (/^-?\d+$/.test(rawValue)) {
+      request.input(key, sql.Int, parseInt(rawValue, 10));
+      return;
+    }
+
+    if (/^-?\d+\.\d+$/.test(rawValue)) {
+      request.input(key, sql.Float, parseFloat(rawValue));
+      return;
+    }
+
+    request.input(key, sql.NVarChar, rawValue);
+  });
+}
+
+function formatKeywordRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return "Tidak ada data ditemukan untuk keyword ini.";
+  }
+
+  const sampleRows = rows.slice(0, 10);
+  const columns = Object.keys(sampleRows[0] || {}).slice(0, 6);
+  if (columns.length === 0) {
+    return `Keyword berhasil dijalankan. Total ${rows.length} baris ditemukan.`;
+  }
+
+  const header = `| ${columns.join(' | ')} |`;
+  const separator = `| ${columns.map(() => '---').join(' | ')} |`;
+  const body = sampleRows.map((row) => `| ${columns.map((column) => String(row[column] ?? '-').replace(/\|/g, '\\|')).join(' | ')} |`);
+  const note = rows.length > sampleRows.length ? `\n\nMenampilkan ${sampleRows.length} dari ${rows.length} baris.` : `\n\nTotal ${rows.length} baris.`;
+  return [header, separator, ...body].join('\n') + note;
+}
+
+async function executeKeywordSql(pool, keyword, args) {
+  const parameterKeys = parseKeywordParameterKeys(keyword.parameter_keys);
+  const missingParameters = parameterKeys.filter((key) => args[key] === undefined);
+  if (missingParameters.length > 0) {
+    return {
+      handled: true,
+      text: buildMissingParameterPrompt(keyword, missingParameters, args),
+      sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Missing required parameters' }]
+    };
+  }
+
+  const isReadOnly = keyword.action_type === 'query'
+    ? /^\s*select\b/i.test(keyword.script_text) && !/\b(delete|update|drop|truncate|alter|insert|merge|exec)\b/i.test(keyword.script_text)
+    : true;
+
+  if (keyword.action_type === 'query' && !isReadOnly) {
+    return {
+      handled: true,
+      text: `Keyword \`${keyword.keyword}\` ditolak karena script query tidak terbaca sebagai SELECT read-only.`,
+      sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Rejected non read-only query' }]
+    };
+  }
+
+  const buildRequest = (request) => {
+    applyKeywordParameters(request, args, parameterKeys);
+    return request;
+  };
+
+  const runtimeHost = (args.target_host || args.hostname || args.host || '').toString().trim();
+  const resolvedTargetHost = sanitizeKeywordTargetHost(keyword.target_host || runtimeHost || '');
+
+  if (resolvedTargetHost) {
+    const hostRes = await pool.request()
+      .input('name', sql.NVarChar, resolvedTargetHost)
+      .query("SELECT id, ip FROM Devices WHERE hostname = @name");
+    const target = hostRes.recordset[0];
+    if (!target) {
+      return {
+        handled: true,
+        text: `Target host \`${resolvedTargetHost}\` untuk keyword \`${keyword.keyword}\` tidak ditemukan.`,
+        sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Target host not found' }]
+      };
+    }
+
+    const connRes = await pool.request()
+      .input('did', sql.NVarChar, target.id)
+      .query("SELECT * FROM DeviceDbConnections WHERE device_id = @did");
+    const conn = connRes.recordset[0];
+    if (!conn) {
+      return {
+        handled: true,
+        text: `Kredensial database untuk host \`${resolvedTargetHost}\` belum dikonfigurasi.`,
+        sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Missing remote DB credentials' }]
+      };
+    }
+
+    const config = {
+      user: conn.db_user,
+      password: conn.db_password,
+      server: target.ip,
+      database: conn.db_name,
+      options: { encrypt: false, trustServerCertificate: true, connectTimeout: 10000 },
+      pool: { max: 1, min: 0 }
+    };
+    const remotePool = await remotePoolManager.getPool(target.id, config);
+    const result = await buildRequest(remotePool.request()).query(keyword.script_text);
+
+    return {
+      handled: true,
+      text: keyword.action_type === 'procedure'
+        ? `Procedure keyword \`${keyword.keyword}\` berhasil dijalankan pada host \`${resolvedTargetHost}\`.\n\n${formatKeywordRows(result.recordset || [])}`
+        : formatKeywordRows(result.recordset || []),
+      sources: [{ type: keyword.action_type, label: resolvedTargetHost, detail: `${keyword.action_type} keyword` }]
+    };
+  }
+
+  const result = await buildRequest(pool.request()).query(keyword.script_text);
+  return {
+    handled: true,
+    text: keyword.action_type === 'procedure'
+      ? `Procedure keyword \`${keyword.keyword}\` berhasil dijalankan.\n\n${formatKeywordRows(result.recordset || [])}`
+      : formatKeywordRows(result.recordset || []),
+    sources: [{ type: keyword.action_type, label: keyword.keyword, detail: 'Local database keyword' }]
+  };
+}
+
+async function executeWorkflowKeyword(pool, keyword, args) {
+  const searchTerm = args.query || keyword.script_text;
+  if (!searchTerm) {
+    return {
+      handled: true,
+      text: `Keyword workflow \`${keyword.keyword}\` belum punya target pencarian.`,
+      sources: [{ type: 'workflow', label: keyword.keyword, detail: 'Missing workflow target' }]
+    };
+  }
+
+  if (searchTerm.startsWith('id:')) {
+    const workflowId = searchTerm.slice(3).trim();
+    const result = await pool.request()
+      .input('id', sql.NVarChar, workflowId)
+      .query("SELECT title, content FROM Workflows WHERE id = @id");
+    if (!result.recordset[0]) {
+      return {
+        handled: true,
+        text: `Workflow dengan id \`${workflowId}\` tidak ditemukan.`,
+        sources: [{ type: 'workflow', label: keyword.keyword, detail: 'Workflow not found' }]
+      };
+    }
+
+    return {
+      handled: true,
+      text: `### ${result.recordset[0].title}\n\n${result.recordset[0].content}`,
+      sources: [{ type: 'workflow', label: result.recordset[0].title, detail: 'Knowledge base article' }]
+    };
+  }
+
+  const result = await pool.request()
+    .input('q', sql.NVarChar, `%${searchTerm}%`)
+    .query("SELECT TOP 10 id, title, category FROM Workflows WHERE title LIKE @q OR category LIKE @q OR content LIKE @q");
+
+  if (!result.recordset.length) {
+    return {
+      handled: true,
+      text: `Tidak ada workflow yang cocok untuk keyword \`${keyword.keyword}\` dengan pencarian \`${searchTerm}\`.`,
+      sources: [{ type: 'workflow', label: keyword.keyword, detail: 'No workflow match' }]
+    };
+  }
+
+  return {
+    handled: true,
+    text: `Saya menemukan ${result.recordset.length} workflow untuk keyword \`${keyword.keyword}\`:\n\n${formatKeywordRows(result.recordset)}`,
+    sources: [{ type: 'workflow', label: keyword.keyword, detail: `${result.recordset.length} workflow match(es)` }]
+  };
+}
+
+function formatKeywordHelpList(keywords) {
+  if (!Array.isArray(keywords) || keywords.length === 0) {
+    return "Belum ada keyword assistant yang aktif.";
+  }
+
+  const lines = keywords.map((keyword) => {
+    const params = parseKeywordParameterKeys(keyword.parameter_keys);
+    const hostMode = sanitizeKeywordTargetHost(keyword.target_host) ? `host tetap: ${sanitizeKeywordTargetHost(keyword.target_host)}` : 'host dinamis: pakai host=HOSTNAME';
+    const paramLabel = params.length > 0 ? ` | params: ${params.join(', ')}` : '';
+    const flags = [
+      keyword.requires_admin ? 'admin' : null,
+      keyword.requires_confirmation ? 'confirm=yes' : null,
+    ].filter(Boolean).join(', ');
+
+    return `- \`${keyword.keyword}\` (${keyword.action_type})${paramLabel} | ${hostMode}${flags ? ` | ${flags}` : ''}\n  ${keyword.description || 'Tanpa deskripsi.'}`;
+  });
+
+  return `Berikut keyword yang tersedia:\n\n${lines.join('\n\n')}\n\nKetik \`help nama-keyword\` untuk melihat detail satu keyword.`;
+}
+
+function formatKeywordHelpDetail(keyword) {
+  const params = parseKeywordParameterKeys(keyword.parameter_keys);
+  const hostMode = sanitizeKeywordTargetHost(keyword.target_host) ? `Host tetap: \`${sanitizeKeywordTargetHost(keyword.target_host)}\`` : 'Host dinamis: gunakan `host=HOSTNAME` atau `hostname=HOSTNAME` saat runtime.';
+  const exampleArgs = [];
+
+  if (!sanitizeKeywordTargetHost(keyword.target_host)) {
+    exampleArgs.push('host=HOSTNAME');
+  }
+  params.forEach((param) => exampleArgs.push(`${param}=...`));
+  if (keyword.requires_confirmation) {
+    exampleArgs.push('confirm=yes');
+  }
+
+  return [
+    `Keyword: \`${keyword.keyword}\``,
+    `Tipe: ${keyword.action_type}`,
+    keyword.description ? `Deskripsi: ${keyword.description}` : null,
+    hostMode,
+    params.length > 0 ? `Parameter SQL: ${params.join(', ')}` : 'Parameter SQL: tidak ada',
+    keyword.requires_admin ? 'Akses: admin only' : 'Akses: sesuai izin assistant',
+    keyword.requires_confirmation ? 'Konfirmasi: wajib `confirm=yes`' : 'Konfirmasi: tidak wajib',
+    '',
+    'Contoh pakai:',
+    `\`${keyword.keyword}${exampleArgs.length ? ` ${exampleArgs.join(' ')}` : ''}\``,
+  ].filter(Boolean).join('\n');
+}
+
+async function resolveAssistantKeyword(pool, currUser, prompt) {
+  const normalizedPrompt = normalizeAssistantKeywordText(prompt);
+  const result = await pool.request().query("SELECT * FROM AssistantKeywords WHERE is_enabled = 1");
+  const enabledKeywords = result.recordset || [];
+
+  if (normalizedPrompt === 'help' || normalizedPrompt === 'help keyword' || normalizedPrompt === 'help keywords') {
+    return {
+      handled: true,
+      text: formatKeywordHelpList(enabledKeywords),
+      sources: [{ type: 'keyword-help', label: 'Assistant Keywords', detail: `${enabledKeywords.length} keyword aktif` }]
+    };
+  }
+
+  if (normalizedPrompt.startsWith('help ')) {
+    const requestedKeyword = normalizedPrompt.slice(5).trim();
+    const helpKeyword = enabledKeywords.find((row) => normalizeAssistantKeywordText(row.keyword) === requestedKeyword);
+    if (helpKeyword) {
+      return {
+        handled: true,
+        text: formatKeywordHelpDetail(helpKeyword),
+        sources: [{ type: 'keyword-help', label: helpKeyword.keyword, detail: 'Keyword detail' }]
+      };
+    }
+  }
+
+  const matchedKeyword = enabledKeywords
+    .sort((a, b) => normalizeAssistantKeywordText(b.keyword).length - normalizeAssistantKeywordText(a.keyword).length)
+    .find((row) => {
+      const normalizedKeyword = normalizeAssistantKeywordText(row.keyword);
+      return normalizedPrompt === normalizedKeyword || normalizedPrompt.startsWith(`${normalizedKeyword} `);
+    });
+
+  if (!matchedKeyword) {
+    return null;
+  }
+
+  if (matchedKeyword.action_type === 'procedure' && !currUser.is_admin) {
+    return {
+      handled: true,
+      text: `Keyword procedure \`${matchedKeyword.keyword}\` hanya boleh dijalankan oleh administrator.`,
+      sources: [{ type: 'keyword', label: matchedKeyword.keyword, detail: 'Admin only procedure keyword' }]
+    };
+  }
+
+  if (matchedKeyword.requires_admin && !currUser.is_admin) {
+    return {
+      handled: true,
+      text: `Keyword \`${matchedKeyword.keyword}\` hanya boleh dijalankan oleh administrator.`,
+      sources: [{ type: 'keyword', label: matchedKeyword.keyword, detail: 'Admin only keyword' }]
+    };
+  }
+
+  const keywordText = matchedKeyword.keyword.trim();
+  const remainder = prompt.trim().slice(keywordText.length).trim();
+  const args = parseAssistantKeywordArgs(remainder);
+
+  if (matchedKeyword.requires_confirmation && args.confirm !== 'yes') {
+    return {
+      handled: true,
+      text: `Keyword \`${matchedKeyword.keyword}\` membutuhkan konfirmasi sebelum dieksekusi. Kirim ulang dengan format:\n\n\`${prompt.trim()} confirm=yes\``,
+      sources: [{ type: 'keyword', label: matchedKeyword.keyword, detail: 'Confirmation required' }]
+    };
+  }
+
+  if (matchedKeyword.action_type === 'workflow') {
+    return executeWorkflowKeyword(pool, matchedKeyword, args);
+  }
+
+  return executeKeywordSql(pool, matchedKeyword, args);
+}
+
+const ASSISTANT_COOLDOWN_MS = 3000;
+const assistantRequestTimes = new Map();
+
+router.post('/api/chat', async (req, res) => {
+  let { userId, prompt, history, user: bodyUser } = req.body;
+  const headerUserId = req.headers['x-user-id'];
+
+  if (!userId && bodyUser && bodyUser.id) userId = bodyUser.id;
+  if (!userId && typeof headerUserId === 'string') userId = headerUserId;
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized: Missing user identity." });
+  }
+
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(400).json({ error: "Prompt is required." });
+  }
+
+  prompt = prompt.trim();
+  history = Array.isArray(history) ? history : [];
+
+  try {
+    const pool = await poolPromise;
+    const userRes = await pool.request()
+      .input('uid', sql.NVarChar, userId)
+      .query(`
+        SELECT u.id, u.username, r.is_admin, r.menu_permissions 
+        FROM Users u JOIN Roles r ON u.role_id = r.id WHERE u.id = @uid
+
+      `);
+
+    const currUser = userRes.recordset[0];
+    if (!currUser) return res.status(401).json({ error: "Unauthorized: User not found." });
+
+    const perms = currUser.menu_permissions || "[]";
+    const hasAssistantAccess = currUser.is_admin || perms === "*" || perms.includes("assistant");
+    if (!hasAssistantAccess) {
+      return res.status(403).json({ error: "Access Denied: You do not have permission to use the AI Assistant." });
+    }
+
+    const keywordResult = await resolveAssistantKeyword(pool, currUser, prompt);
+    if (keywordResult?.handled) {
+      await pool.request()
+        .input('time', sql.NVarChar, new Date().toLocaleString())
+        .input('u', sql.NVarChar, currUser.username || userId)
+        .input('act', sql.NVarChar, `AI Keyword: ${prompt.substring(0, 180)}`)
+        .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @u, @act)");
+
+      return res.json({
+        text: keywordResult.text,
+        sources: keywordResult.sources || [],
+        meta: {
+          toolsUsed: ['assistant-keyword']
+        }
+      });
+    }
+
+    // Apply cooldown per user so one busy operator does not block everyone else.
+    const now = Date.now();
+    const elapsed = now - (assistantRequestTimes.get(userId) || 0);
+    if (elapsed < ASSISTANT_COOLDOWN_MS) {
+      await new Promise(resolve => setTimeout(resolve, ASSISTANT_COOLDOWN_MS - elapsed));
+    }
+    assistantRequestTimes.set(userId, Date.now());
+
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ error: "OPENROUTER_API_KEY is missing in .env file." });
+    }
+
+    const openai = new OpenAI({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: apiKey,
+      defaultHeaders: {
+        "HTTP-Referer": "http://pepinet.monitoring",
+        "X-Title": "Centaur Deploy Assistant",
+      }
+    });
+
+    const tools = [
+      {
+        type: "function",
+        function: {
+          name: "getOfflineDevices",
+          description: "Returns a list of all devices that are currently offline or unresponsive."
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "getDeviceGroups",
+          description: "Returns summary statistics of device groups and their device counts."
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "executeRemoteHostQuery",
+          description: "Executes a READ-ONLY SQL query on a specific remote host database. AVOID COMPLEX JOINS for performance.",
+          parameters: {
+            type: "object",
+            properties: {
+              hostname: { type: "string", description: "The exact hostname of the target PC/Server." },
+              sql_query: { type: "string", description: "The SIMPLE T-SQL SELECT query to execute." }
+            },
+            required: ["hostname", "sql_query"]
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "executeRemoteProcedure",
+          description: "Executes a stored procedure or complex T-SQL function/command on a specific remote host database. ADMINISTRATOR PRIVILEGES REQUIRED.",
+          parameters: {
+            type: "object",
+            properties: {
+              hostname: { type: "string", description: "The exact hostname of the target PC/Server." },
+              sql_command: { type: "string", description: "The T-SQL command to execute." }
+            },
+            required: ["hostname", "sql_command"]
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "searchWorkflows",
+          description: "Searches the internal knowledge base for titles of Work Instructions (WI) or tutorials related to a topic. ALWAYS check this first for 'how-to' questions.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "The search term or topic (e.g., 'restart agent', 'database backup')." }
+            },
+            required: ["query"]
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "getWorkflowDetail",
+          description: "Retrieves the full Markdown content of a specific Work Instruction (WI) or tutorial from the knowledge base.",
+          parameters: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "The unique ID of the workflow document." }
+            },
+            required: ["id"]
+          }
+        }
+      }
+    ];
+
+    const currentDateTime = new Date().toLocaleString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const sysInstruct = `You are the Pepito Monitoring Expert, a friendly and proactive AI teammate for the Centaur Deploy ecosystem. 
+Your goal is to help administrators manage the network with ease and absolute accuracy.
+
+CURRENT CONTEXT: 
+- Today's Date: ${currentDateTime} (Waktu Indonesia Barat/Local Time)
+
+BEHAVIORAL GUIDELINES:
+1. **BE FRIENDLY & DYNAMIC**: Always start with a warm greeting like "Hi!", "Hello!", or "Good morning!". Sound like a helpful colleague, not a formal system.
+2. **STRICT ACCURACY (NO HALLUCINATION)**:
+   - **NEVER INVENT DATA**: If a tool returns no data, null, or empty results, YOU MUST tell the user clearly that no data was found or that the result is zero.
+   - **DATE PRECISION**: Ensure your queries and responses strictly respect years and dates. Use ${currentDateTime} as your reference.
+3. **PROACTIVE HEALTH CHECKS**:
+   - If the user asks a general health question ("How's everything?", "Status?"), use the "getOfflineDevices" tool.
+   - Report with a conversational tone.
+4. **CLEAN RESPONSES (NO RAW TOOLS)**:
+   - Never show raw tool call syntax or JSON in your final response. 
+   - Perform the tool call behind the scenes and ONLY present the summarized human-readable result.
+5. **PERFORMANCE SAFETY**: Stick to simple, efficient SELECT queries for SQL tools.
+6. **KNOWLEDGE ACCESS**: Explain "how-to" steps from workflows in your own words.
+
+Style: Warm, technical yet friendly, proactive, and very accurate.`;
+
+    let messages = [
+      { role: "system", content: sysInstruct },
+      ...(history || []).slice(-10).map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: typeof msg.text === 'string' ? msg.text.substring(0, 2000) : msg.text
+      }))
+    ];
+
+    messages.push({ role: 'user', content: prompt });
+
+    const completion = await openai.chat.completions.create({
+      model: "nousresearch/hermes-3-llama-3.1-405b:free",
+      messages,
+      tools,
+      tool_choice: "auto",
+      temperature: 0.4,
+      max_tokens: 4096
+    });
+
+    let responseMessage = completion.choices[0].message;
+    let finalResponseText = responseMessage.content || "";
+    const sources = [];
+    const usedTools = [];
+
+    // Chain tool calls if necessary
+    if (responseMessage.tool_calls) {
+      messages.push(responseMessage);
+
+      // Fetch Global Security Settings for tools
+      const safetyRes = await pool.request().query("SELECT sql_safe_mode FROM NotificationSettings WHERE id = 'global'");
+      const rawSafeMode = safetyRes.recordset[0]?.sql_safe_mode;
+      const globalSqlSafe = (rawSafeMode === null || rawSafeMode === undefined) ? true : !!rawSafeMode;
+
+      for (const toolCall of responseMessage.tool_calls) {
+        const functionName = toolCall.function.name;
+        const args = JSON.parse(toolCall.function.arguments || '{}');
+        let toolResultText = "No data found.";
+        usedTools.push(functionName);
+
+        try {
+          if (functionName === 'getOfflineDevices') {
+            const resDb = await pool.request().query("SELECT TOP 50 hostname, ip, status, last_seen, location FROM Devices WHERE status = 'offline'");
+            toolResultText = JSON.stringify(resDb.recordset);
+            sources.push({ type: 'devices', label: 'Offline Devices', detail: `${resDb.recordset.length} device(s)` });
+          } else if (functionName === 'getDeviceGroups') {
+            const resDb = await pool.request().query(`
+              SELECT g.name, (SELECT COUNT(*) FROM Devices d WHERE d.group_ids LIKE '%' + g.id + '%') as device_count
+              FROM DeviceGroups g
+            `);
+            toolResultText = JSON.stringify(resDb.recordset);
+            sources.push({ type: 'device-groups', label: 'Device Groups', detail: `${resDb.recordset.length} group row(s)` });
+          } else if (functionName === 'executeRemoteHostQuery') {
+            const { hostname, sql_query } = args;
+
+            // SECURITY ENFORCEMENT
+            if (globalSqlSafe && !isValidSafeSQL(sql_query)) {
+              toolResultText = "Error: Access Denied. SQL Safe Mode is active. Only 'SELECT' queries are permitted.";
+            } else {
+              const hostRes = await pool.request().input('name', sql.NVarChar, hostname).query("SELECT id, ip FROM Devices WHERE hostname = @name");
+              const target = hostRes.recordset[0];
+              if (!target) {
+                toolResultText = `Error: Hostname '${hostname}' not found.`;
+              } else {
+                const connRes = await pool.request().input('did', sql.NVarChar, target.id).query("SELECT * FROM DeviceDbConnections WHERE device_id = @did");
+                const conn = connRes.recordset[0];
+                if (!conn) {
+                  toolResultText = `Error: DB credentials for '${hostname}' missing.`;
+                } else {
+                  // Audit Log for Read Queries
+                  await pool.request()
+                    .input('u', sql.NVarChar, currUser.username || userId)
+                    .input('act', sql.NVarChar, `AI Assistant SELECT: [${hostname}] ${sql_query.substring(0, 200)}`)
+                    .query("INSERT INTO ActivityLog ([user], action) VALUES (@u, @act)")
+                    .catch(() => { });
+
+                  const config = {
+                    user: conn.db_user, password: conn.db_password, server: target.ip, database: conn.db_name,
+                    options: { encrypt: false, trustServerCertificate: true, connectTimeout: 10000 },
+                    pool: { max: 1, min: 0 }
+                  };
+                  const remotePool = await remotePoolManager.getPool(target.id, config);
+                  const result = await remotePool.request().query(sql_query);
+                  toolResultText = JSON.stringify(result.recordset);
+                  sources.push({ type: 'remote-sql', label: hostname, detail: `SQL returned ${result.recordset.length} rows` });
+                }
+              }
+            }
+          } else if (functionName === 'executeRemoteProcedure') {
+            const { hostname, sql_command } = args;
+            if (globalSqlSafe) {
+              toolResultText = "Error: Access Denied. SQL Safe Mode is active. Stored procedures / Commands are disabled.";
+            } else if (!currUser.is_admin) {
+              toolResultText = "Error: Access Denied. Admin required for Procedures.";
+            } else {
+              const hostRes = await pool.request().input('name', sql.NVarChar, hostname).query("SELECT id, ip FROM Devices WHERE hostname = @name");
+              const target = hostRes.recordset[0];
+              if (target) {
+                const connRes = await pool.request().input('did', sql.NVarChar, target.id).query("SELECT * FROM DeviceDbConnections WHERE device_id = @did");
+                const conn = connRes.recordset[0];
+                if (conn) {
+                  const config = {
+                    user: conn.db_user, password: conn.db_password, server: target.ip, database: conn.db_name,
+                    options: { encrypt: false, trustServerCertificate: true, connectTimeout: 10000 },
+                    pool: { max: 1, min: 0 }
+                  };
+                  const remotePool = await remotePoolManager.getPool(target.id, config);
+                  const result = await remotePool.request().query(sql_command);
+                  toolResultText = JSON.stringify(result.recordset);
+                  sources.push({ type: 'remote-procedure', label: hostname, detail: 'Procedure execution successful' });
+
+                  // Audit Log
+                  await pool.request()
+                    .input('u', sql.NVarChar, currUser.username || userId)
+                    .input('act', sql.NVarChar, `AI Assistant EXEC: [${hostname}] ${sql_command}`)
+                    .query("INSERT INTO ActivityLog (id, user_id, action, target, timestamp, login_ip) VALUES (REPLACE(NEWID(),'-',''), @uid, @act, 'AI', GETDATE(), '127.0.0.1')");
+                }
+              }
+            }
+          } else if (functionName === 'searchWorkflows') {
+            const { query } = args;
+            const words = query.split(/\s+/).filter(w => w.length > 2);
+            let result;
+            if (words.length > 0) {
+              let sqlQuery = "SELECT id, title, category FROM Workflows WHERE ";
+              let conditions = words.map((w, i) => `(title LIKE @w${i} OR category LIKE @w${i} OR content LIKE @w${i})`).join(" OR ");
+              sqlQuery += conditions;
+              const request = pool.request();
+              words.forEach((w, i) => request.input(`w${i}`, sql.NVarChar, `%${w}%`));
+              result = await request.query(sqlQuery);
+            } else {
+              result = await pool.request().input('q', sql.NVarChar, `%${query}%`).query("SELECT id, title, category FROM Workflows WHERE title LIKE @q OR category LIKE @q");
+            }
+            toolResultText = JSON.stringify(result.recordset);
+            sources.push({ type: 'search', label: 'Workflows', detail: `Found ${result.recordset.length} match(es)` });
+          } else if (functionName === 'getWorkflowDetail') {
+            const { id } = args;
+            const resDb = await pool.request().input('id', sql.NVarChar, id).query("SELECT title, content FROM Workflows WHERE id = @id");
+            if (resDb.recordset[0]) {
+              toolResultText = `Title: ${resDb.recordset[0].title}\n\nContent:\n${resDb.recordset[0].content}`;
+              sources.push({ type: 'workflow', label: resDb.recordset[0].title, detail: 'Workflow content loaded' });
+            }
+          }
+        } catch (e) {
+          toolResultText = "Tool execution failed: " + e.message;
+        }
+
+        messages.push({ tool_call_id: toolCall.id, role: "tool", name: functionName, content: toolResultText });
+      }
+
+      const secondCompletion = await openai.chat.completions.create({
+        model: "nousresearch/hermes-3-llama-3.1-405b:free",
+        messages,
+        temperature: 0.3,
+        max_tokens: 4096
+      });
+
+      finalResponseText = secondCompletion.choices[0].message.content || "";
+    }
+
+    await pool.request()
+      .input('uid', sql.NVarChar, userId)
+      .input('prompt', sql.NVarChar(sql.MAX), prompt)
+      .input('resp', sql.NVarChar(sql.MAX), finalResponseText)
+      .input('act', sql.NVarChar, `AI Assistant (OpenRouter): ${prompt.substring(0, 180)}${usedTools.length ? ` | tools=${usedTools.join(',')}` : ''}`)
+      .query("INSERT INTO ActivityLog (id, user_id, action, target, timestamp, login_ip) VALUES (REPLACE(NEWID(),'-',''), @uid, @act, 'AI', GETDATE(), '127.0.0.1')");
+
+    res.json({
+      text: finalResponseText,
+      userId,
+      sources,
+      timestamp: new Date().toISOString(),
+      meta: { toolsUsed: usedTools, cooldownMs: ASSISTANT_COOLDOWN_MS }
+    });
+  } catch (err) {
+    console.error('[AI Chat Error]', err);
+    res.status(500).json({ error: "Assistant failed: " + err.message });
+  }
+});
+
+// ── GET /api/reports/deployments ──────────────────────────
+router.get('/api/reports/deployments', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT status, COUNT(*) as count 
+      FROM DeploymentTargets 
+      GROUP BY status
+    `);
+
+    res.json({ targets: result.recordset });
+  } catch (err) {
+    console.error('Reports Deployments Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/reports/health ───────────────────────────────
+router.get('/api/reports/health', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT d.id, d.hostname, d.ram, d.disk, 
+             (SELECT g.name + ',' FROM DeviceGroups g WHERE d.group_ids LIKE '%' + g.id + '%' FOR XML PATH('')) as group_names
+      FROM Devices d
+    `);
+
+    const healthData = result.recordset.map(row => {
+      const rawRam = row.ram || "";
+      const rawDisk = row.disk || "";
+      const groupNames = row.group_names || "";
+      const isServer = groupNames.toLowerCase().includes('server');
+      const ramThreshold = isServer ? 31 : 7;
+
+      let isLowRam = false;
+      let isLowDisk = false;
+
+      let totalRamGB = 0;
+      if (rawRam.includes('/')) {
+        const parts = rawRam.split('/');
+        const totalMatch = parts[1].match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+        if (totalMatch) {
+          totalRamGB = parseFloat(totalMatch[1]);
+          if (totalMatch[2].toUpperCase() === 'MB') totalRamGB /= 1024;
+          if (totalMatch[2].toUpperCase() === 'TB') totalRamGB *= 1024;
+        }
+      } else {
+        const ramMatch = rawRam.match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+        if (ramMatch) {
+          totalRamGB = parseFloat(ramMatch[1]);
+          if (ramMatch[2].toUpperCase() === 'MB') totalRamGB /= 1024;
+          if (ramMatch[2].toUpperCase() === 'TB') totalRamGB *= 1024;
+        }
+      }
+      if (totalRamGB > 0 && totalRamGB < ramThreshold) isLowRam = true;
+
+      const diskBlocks = rawDisk.split(' | ');
+      let worstFreeVal = Infinity;
+      let freeDiskSummary = [];
+      let lowDiskDrives = [];
+      let freeDisk = "Unknown";
+
+      diskBlocks.forEach(block => {
+        if (block.includes('/')) {
+          const parts = block.split('/');
+          const usedMatch = parts[0].match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+          const totalMatch = parts[1].match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+          const driveLetterMatch = block.match(/([a-zA-Z]:)/);
+          const driveLabel = driveLetterMatch ? driveLetterMatch[1] : "";
+
+          if (usedMatch && totalMatch) {
+            let usedVal = parseFloat(usedMatch[1]);
+            if (usedMatch[2].toUpperCase() === 'TB') usedVal *= 1024;
+            if (usedMatch[2].toUpperCase() === 'MB') usedVal /= 1024;
+
+            let totalVal = parseFloat(totalMatch[1]);
+            if (totalMatch[2].toUpperCase() === 'TB') totalVal *= 1024;
+            if (totalMatch[2].toUpperCase() === 'MB') totalVal /= 1024;
+
+            // Ignore disks smaller than 10GB (likely recovery partitions or virtual drives)
+            if (totalVal < 10) return;
+
+            const freeVal = totalVal - usedVal;
+            if (freeVal < worstFreeVal) worstFreeVal = freeVal;
+            if (freeVal < 50) lowDiskDrives.push(driveLabel || "Unknown");
+            freeDiskSummary.push(driveLabel ? `${driveLabel} ${freeVal.toFixed(2)} GB` : `${freeVal.toFixed(2)} GB`);
+          }
+        } else {
+          const diskMatch = block.match(/(?:Free:\s*)?(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+          if (diskMatch) {
+            let val = parseFloat(diskMatch[1]);
+            if (diskMatch[2].toUpperCase() === 'TB') val *= 1024;
+            if (diskMatch[2].toUpperCase() === 'MB') val /= 1024;
+            if (val < worstFreeVal) worstFreeVal = val;
+            if (val < 50) lowDiskDrives.push("Unknown");
+            freeDiskSummary.push(`${val.toFixed(2)} GB`);
+          }
+        }
+      });
+
+      if (worstFreeVal !== Infinity) {
+        isLowDisk = worstFreeVal < 50;
+        freeDisk = freeDiskSummary.join(' | ');
+      }
+
+      return {
+        id: row.id,
+        hostname: row.hostname,
+        ram: row.ram,
+        totalRam: totalRamGB > 0 ? `${totalRamGB.toFixed(2)} GB` : row.ram,
+        ramThreshold: ramThreshold,
+        groupNames: groupNames.replace(/,$/, ''),
+        disk: row.disk,
+        freeDisk: freeDisk,
+        lowDiskDrives: lowDiskDrives,
+        isLowRam,
+        isLowDisk,
+        needsUpgrade: isLowRam || isLowDisk
+      };
+    });
+
+    res.json(healthData);
+  } catch (err) {
+    console.error('Reports Health Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/reports/inventory ────────────────────────────
+router.get('/api/reports/inventory', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT TOP 10 name, COUNT(*) as count 
+      FROM DeviceSoftware 
+      GROUP BY name 
+      ORDER BY count DESC
+    `);
+
+    res.json(result.recordset);
+  } catch (err) {
+    console.error('Reports Inventory Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/reports/tickets ──────────────────────────────
+router.get('/api/reports/tickets', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT status, COUNT(*) as count 
+      FROM TroubleTickets 
+      GROUP BY status
+    `);
+
+    res.json(result.recordset);
+  } catch (err) {
+    console.error('Reports Tickets Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/reports/crm-sync ─────────────────────────────
+// Returns LOYAL_CRM_ITEM_MST sync stats grouped by day (today + yesterday)
+router.get('/api/reports/crm-sync', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    // Fetch HOSERVER connection
+    const hoDevRes = await pool.request()
+      .input('hostname', sql.NVarChar, 'HOSERVER')
+      .query('SELECT id, ip FROM Devices WHERE hostname = @hostname');
+
+    if (hoDevRes.recordset.length === 0) {
+      return res.status(404).json({ error: 'HOSERVER device not found.' });
+    }
+
+    const { id: hoDeviceId, ip: hoIp } = hoDevRes.recordset[0];
+    const hoConnRes = await pool.request()
+      .input('did', sql.NVarChar, hoDeviceId)
+      .query('SELECT * FROM DeviceDbConnections WHERE device_id = @did');
+
+    if (hoConnRes.recordset.length === 0) {
+      return res.status(404).json({ error: 'HOSERVER DB credentials not configured.' });
+    }
+
+    const hoConn = hoConnRes.recordset[0];
+    const hoPool = new sql.ConnectionPool({
+      user: hoConn.db_user,
+      password: hoConn.db_password,
+      server: hoIp,
+      database: hoConn.db_name,
+      options: { encrypt: false, enableArithAbort: true, trustServerCertificate: true },
+      connectionTimeout: 10000,
+      requestTimeout: 15000
+    });
+    await hoPool.connect();
+
+    const crmRes = await hoPool.request().query(`
+      SELECT
+        CONVERT(date, last_timestamp) as sync_date,
+        CASE WHEN CONVERT(date, last_timestamp) = CONVERT(date, GETDATE()) THEN 1 ELSE 0 END as is_today,
+        SUM(CASE WHEN is_sync = '1' THEN 1 ELSE 0 END) as synced_count,
+        SUM(CASE WHEN ISNULL(is_sync, '0') <> '1' THEN 1 ELSE 0 END) as pending_count
+      FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+      WHERE CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -1, GETDATE()))
+      GROUP BY CONVERT(date, last_timestamp)
+      ORDER BY sync_date DESC
+    `);
+    await hoPool.close();
+
+    // Label is determined by SQL Server (is_today flag) — no JS timezone issues
+    const rows = crmRes.recordset.map(r => ({
+      label: r.is_today === 1 ? 'Today' : 'Yesterday',
+      synced_count: r.synced_count || 0,
+      pending_count: r.pending_count || 0,
+      total: (r.synced_count || 0) + (r.pending_count || 0),
+      date: r.sync_date
+    }));
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Reports CRM Sync Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/crm/customer/:phone ──────────────────────────────
+router.get('/api/crm/customer/:phone', async (req, res) => {
+  const { phone } = req.params;
+
+  if (!phone) {
+    return res.status(400).json({ error: 'Phone number is required.' });
+  }
+
+  try {
+    const token = await getH2hToken();
+
+    const apiUrl = `${h2hConfig.baseUrl}/api/v1/tenant/customer/${phone}?client_code=${h2hConfig.clientCode}`;
+    const response = await fetch(apiUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return res.status(response.status).json({
+        error: errorData.message || `H2H API Error: ${response.status}`,
+        details: errorData
+      });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    console.error('CRM Lookup Error:', err.message);
+    res.status(500).json({ error: 'Failed to connect to H2H CRM.', message: err.message });
+  }
+});
+
+// ── GET /api/crm/reports/stores ──────────────────────────────
+router.get('/api/crm/reports/stores', async (req, res) => {
+  try {
+    const crmPool = await getCrmPool();
+    const result = await crmPool.request().query(`
+      SELECT DISTINCT ORG_CD AS org_cd, ORG_NAME AS org_name 
+      FROM DimStore 
+      WHERE ORG_STATUS = 'O' AND ORG_LEVEL_NUMBER = 3 
+      ORDER BY ORG_NAME ASC
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/crm/reports/:type ──────────────────────────────
+router.get('/api/crm/reports/:type', async (req, res) => {
+  const { type } = req.params;
+  const { fromDate, toDate, store, search, page = 1, perPage = 100, sortBy, sortDir = 'desc' } = req.query;
+
+  try {
+    const crmPool = await getCrmPool();
+    const offset = (parseInt(page) - 1) * parseInt(perPage);
+    const limit = parseInt(perPage);
+
+    let query = "";
+    let countQuery = "";
+    let params = { fromDate, toDate };
+
+    if (type === 'txn-analysis') {
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const orderCol = sortBy || 'h.bill_DT';
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+      query = `
+        SELECT
+            q.RLITQ_ORG_CD AS org_cd,
+            d.ORG_NAME AS store_name,
+            q.RLITQ_BILL_NO AS bill_no,
+            CONVERT(DATE, h.bill_dt) AS txn_date,
+            h.bill_time AS txn_time,
+            q.RLITQ_CARD_NO AS card_no,
+            m.RLICM_NAME AS cust_name,
+            m.RLICM_MOBILE_NO AS phone_no,
+            q.RLITQ_OPENING_POINTS AS prev_points,
+            FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) AS point_earned,
+            h.NET_VALUE AS bill_value,
+            (ISNULL(q.RLITQ_OPENING_POINTS, 0) + FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points,
+            CASE WHEN FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
+            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
+        FROM POS_SALES_HDR (NOLOCK) h
+        INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        ${where}
+        ORDER BY ${orderCol} ${orderDir}
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+      `;
+
+      countQuery = `
+        SELECT 
+            COUNT(*) as total,
+            SUM(ISNULL(h.NET_VALUE, 0)) AS total_bill_value,
+            SUM(FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points_earned
+        FROM POS_SALES_HDR (NOLOCK) h
+        INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        ${where}
+      `;
+    }
+    else if (type === 'frequent-shopper') {
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT x.*,
+               CASE WHEN x.frequently > 3 THEN 'LOYAL' WHEN x.frequently >= 1 THEN 'REGULAR' ELSE 'PASSIVE' END AS cust_category
+        FROM (
+            SELECT
+                q.RLITQ_ORG_CD AS org_cd,
+                d.ORG_NAME AS store_name,
+                q.RLITQ_CARD_NO AS card_no,
+                m.RLICM_NAME AS cust_name,
+                m.RLICM_MOBILE_NO AS phone_no,
+                COUNT(q.RLITQ_CARD_NO) AS frequently
+            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
+            ${where}
+            GROUP BY q.RLITQ_ORG_CD, d.ORG_NAME, q.RLITQ_CARD_NO, m.RLICM_NAME, m.RLICM_MOBILE_NO
+        ) x
+        ORDER BY frequently DESC
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+      `;
+
+      countQuery = `
+        SELECT COUNT(DISTINCT q.RLITQ_CARD_NO) as total
+        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        ${where}
+      `;
+    }
+    else if (type === 'member-enrollment') {
+      // member-enrollment and top-spender typically use data warehouse tables
+      // For trial, I'll implement member-enrollment
+      let where = "WHERE m.join_date BETWEEN @fromDate AND @toDate";
+      if (search) {
+        where += " AND (m.member_id LIKE @search OR m.name LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+         SELECT m.member_id, m.join_date, m.city, m.acquisition_channel,
+                COALESCE(lt.lifetime_txn, 0) as lifetime_txn,
+                COALESCE(lt.lifetime_sales, 0) as lifetime_sales
+         FROM dim_member m
+         LEFT JOIN (
+           SELECT member_id, COUNT(DISTINCT transaction_id) as lifetime_txn, SUM(net_amount) as lifetime_sales
+           FROM fact_transactions
+           GROUP BY member_id
+         ) lt ON m.member_id = lt.member_id
+         ${where}
+         ORDER BY m.join_date DESC
+         OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+       `;
+      countQuery = `SELECT COUNT(*) as total FROM dim_member m ${where}`;
+    }
+    else if (type === 'top-spender') {
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.BILL_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT TOP 100
+            q.RLITQ_CARD_NO AS card_no,
+            MAX(m.RLICM_NAME) AS cust_name,
+            MAX(m.RLICM_MOBILE_NO) AS phone_no,
+            COUNT(DISTINCT q.RLITQ_BILL_NO) AS total_txn,
+            SUM(ISNULL(h.NET_VALUE, 0)) AS total_net_sales
+        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        ${where}
+        GROUP BY q.RLITQ_CARD_NO
+        ORDER BY total_net_sales DESC
+      `;
+      countQuery = `SELECT 100 AS total`;
+    }
+    else if (type === 'fraud-analysis') {
+      let where = "WHERE h.BILL_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const cte = `
+        WITH trx AS (
+          SELECT
+            q.RLITQ_ORG_CD AS org_cd,
+            q.RLITQ_CARD_NO AS card_no,
+            m.RLICM_NAME AS cust_name,
+            m.RLICM_MOBILE_NO,
+            d.ORG_NAME AS store_name,
+            h.SESSION_NO,
+            h.NET_VALUE,
+            CAST(h.BILL_DT AS DATE) AS trx_date,
+            CAST(h.BILL_TIME AS TIME) AS bill_time,
+            LAG(CAST(h.BILL_TIME AS TIME)) OVER (
+              PARTITION BY q.RLITQ_CARD_NO, q.RLITQ_ORG_CD, h.SESSION_NO, CAST(h.BILL_DT AS DATE)
+              ORDER BY CAST(h.BILL_TIME AS TIME)
+            ) AS prev_bill_time
+          FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
+          LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+          LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+          LEFT JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO
+          ${where}
+        ),
+        trx_interval AS (
+          SELECT
+            *,
+            CASE
+              WHEN DATEDIFF(SECOND, prev_bill_time, bill_time) < 0 THEN NULL
+              ELSE DATEDIFF(SECOND, prev_bill_time, bill_time)
+            END AS interval_sec
+          FROM trx
+        )
+      `;
+
+      query = `
+        ${cte}
+        SELECT
+          trx_date AS trans_date,
+          card_no,
+          cust_name,
+          org_cd,
+          store_name,
+          SESSION_NO,
+          COUNT(*) AS frequently,
+          ROUND(AVG(CAST(interval_sec AS FLOAT)), 0) AS avg_interval_sec,
+          MIN(interval_sec) AS min_interval_sec,
+          ROUND(AVG(CAST(ISNULL(NET_VALUE, 0) AS FLOAT)), 0) AS avg_value,
+          'Suspicious Activity' AS fraud_warning
+        FROM trx_interval
+        GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
+        HAVING COUNT(*) > 5
+        ORDER BY trans_date DESC, frequently DESC
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+      `;
+
+      countQuery = `
+        ${cte}
+        SELECT COUNT(*) as total FROM (
+          SELECT trx_date
+          FROM trx_interval
+          GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
+          HAVING COUNT(*) > 5
+        ) sub
+      `;
+    }
+    else {
+      return res.status(400).json({ error: 'Invalid report type' });
+    }
+
+    const request = crmPool.request();
+    Object.keys(params).forEach(key => {
+      request.input(key, sql.NVarChar, params[key]);
+    });
+
+    const [dataRes, countRes] = await Promise.all([
+      request.query(query),
+      request.query(countQuery)
+    ]);
+
+    const total = countRes.recordset[0]?.total || 0;
+    const summary = countRes.recordset[0] || {};
+
+    res.json({
+      rows: dataRes.recordset,
+      total,
+      summary,
+      page: parseInt(page),
+      perPage: parseInt(perPage),
+      totalPages: Math.ceil(total / parseInt(perPage))
+    });
+
+  } catch (err) {
+    console.error(`CRM Report Error (${type}):`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/crm/reports/:type/export/:format ─────────────────
+router.get('/api/crm/reports/:type/export/:format', async (req, res) => {
+  const { type, format } = req.params;
+  const { fromDate, toDate, store, search, sortBy, sortDir = 'desc' } = req.query;
+
+  try {
+    const crmPool = await getCrmPool();
+    let query = "";
+    let params = { fromDate, toDate };
+    let columns = [];
+    let title = "";
+
+    // Reuse the same logic as the main endpoint, but WITHOUT pagination
+    if (type === 'txn-analysis') {
+      title = "Wise Customer Transaction Analysis";
+      columns = [
+        { header: 'Store Code', key: 'org_cd', width: 15 },
+        { header: 'Store Name', key: 'store_name', width: 25 },
+        { header: 'Bill No', key: 'bill_no', width: 20 },
+        { header: 'Date', key: 'txn_date', width: 15 },
+        { header: 'Time', key: 'txn_time', width: 10 },
+        { header: 'Card No', key: 'card_no', width: 20 },
+        { header: 'Customer', key: 'cust_name', width: 25 },
+        { header: 'Phone', key: 'phone_no', width: 15 },
+        { header: 'Prev Pts', key: 'prev_points', width: 10 },
+        { header: 'Earned', key: 'point_earned', width: 10 },
+        { header: 'Value', key: 'bill_value', width: 15, style: { numFmt: '#,##0' } },
+        { header: 'Total Pts', key: 'total_points', width: 10 },
+        { header: 'Status', key: 'point_status', width: 10 },
+        { header: 'Category', key: 'bill_category', width: 10 },
+      ];
+
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+      const orderCol = sortBy || 'h.bill_DT';
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+      query = `
+        SELECT
+            q.RLITQ_ORG_CD AS org_cd, d.ORG_NAME AS store_name, q.RLITQ_BILL_NO AS bill_no,
+            CONVERT(DATE, h.bill_dt) AS txn_date, h.bill_time AS txn_time,
+            q.RLITQ_CARD_NO AS card_no, m.RLICM_NAME AS cust_name, m.RLICM_MOBILE_NO AS phone_no,
+            q.RLITQ_OPENING_POINTS AS prev_points, FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) AS point_earned,
+            h.NET_VALUE AS bill_value, (ISNULL(q.RLITQ_OPENING_POINTS, 0) + FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points,
+            CASE WHEN FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
+            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
+        FROM POS_SALES_HDR (NOLOCK) h
+        INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        ${where}
+        ORDER BY ${orderCol} ${orderDir}
+      `;
+    }
+    else if (type === 'frequent-shopper') {
+      title = "Customer Frequently Shopper";
+      columns = [
+        { header: 'Org Code', key: 'org_cd', width: 10 },
+        { header: 'Store Name', key: 'store_name', width: 25 },
+        { header: 'Card No', key: 'card_no', width: 20 },
+        { header: 'Customer', key: 'cust_name', width: 25 },
+        { header: 'Phone No', key: 'phone_no', width: 15 },
+        { header: 'Frequency', key: 'frequently', width: 10 },
+        { header: 'Category', key: 'cust_category', width: 15 },
+      ];
+
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT x.*, CASE WHEN x.frequently > 3 THEN 'LOYAL' WHEN x.frequently >= 1 THEN 'REGULAR' ELSE 'PASSIVE' END AS cust_category
+        FROM (
+            SELECT q.RLITQ_ORG_CD AS org_cd, d.ORG_NAME AS store_name, q.RLITQ_CARD_NO AS card_no,
+                   m.RLICM_NAME AS cust_name, m.RLICM_MOBILE_NO AS phone_no, COUNT(q.RLITQ_CARD_NO) AS frequently
+            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
+            ${where}
+            GROUP BY q.RLITQ_ORG_CD, d.ORG_NAME, q.RLITQ_CARD_NO, m.RLICM_NAME, m.RLICM_MOBILE_NO
+        ) x
+        ORDER BY frequently DESC
+      `;
+    }
+    else if (type === 'member-enrollment') {
+      title = "Member Enrollment Analysis";
+      columns = [
+        { header: 'Member ID', key: 'member_id', width: 15 },
+        { header: 'Join Date', key: 'join_date', width: 15 },
+        { header: 'City', key: 'city', width: 20 },
+        { header: 'Channel', key: 'acquisition_channel', width: 20 },
+        { header: 'Lifetime Txn', key: 'lifetime_txn', width: 15 },
+        { header: 'Lifetime Sales', key: 'lifetime_sales', width: 20, style: { numFmt: '#,##0' } },
+      ];
+
+      let where = "WHERE m.join_date BETWEEN @fromDate AND @toDate";
+      if (search) {
+        where += " AND (m.member_id LIKE @search OR m.name LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT m.member_id, m.join_date, m.city, m.acquisition_channel,
+               COALESCE(lt.lifetime_txn, 0) as lifetime_txn, COALESCE(lt.lifetime_sales, 0) as lifetime_sales
+        FROM dim_member m
+        LEFT JOIN (
+          SELECT member_id, COUNT(DISTINCT transaction_id) as lifetime_txn, SUM(net_amount) as lifetime_sales
+          FROM fact_transactions GROUP BY member_id
+        ) lt ON m.member_id = lt.member_id
+        ${where}
+        ORDER BY m.join_date DESC
+      `;
+    }
+    else if (type === 'top-spender') {
+      title = "Top Spender Analysis";
+      columns = [
+        { header: 'Card No', key: 'card_no', width: 20 },
+        { header: 'Customer', key: 'cust_name', width: 25 },
+        { header: 'Phone No', key: 'phone_no', width: 15 },
+        { header: 'Net Sales', key: 'total_net_sales', width: 20, style: { numFmt: '#,##0' } },
+        { header: 'Total Txn', key: 'total_txn', width: 10 },
+        { header: 'Tier', key: 'spender_tier', width: 15 },
+      ];
+
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.BILL_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT
+            q.RLITQ_CARD_NO AS card_no,
+            MAX(m.RLICM_NAME) AS cust_name,
+            MAX(m.RLICM_MOBILE_NO) AS phone_no,
+            COUNT(DISTINCT q.RLITQ_BILL_NO) AS total_txn,
+            SUM(ISNULL(h.NET_VALUE, 0)) AS total_net_sales,
+            CASE 
+                WHEN SUM(ISNULL(h.NET_VALUE, 0)) >= 5000000 THEN 'Platinum'
+                WHEN SUM(ISNULL(h.NET_VALUE, 0)) >= 1000000 THEN 'Gold'
+                ELSE 'Silver' 
+            END AS spender_tier
+        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        ${where}
+        GROUP BY q.RLITQ_CARD_NO
+        ORDER BY total_net_sales DESC
+      `;
+    }
+
+    const request = crmPool.request();
+    Object.keys(params).forEach(key => {
+      request.input(key, sql.NVarChar, params[key]);
+    });
+
+    const result = await request.query(query);
+    const rows = result.recordset;
+
+    if (format === 'excel') {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Report');
+
+      // Style headers
+      worksheet.columns = columns;
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+
+      worksheet.addRows(rows);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=${type}-report.xlsx`);
+      await workbook.xlsx.write(res);
+      res.end();
+    }
+    else if (format === 'pdf') {
+      const doc = new PDFDocument({ margin: 30, layout: 'landscape' });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=${type}-report.pdf`);
+      doc.pipe(res);
+
+      doc.fontSize(18).text(title, { align: 'center' });
+      doc.fontSize(10).text(`Period: ${fromDate} to ${toDate}`, { align: 'center' });
+      doc.moveDown();
+
+      // Simple table drawing logic
+      const tableTop = 100;
+      let y = tableTop;
+
+      // Draw Headers
+      doc.fontSize(8).font('Helvetica-Bold');
+      let x = 30;
+      columns.forEach(col => {
+        doc.text(col.header, x, y, { width: col.width * 7, truncate: true });
+        x += col.width * 7;
+      });
+
+      y += 15;
+      doc.moveTo(30, y).lineTo(x, y).stroke();
+      y += 5;
+
+      // Draw Rows
+      doc.font('Helvetica');
+      rows.slice(0, 500).forEach(row => { // Limit PDF to 500 rows for performance
+        if (y > 550) {
+          doc.addPage({ layout: 'landscape' });
+          y = 30;
+
+          // Redraw headers on new page
+          doc.fontSize(8).font('Helvetica-Bold');
+          x = 30;
+          columns.forEach(col => {
+            doc.text(col.header, x, y, { width: col.width * 7, truncate: true });
+            x += col.width * 7;
+          });
+          y += 15;
+          doc.moveTo(30, y).lineTo(x, y).stroke();
+          y += 5;
+          doc.font('Helvetica');
+        }
+        x = 30;
+        columns.forEach(col => {
+          let val = row[col.key];
+          if (val instanceof Date) val = val.toISOString().split('T')[0];
+          doc.text(String(val || '-'), x, y, { width: col.width * 7, truncate: true });
+          x += col.width * 7;
+        });
+        y += 12;
+      });
+
+      if (rows.length > 500) {
+        doc.moveDown().text(`... and ${rows.length - 500} more records (Export to Excel for full data)`, { italic: true });
+      }
+
+      doc.end();
+    } else {
+      res.status(400).send('Invalid format');
+    }
+  } catch (err) {
+    console.error('Export Error:', err);
+    res.status(500).send(err.message);
+  }
+});
+
+// ── HELPDESK TICKETS API ──────────────────────────────────────
+router.get('/api/tickets/updates', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { username, can_manage, since } = req.query;
+    if (!since) return res.json([]);
+
+    let query = `SELECT * FROM TroubleTickets WHERE updated_at > @since ORDER BY created_at DESC`;
+    if (can_manage !== 'true' && username) {
+      query = `SELECT * FROM TroubleTickets WHERE updated_at > @since AND created_by = @username ORDER BY created_at DESC`;
+    }
+
+    const result = await pool.request()
+      .input('since', sql.DateTime, new Date(since))
+      .input('username', sql.NVarChar, username)
+      .query(query);
+
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/tickets', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { username, can_manage } = req.query;
+    let query = 'SELECT * FROM TroubleTickets ORDER BY created_at DESC';
+
+    if (can_manage !== 'true' && username) {
+      query = `SELECT * FROM TroubleTickets WHERE created_by = '${username}' ORDER BY created_at DESC`;
+    }
+
+    const result = await pool.request().query(query);
+    const tickets = result.recordset;
+
+    if (tickets.length > 0) {
+      const ticketIds = tickets.map(t => `'${t.id}'`).join(',');
+
+      // Fetch individual targets
+      const targetsResult = await pool.request().query(`SELECT * FROM TicketTargets WHERE ticket_id IN (${ticketIds})`);
+      const allTargets = targetsResult.recordset;
+
+      // Fetch linked groups
+      const groupsResult = await pool.request().query(`SELECT * FROM TicketGroups WHERE ticket_id IN (${ticketIds})`);
+      const allLinkedGroups = groupsResult.recordset;
+
+      // Fetch all devices to resolve groups
+      const devicesResult = await pool.request().query('SELECT hostname, group_ids FROM Devices');
+      const allDevices = devicesResult.recordset;
+
+      tickets.forEach(ticket => {
+        // Individual/Manual targets
+        const ticketTargets = allTargets.filter(target => target.ticket_id === ticket.id);
+
+        // Group targets
+        const ticketGroups = allLinkedGroups.filter(tg => tg.ticket_id === ticket.id).map(tg => tg.group_id);
+        const groupMembers = allDevices.filter(dev => {
+          if (!dev.group_ids) return false;
+          const gids = dev.group_ids.split(',');
+          return ticketGroups.some(tgid => gids.includes(tgid));
+        }).map(dev => ({
+          hostname: dev.hostname,
+          isFromGroup: true
+        }));
+
+        // Merge hosts ensuring uniqueness by hostname
+        const mergedHosts = [...ticketTargets];
+        groupMembers.forEach(gm => {
+          if (!mergedHosts.find(mh => mh.hostname === gm.hostname)) {
+            mergedHosts.push({
+              hostname: gm.hostname,
+              status: 'Pending',
+              remark: null,
+              isFromGroup: true
+            });
+          }
+        });
+
+        ticket.targets = mergedHosts;
+        ticket.linked_group_ids = ticketGroups;
+      });
+    }
+
+    res.json(tickets);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/tickets', async (req, res) => {
+  try {
+    const { id, title, description, category, priority, outlet_name, hostname, created_by, assigned_to, selected_group_ids } = req.body;
+    const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('title', sql.NVarChar, title)
+      .input('description', sql.NVarChar, description)
+      .input('category', sql.NVarChar, category)
+      .input('priority', sql.NVarChar, priority)
+      .input('status', sql.NVarChar, 'Open')
+      .input('outlet_name', sql.NVarChar, outlet_name)
+      .input('hostname', sql.NVarChar, hostname)
+      .input('created_by', sql.NVarChar, created_by)
+      .input('assigned_to', sql.NVarChar, assigned_to || null)
+      .input('now', sql.NVarChar, nowStr)
+      .query(`
+        INSERT INTO TroubleTickets 
+        (id, title, description, category, priority, status, outlet_name, hostname, created_by, assigned_to, created_at, updated_at)
+        VALUES (@id, @title, @description, @category, @priority, @status, @outlet_name, @hostname, @created_by, @assigned_to, @now, @now)
+      `);
+
+    // Handle Manual/Individual hostnames
+    if (hostname && hostname.trim()) {
+      const hosts = hostname.split(',').map(h => h.trim()).filter(h => h.length > 0);
+      for (const host of hosts) {
+        await pool.request()
+          .input('ticket_id', sql.NVarChar, id)
+          .input('hostname', sql.NVarChar, host)
+          .input('now', sql.DateTime, new Date())
+          .query(`INSERT INTO TicketTargets (ticket_id, hostname, status, updated_at) VALUES (@ticket_id, @hostname, 'Pending', @now)`);
+      }
+    }
+
+    // Handle Linked Groups
+    if (selected_group_ids && Array.isArray(selected_group_ids)) {
+      for (const gid of selected_group_ids) {
+        await pool.request()
+          .input('ticket_id', sql.NVarChar, id)
+          .input('group_id', sql.NVarChar, gid)
+          .query(`INSERT INTO TicketGroups (ticket_id, group_id) VALUES (@ticket_id, @group_id)`);
+      }
+    }
+
+    let logMsg = 'Ticket created';
+    if (assigned_to) logMsg += ` and assigned to ${assigned_to}`;
+
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, logMsg)
+      .input('performed_by', sql.NVarChar, created_by)
+      .input('now', sql.NVarChar, nowStr)
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.status(201).json({ message: 'Ticket created successfully' });
+  } catch (err) {
+    console.error("POST /api/tickets Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/tickets/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, resolved_by, resolution_note, closed_by } = req.body;
+    const pool = await poolPromise;
+
+    // Validation: Block Resolve if multi-target and not all solved
+    if (status === 'Resolved') {
+      const targetsRes = await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .query(`SELECT hostname, status FROM TicketTargets WHERE ticket_id = @ticket_id`);
+      const staticTargets = targetsRes.recordset;
+
+      const groupsRes = await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .query(`SELECT group_id FROM TicketGroups WHERE ticket_id = @ticket_id`);
+      const linkedGroups = groupsRes.recordset.map(g => g.group_id);
+
+      if (linkedGroups.length > 0) {
+        // Resolve dynamic group members
+        const devicesRes = await pool.request().query('SELECT hostname, group_ids FROM Devices');
+        const allDevices = devicesRes.recordset;
+
+        const groupMembersHostnames = allDevices.filter(dev => {
+          if (!dev.group_ids) return false;
+          const gids = dev.group_ids.split(',');
+          return linkedGroups.some(tgid => gids.includes(tgid));
+        }).map(dev => dev.hostname);
+
+        // Check if every group member is solved (must have a TicketTargets entry with status 'Solved')
+        for (const hostname of groupMembersHostnames) {
+          const isSolved = staticTargets.find(t => t.hostname === hostname && t.status === 'Solved');
+          if (!isSolved) {
+            return res.status(400).json({ error: `Cannot resolve: Device ${hostname} (from group) is still pending.` });
+          }
+        }
+      }
+
+      // Check static targets
+      const unsolvedStatic = staticTargets.filter(t => t.status !== 'Solved');
+      if (unsolvedStatic.length > 0) {
+        return res.status(400).json({ error: `Cannot resolve: ${unsolvedStatic[0].hostname} is still pending.` });
+      }
+    }
+
+    const nowStr = getISOTimestamp();
+    const request = pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('status', sql.NVarChar, status)
+      .input('resolution_note', sql.NVarChar, resolution_note || null)
+      .input('resolved_by', sql.NVarChar, resolved_by || null)
+      .input('closed_by', sql.NVarChar, closed_by || null)
+      .input('now', sql.NVarChar, nowStr);
+
+    let updateQuery = `UPDATE TroubleTickets SET status = @status, updated_at = @now`;
+
+    if (status === 'Resolved') {
+      updateQuery += `, resolved_at = @now, resolved_by = @resolved_by, resolution_note = @resolution_note`;
+    } else if (status === 'Closed') {
+      updateQuery += `, closed_at = @now, closed_by = @closed_by`;
+    }
+    updateQuery += ` WHERE id = @id`;
+
+    await request.query(updateQuery);
+
+    const actor = resolved_by || closed_by || 'System';
+    const actionDesc = status === 'Resolved' ? 'Ticket marked as Resolved' : (status === 'Closed' ? 'Ticket Closed & Confirmed' : `Status changed to ${status}`);
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, actionDesc)
+      .input('performed_by', sql.NVarChar, actor)
+      .input('now', sql.NVarChar, nowStr)
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.json({ message: 'Status updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── NEW: Bulk update targets and groups ───────────────────────
+router.put('/api/tickets/:id/targets', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { hostname, selected_group_ids, performed_by } = req.body;
+    const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
+    // Start Transaction
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      // Update the main hostname string
+      await transaction.request()
+        .input('id', sql.NVarChar, id)
+        .input('hostname', sql.NVarChar, hostname)
+        .input('now', sql.NVarChar, nowStr)
+        .query('UPDATE TroubleTickets SET hostname = @hostname, updated_at = @now WHERE id = @id');
+
+      // Sync TicketTargets (Manual/Individual)
+      // Keep existing ones that are still in the list, delete removed ones, add new ones
+      const currentTargetsRes = await transaction.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .query('SELECT hostname FROM TicketTargets WHERE ticket_id = @ticket_id');
+      const currentHostnames = currentTargetsRes.recordset.map(r => r.hostname);
+
+      const newHostnames = (hostname || '').split(',').map(h => h.trim()).filter(h => h.length > 0);
+
+      // Delete removed
+      const toDelete = currentHostnames.filter(h => !newHostnames.includes(h));
+      for (const host of toDelete) {
+        await transaction.request()
+          .input('ticket_id', sql.NVarChar, id)
+          .input('host', sql.NVarChar, host)
+          .query('DELETE FROM TicketTargets WHERE ticket_id = @ticket_id AND hostname = @host');
+      }
+
+      // Add new
+      const toAdd = newHostnames.filter(h => !currentHostnames.includes(h));
+      for (const host of toAdd) {
+        await transaction.request()
+          .input('ticket_id', sql.NVarChar, id)
+          .input('host', sql.NVarChar, host)
+          .query("INSERT INTO TicketTargets (ticket_id, hostname, status) VALUES (@ticket_id, @host, 'Pending')");
+      }
+
+      // Sync TicketGroups
+      await transaction.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .query('DELETE FROM TicketGroups WHERE ticket_id = @ticket_id');
+
+      if (selected_group_ids && Array.isArray(selected_group_ids)) {
+        for (const gid of selected_group_ids) {
+          await transaction.request()
+            .input('ticket_id', sql.NVarChar, id)
+            .input('group_id', sql.NVarChar, gid)
+            .query('INSERT INTO TicketGroups (ticket_id, group_id) VALUES (@ticket_id, @group_id)');
+        }
+      }
+
+      await transaction.commit();
+
+      // Log the update
+      await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .input('action', sql.NVarChar, 'Ticket targets updated')
+        .input('performed_by', sql.NVarChar, performed_by || 'System')
+        .input('now', sql.NVarChar, nowStr)
+        .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+      res.json({ message: 'Targets updated successfully' });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error("PUT /api/tickets/:id/targets Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+// ── Individual Ticket Target Update ──────────────────────────
+router.put('/api/tickets/:id/targets/:targetId', async (req, res) => {
+  try {
+    const { id, targetId } = req.params;
+    const { status, remark, performed_by, hostname: bodyHostname } = req.body;
+    const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
+    let targetRecord = null;
+    let effectiveTargetId = parseInt(targetId);
+
+    // 1. Resolve target (by ID or Hostname)
+    if (effectiveTargetId > 0) {
+      const targetRes = await pool.request()
+        .input('tid', sql.Int, effectiveTargetId)
+        .query('SELECT id, hostname FROM TicketTargets WHERE id = @tid');
+      if (targetRes.recordset.length > 0) {
+        targetRecord = targetRes.recordset[0];
+      }
+    }
+
+    if (!targetRecord && bodyHostname) {
+      const hostRes = await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .input('hostname', sql.NVarChar, bodyHostname)
+        .query('SELECT id, hostname FROM TicketTargets WHERE ticket_id = @ticket_id AND hostname = @hostname');
+      if (hostRes.recordset.length > 0) {
+        targetRecord = hostRes.recordset[0];
+        effectiveTargetId = targetRecord.id;
+      }
+    }
+
+    const finalHostname = targetRecord ? targetRecord.hostname : bodyHostname;
+    if (!finalHostname) {
+      return res.status(400).json({ error: 'Hostname or valid Target ID required' });
+    }
+
+    const nowObj = new Date();
+    // 2. Upsert (Update if exists, Insert if doesn't)
+    if (targetRecord) {
+      await pool.request()
+        .input('tid', sql.Int, effectiveTargetId)
+        .input('status', sql.NVarChar, status)
+        .input('remark', sql.NVarChar, remark || null)
+        .input('now', sql.DateTime, nowObj)
+        .input('solved_by', sql.NVarChar, performed_by || 'System')
+        .query(`UPDATE TicketTargets SET status = @status, remark = @remark, updated_at = @now, solved_by = @solved_by WHERE id = @tid`);
+    } else {
+      await pool.request()
+        .input('ticket_id', sql.NVarChar, id)
+        .input('hostname', sql.NVarChar, finalHostname)
+        .input('status', sql.NVarChar, status)
+        .input('remark', sql.NVarChar, remark || null)
+        .input('now', sql.DateTime, nowObj)
+        .input('solved_by', sql.NVarChar, performed_by || 'System')
+        .query(`INSERT INTO TicketTargets (ticket_id, hostname, status, remark, updated_at, solved_by) VALUES (@ticket_id, @hostname, @status, @remark, @now, @solved_by)`);
+    }
+
+    // 3. Log the action
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, `Target ${finalHostname} status updated to ${status}`)
+      .input('performed_by', sql.NVarChar, performed_by || 'System')
+      .input('now', sql.NVarChar, nowStr)
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.json({ message: 'Target status updated' });
+  } catch (err) {
+    console.error("PUT /api/tickets/:id/targets/:targetId Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+router.put('/api/tickets/:id/assign', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { assigned_to, performed_by } = req.body;
+    const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('user', sql.NVarChar, assigned_to || null)
+      .input('now', sql.NVarChar, nowStr)
+      .query(`UPDATE TroubleTickets SET assigned_to = @user, updated_at = @now WHERE id = @id`);
+
+    const logMsg = assigned_to ? `Ticket assigned to ${assigned_to}` : 'Ticket unassigned';
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, logMsg)
+      .input('performed_by', sql.NVarChar, performed_by || 'System')
+      .input('now', sql.NVarChar, nowStr)
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.json({ message: 'Assignment updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/users', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT id, username, full_name, role_id FROM Users ORDER BY username ASC");
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/tickets/:id/logs', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('ticket_id', sql.NVarChar, req.params.id)
+      .query('SELECT * FROM TicketLogs WHERE ticket_id = @ticket_id ORDER BY created_at ASC');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── STATIC FILES & SPA FALLBACK ───────────────────────────────
+router.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+router.use(express.static(path.join(__dirname, 'public')));
+router.use(express.static(path.join(__dirname, 'dist')));
+// Catch-all removed
+
+// ── START SERVER ──────────────────────────────────────────────
+
+
+// ── GET /api/crm/sync-status ──────────────────────────────
+router.get('/api/crm/sync-status', async (req, res) => {
+  let hoPool = null;
+  try {
+    hoPool = await getHoServerPool();
+
+    const totals = await hoPool.request().query(`
+      SELECT
+        COUNT(*) as total_items,
+        SUM(CASE WHEN is_sync = '1' THEN 1 ELSE 0 END) as synced,
+        SUM(CASE WHEN ISNULL(is_sync, '0') <> '1' THEN 1 ELSE 0 END) as pending
+      FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+      WHERE CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -7, GETDATE()))
+    `);
+
+    const configRes = await hoPool.request().query(
+      'SELECT TOP 1 PROCESS_EXEC_DATE FROM dbo.LOYAL_CRM_PROCESS_CONFIG'
+    );
+
+    const daily = await hoPool.request().query(`
+      SELECT
+        CONVERT(date, last_timestamp) as sync_date,
+        SUM(CASE WHEN is_sync = '1' THEN 1 ELSE 0 END) as synced_count,
+        SUM(CASE WHEN ISNULL(is_sync, '0') <> '1' THEN 1 ELSE 0 END) as pending_count,
+        COUNT(*) as total
+      FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+      WHERE CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -7, GETDATE()))
+      GROUP BY CONVERT(date, last_timestamp)
+      ORDER BY sync_date DESC
+    `);
+
+    const recentErrors = await hoPool.request().query(`
+      SELECT TOP 5 ITEM_CODE, ITEM_NAME, RESPONSE_MSG, LAST_TIMESTAMP
+      FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+      WHERE RESPONSE_MSG NOT LIKE 'Success%' 
+        AND ISNULL(RESPONSE_MSG, '') <> ''
+        AND CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -7, GETDATE()))
+      ORDER BY CAST(LAST_TIMESTAMP AS DATETIME) DESC
+    `);
+
+    res.json({
+      totals: totals.recordset[0],
+      process_exec_date: configRes.recordset[0]?.PROCESS_EXEC_DATE || null,
+      daily: daily.recordset,
+      recent_errors: recentErrors.recordset
+    });
+  } catch (err) {
+    console.error('Error fetching CRM sync status:', err);
+    res.status(500).json({ error: 'Failed to fetch sync status', details: err.message });
+  } finally {
+    if (hoPool) try { await hoPool.close(); } catch (_) {}
+  }
+});
+
+// ── GET /api/crm/test-connection ──────────────────────────
+router.get('/api/crm/test-connection', async (req, res) => {
+  let hoPool = null;
+  try {
+    hoPool = await getHoServerPool();
+    const result = await hoPool.request().query('SELECT @@VERSION as version');
+    res.json({ success: true, message: 'Connected to HOSERVER successfully.', version: result.recordset[0].version });
+  } catch (err) {
+    console.error('CRM Connection test failed:', err);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    if (hoPool) try { await hoPool.close(); } catch (_) {}
+  }
+});
+
+// ── Helper: Get HOSERVER pool (where LOYAL_CRM_ITEM_MST lives) ──
+async function getHoServerPool() {
+  const pool = await poolPromise;
+  
+  // Dynamic lookup for HOSERVER
+  const hoDevRes = await pool.request()
+    .input('hostname', sql.NVarChar, 'HOSERVER')
+    .query('SELECT id, ip FROM Devices WHERE hostname = @hostname');
+  
+  if (hoDevRes.recordset.length === 0) throw new Error('HOSERVER device not found in Devices table');
+  
+  const { id: hoDeviceId, ip: dbIp } = hoDevRes.recordset[0];
+  // Per user request, ensure we use 192.168.85.18 if the record says otherwise or just confirm it
+  const hoIp = (dbIp === '192.168.85.18' || dbIp.includes('85.18')) ? dbIp : '192.168.85.18';
+  
+  const hoConnRes = await pool.request()
+    .input('did', sql.NVarChar, hoDeviceId)
+    .query('SELECT * FROM DeviceDbConnections WHERE device_id = @did');
+  
+  if (hoConnRes.recordset.length === 0) throw new Error('HOSERVER DB connection not configured in DeviceDbConnections');
+  
+  const hoConn = hoConnRes.recordset[0];
+  console.log(`[CRM] Connecting to HO Database at ${hoIp} (DB: ${hoConn.db_name}, User: ${hoConn.db_user})`);
+  
+  const hoPool = new sql.ConnectionPool({
+    user: hoConn.db_user,
+    password: hoConn.db_password,
+    server: hoIp,
+    database: hoConn.db_name,
+    options: { 
+      encrypt: false, 
+      enableArithAbort: true, 
+      trustServerCertificate: true,
+      connectTimeout: 15000
+    },
+    pool: { max: 1, min: 0, idleTimeoutMillis: 30000 }
+  });
+
+  try {
+    await hoPool.connect();
+    const checkDb = await hoPool.request().query('SELECT DB_NAME() as current_db');
+    console.log(`[CRM] Connected. Current DB: ${checkDb.recordset[0].current_db}`);
+    return hoPool;
+  } catch (err) {
+    console.error(`[CRM] Failed to connect to HO Server (${hoIp}):`, err.message);
+    throw err;
+  }
+}
+
+// ── GET /api/crm/sync-logs ──────────────────────────────
+router.get('/api/crm/sync-logs', async (req, res) => {
+  let hoPool = null;
+  try {
+    hoPool = await getHoServerPool();
+    
+    // Ensure table exists (fail-safe)
+    await hoPool.request().query(`
+      IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'sync_item_crm_job_log')
+      BEGIN
+          CREATE TABLE dbo.sync_item_crm_job_log (
+              log_id INT IDENTITY(1,1) PRIMARY KEY,
+              log_date DATETIME DEFAULT GETDATE(),
+              issue_date DATETIME,
+              item_code VARCHAR(50),
+              item_name VARCHAR(150),
+              item_stk_uom VARCHAR(10),
+              item_vendor_cd VARCHAR(50),
+              status VARCHAR(50),
+              message VARCHAR(MAX)
+          );
+      END
+    `);
+
+    const result = await hoPool.request().query(`
+      SELECT TOP 5 * FROM sync_item_crm_job_log ORDER BY log_date DESC
+    `);
+    
+    res.json(result.recordset);
+  } catch (err) {
+    console.error('Error fetching sync logs:', err);
+    res.status(500).json({ error: 'Failed to fetch logs', details: err.message });
+  } finally {
+    if (hoPool) try { await hoPool.close(); } catch (_) {}
+  }
+});
+
+// ── POST /api/crm/sync-retry ──────────────────────────────
+router.post('/api/crm/sync-retry', async (req, res) => {
+  let hoPool = null;
+  try {
+    const days = Math.max(1, Math.min(30, parseInt(req.body.days) || 2));
+    hoPool = await getHoServerPool();
+    
+    // Ensure table exists
+    await hoPool.request().query(`
+      IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'sync_item_crm_job_log')
+      BEGIN
+          CREATE TABLE dbo.sync_item_crm_job_log (
+              log_id INT IDENTITY(1,1) PRIMARY KEY,
+              log_date DATETIME DEFAULT GETDATE(),
+              issue_date DATETIME,
+              item_code VARCHAR(50),
+              item_name VARCHAR(150),
+              item_stk_uom VARCHAR(10),
+              item_vendor_cd VARCHAR(50),
+              status VARCHAR(50),
+              message VARCHAR(MAX)
+          );
+      END
+    `);
+
+    // Check failed count in the configured days range
+    const checkFailed = await hoPool.request()
+      .input('days', sql.Int, days)
+      .query(`
+        SELECT COUNT(*) as failedCount 
+        FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+        WHERE RESPONSE_MSG NOT LIKE 'Success%'
+          AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE())
+      `);
+    
+    const countFailed = checkFailed.recordset[0].failedCount;
+    
+    if (countFailed > 0) {
+      // Find the oldest target date
+      const targetDateRes = await hoPool.request()
+        .input('days', sql.Int, days)
+        .query(`
+          SELECT TOP 1 CAST(CAST(LAST_TIMESTAMP AS DATETIME) AS DATE) as targetDate
+          FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+          WHERE RESPONSE_MSG NOT LIKE 'Success%'
+            AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE())
+          ORDER BY CAST(LAST_TIMESTAMP AS DATETIME) ASC
+        `);
+      
+      const targetDate = targetDateRes.recordset[0].targetDate;
+      
+      const transaction = new sql.Transaction(hoPool);
+      await transaction.begin();
+      
+      try {
+        const reqQuery = new sql.Request(transaction);
+        reqQuery.input('targetDate', sql.Date, targetDate);
+        reqQuery.input('days', sql.Int, days);
+        
+        await reqQuery.query(`
+          UPDATE dbo.LOYAL_CRM_PROCESS_CONFIG
+          SET PROCESS_EXEC_DATE = DATEADD(day, -1, @targetDate);
+        `);
+        
+        await reqQuery.query(`
+          INSERT INTO dbo.sync_item_crm_job_log (
+              log_date, issue_date, item_code, item_name, item_stk_uom, item_vendor_cd, status, message
+          )
+          SELECT 
+              GETDATE(), CAST(LAST_TIMESTAMP AS DATETIME), ITEM_CODE, ITEM_NAME, ITEM_STK_UOM, ITEM_VENDOR_CD, 'FAILED', RESPONSE_MSG
+          FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+          WHERE RESPONSE_MSG NOT LIKE 'Success%'
+            AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE());
+        `);
+        
+        await reqQuery.query(`
+          UPDATE dbo.LOYAL_CRM_ITEM_MST set IS_SYNC='0', RESPONSE_MSG=''
+          WHERE RESPONSE_MSG NOT LIKE 'Success%'
+            AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE());
+        `);
+        
+        await transaction.commit();
+        res.json({ success: true, message: `Successfully pushed ${countFailed} failed items for retry (${days}-day range).` });
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
+    } else {
+      await hoPool.request().query(`
+        INSERT INTO dbo.sync_item_crm_job_log (
+            log_date, issue_date, status, message
+        )
+        VALUES (
+            GETDATE(),
+            CAST(CAST(DATEADD(day, -1, GETDATE()) AS DATE) AS DATETIME), 
+            'SUCCESS',
+            'No failed records found. Process date remains unchanged.'
+        );
+      `);
+      
+      res.json({ success: true, message: `No failed records found in the last ${days} day(s). Process date remains unchanged.` });
+    }
+  } catch (err) {
+    console.error('Error during CRM sync retry:', err);
+    res.status(500).json({ error: 'Failed to process sync retry', details: err.message });
+  } finally {
+    if (hoPool) try { await hoPool.close(); } catch (_) {}
+  }
+});
+
+export default router;

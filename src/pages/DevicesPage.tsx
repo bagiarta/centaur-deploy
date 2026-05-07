@@ -390,9 +390,9 @@ export default function DevicesPage() {
             onChange={e => setGroupFilter(e.target.value)}
             className="pl-8 pr-3 py-1.5 text-xs font-medium bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
           >
-            <option value="all">All Groups</option>
+            <option value="all" className="bg-surface text-foreground">All Groups</option>
             {groups.map(g => (
-              <option key={g.id} value={g.id}>{g.name}</option>
+              <option key={g.id} value={g.id} className="bg-surface text-foreground">{g.name}</option>
             ))}
           </select>
           <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-foreground-muted pointer-events-none" />
@@ -832,12 +832,15 @@ export default function DevicesPage() {
               <select
                 id="device_type"
                 name="device_type"
-                value={formData.device_type || 'PC'}
+                value={formData.device_type}
                 onChange={handleInputChange}
-                className="col-span-3 px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-semibold text-primary"
+                className="col-span-3 px-3 py-2 bg-surface border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
-                <option value="PC">PC / Server / POS</option>
-                <option value="Network">Router / Radio (Agentless)</option>
+                <option value="PC" className="bg-surface text-foreground">PC / Workstation</option>
+                <option value="Server" className="bg-surface text-foreground">Server</option>
+                <option value="Network" className="bg-surface text-foreground">Network Device</option>
+                <option value="Router" className="bg-surface text-foreground">Router / Gateway</option>
+                <option value="Other" className="bg-surface text-foreground">Other</option>
               </select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -989,11 +992,11 @@ export default function DevicesPage() {
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 text-sm bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                     >
-                      <option value="online">Online</option>
-                      <option value="offline">Offline</option>
-                      <option value="deploying">Deploying</option>
-                      <option value="error">Error</option>
-                      <option value="idle">Idle</option>
+                      <option value="online" className="bg-surface text-foreground">Online</option>
+                      <option value="offline" className="bg-surface text-foreground">Offline</option>
+                      <option value="deploying" className="bg-surface text-foreground">Deploying</option>
+                      <option value="error" className="bg-surface text-foreground">Error</option>
+                      <option value="idle" className="bg-surface text-foreground">Idle</option>
                     </select>
                   </div>
                   <div className="space-y-2">

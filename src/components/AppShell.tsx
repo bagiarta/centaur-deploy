@@ -4,7 +4,8 @@ import {
   LayoutDashboard, Monitor, Package, Rocket, Download,
   Terminal, History, Settings, ChevronLeft, ChevronRight,
   Server, Shield, Bell, User, Activity, Users, Database,
-  UserCog, ShieldCheck, LogOut, Bot, BookMarked, Globe, Menu, X
+  UserCog, ShieldCheck, LogOut, Bot, BookMarked, Globe, Menu, X, Search,
+  UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,6 +17,21 @@ import { toast } from "sonner";
 export const navItems = [
   { id: "overview", to: "/", icon: LayoutDashboard, label: "Overview", group: "main" },
   { id: "tickets", to: "/tickets", icon: Ticket, label: "Helpdesk Tickets", group: "main" },
+  { 
+    id: "crm_center", 
+    label: "CRM Center", 
+    icon: Database, 
+    group: "main",
+    children: [
+      { id: "crm_lookup", to: "/crm/lookup", icon: Search, label: "Customer Lookup" },
+      { id: "crm_sync", to: "/crm/sync", icon: RefreshCw, label: "Manual Sync" },
+      { id: "crm_report_txn", to: "/crm/reports/txn-analysis", icon: Activity, label: "Transaction Analysis" },
+      { id: "crm_report_shopper", to: "/crm/reports/frequent-shopper", icon: Users, label: "Frequent Shopper" },
+      { id: "crm_report_enrollment", to: "/crm/reports/member-enrollment", icon: UserPlus, label: "Member Enrollment" },
+      { id: "crm_report_spender", to: "/crm/reports/top-spender", icon: TrendingUp, label: "Top Spender" },
+      { id: "crm_report_fraud", to: "/crm/reports/fraud-analysis", icon: Shield, label: "Fraud Analysis" },
+    ]
+  },
   { id: "reports", to: "/reports", icon: Activity, label: "Reports", group: "main" },
   { id: "devices", to: "/devices", icon: Monitor, label: "Devices", group: "main" },
   { id: "network", to: "/network", icon: Globe, label: "Network Map", group: "main" },
@@ -173,6 +189,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [appName, setAppName] = useState("pepinetupdater");
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups(prev => 
+      prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
+    );
+  };
 
   const applyThemeToShell = (rawTheme?: Partial<ThemeSettings> | null) => {
     const theme = normalizeTheme(rawTheme);
@@ -369,9 +393,69 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 )}
                 <ul className="space-y-0.5">
                   {items.map(item => {
-                    const active = item.to === "/"
+                    const hasChildren = item.children && item.children.length > 0;
+                    const isExpanded = expandedGroups.includes(item.id);
+                    
+                    // Active check for parent (including if any child is active)
+                    const isParentActive = item.to && (item.to === "/"
                       ? location.pathname === "/"
-                      : location.pathname === item.to || location.pathname.startsWith(item.to + "/");
+                      : location.pathname === item.to || location.pathname.startsWith(item.to + "/"));
+                    
+                    const isChildActive = hasChildren && item.children?.some(child => 
+                      location.pathname === child.to || location.pathname.startsWith(child.to + "/")
+                    );
+                    
+                    const active = isParentActive || isChildActive;
+
+                    if (hasChildren) {
+                      return (
+                        <li key={item.id} className="space-y-0.5">
+                          <button
+                            onClick={() => toggleGroup(item.id)}
+                            className={cn(
+                              "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 relative group/nav",
+                              "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                              active && !isExpanded && "nav-item-active text-sidebar-primary bg-sidebar-primary/10",
+                              collapsed && "justify-center px-2"
+                            )}
+                          >
+                            <item.icon className={cn("w-4 h-4 shrink-0 transition-colors", active ? "text-sidebar-primary" : "group-hover/nav:text-sidebar-accent-foreground")} />
+                            {!collapsed && (
+                              <>
+                                <span className="truncate flex-1 text-left">{item.label}</span>
+                                <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", isExpanded ? "rotate-180" : "")} />
+                              </>
+                            )}
+                          </button>
+                          
+                          {isExpanded && !collapsed && (
+                            <ul className="ml-4 pl-3 border-l border-sidebar-border/50 space-y-0.5 mt-0.5 animate-in slide-in-from-top-1 duration-200">
+                              {item.children?.map(child => {
+                                if (child.id && !hasPermission(child.id)) return null;
+                                const childActive = location.pathname === child.to || location.pathname.startsWith(child.to + "/");
+                                return (
+                                  <li key={child.to}>
+
+                                    <NavLink
+                                      to={child.to}
+                                      className={cn(
+                                        "flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] font-medium transition-all duration-150",
+                                        "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                                        childActive && "text-sidebar-primary bg-sidebar-primary/5"
+                                      )}
+                                    >
+                                      <child.icon className={cn("w-3.5 h-3.5", childActive ? "text-sidebar-primary" : "text-sidebar-foreground/40")} />
+                                      <span className="truncate">{child.label}</span>
+                                    </NavLink>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </li>
+                      );
+                    }
+
                     return (
                       <li key={item.to}>
                         <NavLink
@@ -395,6 +479,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     );
                   })}
                 </ul>
+
               </div>
             );
           })}
@@ -410,6 +495,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             )}
           >
             {collapsed ? <ChevronRight className="w-4 h-4" /> : <><ChevronLeft className="w-4 h-4" /><span>Collapse</span></>}
+          </button>
+          <button
+            onClick={() => setIsChangePasswordOpen(true)}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all",
+              collapsed && "justify-center"
+            )}
+          >
+            <KeyRound className="w-4 h-4" />
+            {!collapsed && <span>Change Password</span>}
           </button>
           <button
             onClick={handleLogout}
@@ -542,23 +637,67 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       <p className="px-2 mb-2 text-[11px] font-bold uppercase tracking-widest text-sidebar-foreground/40">{group.label}</p>
                       <ul className="space-y-1">
                         {items.map(item => {
-                          const active = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
+                          const hasChildren = item.children && item.children.length > 0;
+                          const active = item.to === "/" ? location.pathname === "/" : (item.to && location.pathname.startsWith(item.to)) || (hasChildren && item.children?.some(c => location.pathname.startsWith(c.to)));
+                          
                           return (
-                            <li key={item.to}>
-                              <NavLink onClick={() => setMobileMenuOpen(false)} to={item.to} className={cn("flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors", active ? "text-sidebar-primary bg-sidebar-primary/10" : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground")}>
-                                <item.icon className={cn("w-5 h-5", active ? "text-sidebar-primary" : "text-sidebar-foreground/50")} />
-                                <span>{item.label}</span>
-                              </NavLink>
+                            <li key={item.id || item.to} className="space-y-1">
+                              {hasChildren ? (
+                                <>
+                                  <div className={cn("flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold text-sidebar-foreground/60")}>
+                                    <item.icon className="w-5 h-5 text-sidebar-foreground/30" />
+                                    <span>{item.label}</span>
+                                  </div>
+                                  <ul className="ml-6 border-l border-sidebar-border/30 space-y-1">
+                                    {item.children?.map(child => {
+                                      if (child.id && !hasPermission(child.id)) return null;
+                                      const childActive = location.pathname.startsWith(child.to);
+                                      return (
+                                        <li key={child.to}>
+
+                                          <NavLink 
+                                            onClick={() => setMobileMenuOpen(false)} 
+                                            to={child.to} 
+                                            className={cn(
+                                              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors", 
+                                              childActive ? "text-sidebar-primary bg-sidebar-primary/10" : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                                            )}
+                                          >
+                                            <child.icon className={cn("w-4 h-4", childActive ? "text-sidebar-primary" : "text-sidebar-foreground/40")} />
+                                            <span>{child.label}</span>
+                                          </NavLink>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </>
+                              ) : (
+                                <NavLink 
+                                  onClick={() => setMobileMenuOpen(false)} 
+                                  to={item.to} 
+                                  className={cn(
+                                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors", 
+                                    active ? "text-sidebar-primary bg-sidebar-primary/10" : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                                  )}
+                                >
+                                  <item.icon className={cn("w-5 h-5", active ? "text-sidebar-primary" : "text-sidebar-foreground/50")} />
+                                  <span>{item.label}</span>
+                                </NavLink>
+                              )}
                             </li>
                           );
                         })}
                       </ul>
+
                     </div>
                   )
               })}
             </nav>
             
-            <div className="p-4 border-t border-sidebar-border bg-sidebar-accent/30">
+            <div className="p-4 border-t border-sidebar-border bg-sidebar-accent/30 space-y-2">
+               <button onClick={() => { setMobileMenuOpen(false); setIsChangePasswordOpen(true); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sidebar-foreground font-semibold rounded-lg bg-sidebar-accent hover:bg-sidebar-accent/90 transition-colors shadow-lg">
+                 <KeyRound className="w-5 h-5" /> <span>Change Password</span>
+               </button>
                <button onClick={() => { setMobileMenuOpen(false); handleLogout(); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-danger-foreground font-semibold rounded-lg bg-danger hover:bg-danger/90 transition-colors shadow-lg">
                  <LogOut className="w-5 h-5" /> <span>Sign Out</span>
                </button>
@@ -568,9 +707,141 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <ReportTroubleModal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} />
+      <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
 
       {/* Smart AI Assistant (Only renders if user has permission) */}
       {hasPermission("assistant") && <SmartAssistantWidget />}
+    </div>
+  );
+}
+
+function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const { user } = useAuth();
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!oldPassword || !newPassword) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords do not match");
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error("New password must be at least 6 characters long");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": user?.id || ""
+        },
+        body: JSON.stringify({ oldPassword, newPassword }),
+      });
+
+      if (res.ok) {
+        toast.success("Password changed successfully");
+        setOldPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+        onClose();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to change password");
+      }
+    } catch (err) {
+      toast.error("Error connecting to server");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="p-6 border-b border-border flex items-center justify-between bg-primary/5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+              <KeyRound className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">Change Password</h3>
+              <p className="text-xs text-foreground-muted">Update your account security</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-surface-raised rounded-full transition-colors text-foreground-muted">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSave} className="p-6 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-foreground-muted ml-1">Current Password</label>
+            <input
+              type="password"
+              required
+              value={oldPassword}
+              onChange={(e) => setOldPassword(e.target.value)}
+              className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <div className="space-y-1.5 pt-2">
+            <label className="text-xs font-semibold text-foreground-muted ml-1">New Password</label>
+            <input
+              type="password"
+              required
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-foreground-muted ml-1">Confirm New Password</label>
+            <input
+              type="password"
+              required
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <div className="pt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-3 rounded-xl border border-border font-bold text-sm hover:bg-surface-raised transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="flex-[2] bg-primary text-primary-foreground py-3 rounded-xl font-bold text-sm shadow-glow flex items-center justify-center gap-2 hover:bg-primary/90 transition-all disabled:opacity-50"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Update Password
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

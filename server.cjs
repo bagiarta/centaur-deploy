@@ -14,6 +14,7 @@ const mammoth = require('mammoth');
 const PDFDocument = require('pdfkit');
 const pdfParse = require('pdf-parse');
 const cron = require('node-cron');
+const ExcelJS = require('exceljs');
 
 // ── TIMEZONE HELPER FUNCTIONS ──────────────────────────────
 function getCurrentTimestamp() {
@@ -85,6 +86,130 @@ function isValidSafeSQL(script) {
 
   return true;
 }
+
+// ── H2H CRM INTEGRATION ──────────────────────────────
+const h2hConfig = {
+  baseUrl: (process.env.H2H_BASE_URL || '').replace(/\/$/, ''),
+  clientId: process.env.H2H_CLIENT_ID,
+  clientSecret: process.env.H2H_CLIENT_SECRET,
+  username: process.env.H2H_USERNAME,
+  password: process.env.H2H_PASSWORD,
+  clientCode: process.env.H2H_CLIENT_CODE,
+  verifySsl: process.env.H2H_VERIFY_SSL === 'true'
+};
+
+let h2hTokenCache = {
+  token: null,
+  expiresAt: 0
+};
+
+async function getH2hToken() {
+  const now = Date.now();
+  if (h2hTokenCache.token && h2hTokenCache.expiresAt > now) {
+    return h2hTokenCache.token;
+  }
+
+  console.log('🔄 Fetching new H2H CRM token...');
+
+  // Custom agent to handle verifySsl if needed
+  const fetchOptions = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'password',
+      username: h2hConfig.username,
+      password: h2hConfig.password,
+      client_id: h2hConfig.clientId,
+      client_secret: h2hConfig.clientSecret
+    })
+  };
+
+  const response = await fetch(`${h2hConfig.baseUrl}/oauth/token`, fetchOptions);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('H2H Token Error:', response.status, errorText);
+    throw new Error(`H2H Token Error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (!data.access_token) {
+    throw new Error('H2H Token Error: access_token not found in response');
+  }
+
+  h2hTokenCache = {
+    token: data.access_token,
+    expiresAt: now + (data.expires_in - 300) * 1000 // 5 min buffer
+  };
+
+  return h2hTokenCache.token;
+}
+
+// ── CRM REPORTS DATABASE POOL ──────────────────────────────
+let crmPoolPromise = null;
+
+async function getCrmPool() {
+  if (crmPoolPromise) return crmPoolPromise;
+
+  try {
+    const pool = await poolPromise;
+    // Search for the device by name or IP
+    const deviceRes = await pool.request()
+      .input('name', sql.NVarChar, 'DBWH SERVER')
+      .input('ip', sql.NVarChar, '192.168.85.55')
+      .query(`
+        SELECT TOP 1 d.*, c.db_user, c.db_password, c.db_name 
+        FROM Devices d
+        LEFT JOIN DeviceDbConnections c ON d.id = c.device_id
+        WHERE d.hostname = @name OR d.ip = @ip
+      `);
+
+    const device = deviceRes.recordset[0];
+    let config;
+
+    if (device && device.db_user && device.db_password) {
+      console.log('✅ Found CRM Server (DBWH SERVER) in Devices table. Using dynamic connection.');
+      config = {
+        user: device.db_user,
+        password: device.db_password,
+        server: device.ip,
+        database: device.db_name,
+        options: {
+          encrypt: false,
+          trustServerCertificate: true,
+          enableArithAbort: true
+        },
+        connectionTimeout: 15000,
+        requestTimeout: 60000
+      };
+    } else {
+      console.warn('⚠️ CRM Server (DBWH SERVER) not found or missing DB credentials. Using fallback.');
+      config = {
+        user: process.env.CRM_DB_USER || 'sa',
+        password: process.env.CRM_DB_PASS || 'default_pass',
+        server: process.env.CRM_DB_SERVER || '192.168.85.55',
+        database: process.env.CRM_DB_NAME || 'DBWH_8555',
+        options: {
+          encrypt: false,
+          trustServerCertificate: true,
+          enableArithAbort: true
+        },
+        connectionTimeout: 15000,
+        requestTimeout: 60000
+      };
+    }
+
+    const crmPool = new sql.ConnectionPool(config);
+    crmPoolPromise = crmPool.connect();
+    return crmPoolPromise;
+  } catch (err) {
+    console.error('❌ Failed to initialize CRM Pool:', err.message);
+    crmPoolPromise = null; // Allow retry
+    throw err;
+  }
+}
+
+
 
 // Multer Config for Workflows
 const workflowStorage = multer.diskStorage({
@@ -2415,6 +2540,42 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+app.post('/api/auth/change-password', async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  const userId = req.headers['x-user-id'];
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const pool = await poolPromise;
+    const userResult = await pool.request()
+      .input('id', sql.NVarChar, userId)
+      .query('SELECT password_hash FROM Users WHERE id = @id');
+
+    const user = userResult.recordset[0];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.password_hash !== oldPassword) {
+      return res.status(400).json({ error: 'Incorrect old password' });
+    }
+
+    await pool.request()
+      .input('id', sql.NVarChar, userId)
+      .input('newPassword', sql.NVarChar, newPassword)
+      .query('UPDATE Users SET password_hash = @newPassword WHERE id = @id');
+
+    // Log the action
+    await pool.request()
+      .input('user', sql.NVarChar, userId)
+      .input('action', sql.NVarChar, 'Changed password')
+      .query("INSERT INTO ActivityLog (time, [user], action) VALUES (GETDATE(), @user, @action)");
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── USER MANAGEMENT ────────────────────────────────────────
 async function getRequestUser(req, pool) {
   const headerUserId = req.headers['x-user-id'];
@@ -3352,7 +3513,13 @@ async function sendWhatsapp(message) {
     const settings = settingsRes.recordset[0];
     if (!settings || !settings.whatsapp_token) return;
 
-    const targets = [settings.whatsapp_target, settings.whatsapp_group].filter(Boolean).join(',');
+    // Deduplicate targets (ensure number doesn't appear in both individual and group fields)
+    const targets = Array.from(new Set(
+      [settings.whatsapp_target, settings.whatsapp_group]
+        .filter(Boolean)
+        .map(t => t.trim())
+    )).join(',');
+
     if (!targets) return;
 
     const payload = JSON.stringify({ token: settings.whatsapp_token, target: targets, message, countryCode: '62' });
@@ -3435,10 +3602,13 @@ async function runOfflineDetector() {
           } else {
             // Ping Success logic: RECOVERY
             if (dev.status === 'offline') {
-              await pool.request()
+              const recRes = await pool.request()
                 .input('id', sql.NVarChar, dev.id)
-                .query("UPDATE Devices SET status = 'online', last_offline_alert_at = NULL WHERE id = @id");
-              console.log(`[DETECTOR] Device ${dev.hostname} RECOVERED (Ping Success)`);
+                .query("UPDATE Devices SET status = 'online', last_offline_alert_at = NULL WHERE id = @id AND status = 'offline'");
+
+              if (recRes.rowsAffected[0] > 0) {
+                console.log(`[DETECTOR] Device ${dev.hostname} RECOVERED (Ping Success)`);
+              }
             }
             // If it responds to ping, it is NOT failing
             isPingFailing = false;
@@ -3460,19 +3630,22 @@ async function runOfflineDetector() {
           });
 
           // 2. ALWAYS Update DB status to Offline for Dashboard visibility
-          // BUT only set the alert timestamp if it's a priority device
+          // BUT only set the alert timestamp if it's a priority device.
+          // Atomic Check: only proceed if status is still 'online'
           const updateQuery = isPriority
-            ? "UPDATE Devices SET status = 'offline', last_offline_alert_at = @now WHERE id = @id"
-            : "UPDATE Devices SET status = 'offline' WHERE id = @id";
+            ? "UPDATE Devices SET status = 'offline', last_offline_alert_at = @now WHERE id = @id AND status = 'online'"
+            : "UPDATE Devices SET status = 'offline' WHERE id = @id AND status = 'online'";
 
-          await pool.request()
+          const offUpdateRes = await pool.request()
             .input('id', sql.NVarChar, dev.id)
             .input('now', sql.DateTime, now)
             .query(updateQuery);
 
-          // 3. ONLY add to notification list if Priority
-          if (isPriority) {
+          // 3. ONLY add to notification list if Priority AND we were the one who updated it
+          if (isPriority && offUpdateRes.rowsAffected[0] > 0) {
             newlyOffline.push({ ...dev, alertNeeded: true, reason: "Heartbeat Stale & Ping Fail" });
+          } else if (isPriority) {
+            // Already handled by another process
           } else {
             console.log(`[DETECTOR] Silent offline (non-priority device) for: ${dev.hostname}`);
           }
@@ -3517,21 +3690,19 @@ async function runOfflineDetector() {
     });
 
     if (recovered.length > 0) {
-      let recoveryWA = `✅ *NET RECOVERY: ${recovered.length} DEVICES ONLINE*\n`;
+      const actualRecovered = [];
 
       for (const dev of recovered) {
-        let durationStr = "";
-        if (dev.last_offline_alert_at) {
-          const diffMs = now - new Date(dev.last_offline_alert_at);
-          const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
-          const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-          durationStr = ` (Down: ${diffHrs}h ${diffMins}m)`;
+        // Atomic Update: Only process if the device is still recorded as 'offline' or has a pending alert
+        // This prevents multiple processes from sending the same recovery notification.
+        const updateRes = await pool.request()
+          .input('id', sql.NVarChar, dev.id)
+          .query("UPDATE Devices SET status = 'online', last_offline_alert_at = NULL WHERE id = @id AND (status = 'offline' OR last_offline_alert_at IS NOT NULL)");
+
+        if (updateRes.rowsAffected[0] === 0) {
+          // Another process already recovered this device
+          continue;
         }
-
-        recoveryWA += `- *${dev.hostname}* (${dev.ip})${durationStr}\n`;
-
-        await pool.request().input('id', sql.NVarChar, dev.id)
-          .query("UPDATE Devices SET status = 'online', last_offline_alert_at = NULL WHERE id = @id");
 
         const ts = getCurrentTimeHHMM();
         await pool.request()
@@ -3539,11 +3710,28 @@ async function runOfflineDetector() {
           .input('action', sql.NVarChar, `✅ Device recovered: ${dev.hostname} (${dev.ip})`)
           .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
           .catch(() => { });
+
+        // Add to list of devices that were actually recovered by THIS process
+        actualRecovered.push(dev);
       }
 
-      console.log(`[NOTIF] Sending recovery summary for ${recovered.length} devices.`);
-      await sendWebhook(`✅ Network Recovery Report`, recoveryWA.replace(/\*/g, '**'), 0x22c55e);
-      await sendWhatsapp(recoveryWA);
+      if (actualRecovered.length > 0) {
+        let recoveryWA = `✅ *NET RECOVERY: ${actualRecovered.length} DEVICES ONLINE*\n`;
+        for (const dev of actualRecovered) {
+          let durationStr = "";
+          if (dev.last_offline_alert_at) {
+            const diffMs = now - new Date(dev.last_offline_alert_at);
+            const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+            const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+            durationStr = ` (Down: ${diffHrs}h ${diffMins}m)`;
+          }
+          recoveryWA += `- *${dev.hostname}* (${dev.ip})${durationStr}\n`;
+        }
+
+        console.log(`[NOTIF] Sending recovery summary for ${actualRecovered.length} devices.`);
+        await sendWebhook(`✅ Network Recovery Report`, recoveryWA.replace(/\*/g, '**'), 0x22c55e);
+        await sendWhatsapp(recoveryWA);
+      }
     }
 
     // 5. Send Notification if we caught NEW offline devices
@@ -3721,8 +3909,6 @@ app.post('/api/reports/trigger-weekly', async (req, res) => {
   res.json({ message: "Weekly report generation triggered." });
 });
 
-let localDailyTicketSentDate = null;
-
 /**
  * Daily Outstanding Ticket + CRM Sync Notification
  * Summarizes tickets that are not Closed/Resolved and shows progress %.
@@ -3731,13 +3917,32 @@ let localDailyTicketSentDate = null;
 async function sendDailyOutstandingTicketsNotification(isManual = false) {
   console.log('[REPORT] Generating Daily Outstanding Ticket + CRM Sync Notification...');
   const todayStr = new Date().toISOString().split('T')[0];
-  if (!isManual && localDailyTicketSentDate === todayStr) {
-    console.log('[REPORT] Daily ticket notification already sent today automatically.');
-    return;
-  }
+
   try {
     const pool = await poolPromise;
     if (!pool) return;
+
+    if (!isManual) {
+      // 1. Database-backed Deduplication: Check if already sent today across ANY process
+      const settingsCheck = await pool.request().query("SELECT last_daily_report_date FROM NotificationSettings WHERE id = 'global'");
+      const lastSentDate = settingsCheck.recordset[0]?.last_daily_report_date;
+
+      if (lastSentDate === todayStr) {
+        console.log('[REPORT] Daily ticket notification already sent today (DB check).');
+        return;
+      }
+
+      // 2. Atomic Reservation: Mark as sent BEFORE proceeding to prevent race conditions
+      // If multiple processes hit this at 08:00:00, only one will successfully update if we use a strict WHERE
+      const reserveRes = await pool.request()
+        .input('today', sql.NVarChar, todayStr)
+        .query("UPDATE NotificationSettings SET last_daily_report_date = @today WHERE id = 'global' AND (last_daily_report_date IS NULL OR last_daily_report_date <> @today)");
+
+      if (reserveRes.rowsAffected[0] === 0) {
+        console.log('[REPORT] Daily ticket notification just claimed by another process.');
+        return;
+      }
+    }
 
     // 1. Fetch Outstanding Tickets
     const ticketsRes = await pool.request().query(`
@@ -3878,15 +4083,78 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
       summary += `⚠️ *LOYAL CRM SYNC*: Data tidak tersedia.\n\n`;
     }
 
+    // ── 3.5 CRM FRAUD ANALYSIS (YESTERDAY) ──────────
+    try {
+      const crmPool = await getCrmPool();
+      const fraudRes = await crmPool.request().query(`
+        WITH trx AS (
+          SELECT
+            q.RLITQ_ORG_CD AS org_cd,
+            q.RLITQ_CARD_NO AS card_no,
+            m.RLICM_NAME AS cust_name,
+            d.ORG_NAME AS store_name,
+            h.SESSION_NO,
+            h.NET_VALUE,
+            CAST(h.BILL_DT AS DATE) AS trx_date,
+            CAST(h.BILL_TIME AS TIME) AS bill_time,
+            LAG(CAST(h.BILL_TIME AS TIME)) OVER (
+              PARTITION BY q.RLITQ_CARD_NO, q.RLITQ_ORG_CD, h.SESSION_NO, CAST(h.BILL_DT AS DATE)
+              ORDER BY CAST(h.BILL_TIME AS TIME)
+            ) AS prev_bill_time
+          FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
+          LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+          LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+          LEFT JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO
+          WHERE CAST(h.BILL_DT AS DATE) = CAST(DATEADD(day, -1, GETDATE()) AS DATE)
+        ),
+        trx_interval AS (
+          SELECT
+            *,
+            CASE
+              WHEN DATEDIFF(SECOND, prev_bill_time, bill_time) < 0 THEN NULL
+              ELSE DATEDIFF(SECOND, prev_bill_time, bill_time)
+            END AS interval_sec
+          FROM trx
+        )
+        SELECT
+          trx_date AS trans_date,
+          card_no,
+          cust_name,
+          org_cd,
+          store_name,
+          SESSION_NO,
+          COUNT(*) AS frequently,
+          ROUND(AVG(CAST(ISNULL(NET_VALUE, 0) AS FLOAT)), 0) AS avg_value
+        FROM trx_interval
+        GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
+        HAVING COUNT(*) > 5
+        ORDER BY frequently DESC
+      `);
+
+      if (fraudRes.recordset.length > 0) {
+        summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        summary += `🚨 *CRM FRAUD ANALYSIS: Suspicious Activity Detected*\n`;
+        summary += `_Harap segera melakukan review pada report CRM Fraud Analysis!_\n\n`;
+
+        for (const row of fraudRes.recordset) {
+          summary += `📅 Date: ${new Date(row.trans_date).toLocaleDateString('id-ID')}\n`;
+          summary += `🏪 Store: ${row.org_cd} - ${row.store_name}\n`;
+          summary += `💳 Card No: ${row.card_no}\n`;
+          summary += `👤 Customer: ${row.cust_name || 'N/A'}\n`;
+          summary += `⚠️ Frequency: *${row.frequently}* transactions\n`;
+          summary += `💰 Avg Value: *Rp ${new Intl.NumberFormat('id-ID').format(row.avg_value || 0)}*\n\n`;
+        }
+      }
+    } catch (fraudErr) {
+      console.error('[REPORT] CRM Fraud Analysis error (non-fatal):', fraudErr.message);
+    }
+
     summary += `_Pantau detail di http://192.168.85.30:3001/tickets_`;
 
     // 4. Send Notifications
     await sendWebhook(`🎟️ Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
     await sendWhatsapp(summary);
 
-    if (!isManual) {
-      localDailyTicketSentDate = todayStr;
-    }
     console.log('[REPORT] Daily ticket + CRM notification sent.');
 
   } catch (err) {
@@ -4813,43 +5081,99 @@ app.get('/api/reports/health', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
-      SELECT id, hostname, ram, disk 
-      FROM Devices
+      SELECT d.id, d.hostname, d.ram, d.disk, 
+             (SELECT g.name + ',' FROM DeviceGroups g WHERE d.group_ids LIKE '%' + g.id + '%' FOR XML PATH('')) as group_names
+      FROM Devices d
     `);
 
     const healthData = result.recordset.map(row => {
       const rawRam = row.ram || "";
       const rawDisk = row.disk || "";
+      const groupNames = row.group_names || "";
+      const isServer = groupNames.toLowerCase().includes('server');
+      const ramThreshold = isServer ? 31 : 7;
+
       let isLowRam = false;
       let isLowDisk = false;
 
-      const ramMatch = rawRam.match(/(\d+)\s*(GB|MB)/i);
-      if (ramMatch) {
-        let val = parseFloat(ramMatch[1]);
-        if (ramMatch[2].toUpperCase() === 'MB') val = val / 1024;
-        if (val < 8) isLowRam = true;
-      }
-
-      const diskMatch = rawDisk.match(/(?:Free:\s*)?(\d+(?:\.\d+)?)\s*(GB|TB)/i);
-      if (diskMatch) {
-        let val = parseFloat(diskMatch[1]);
-        if (diskMatch[2].toUpperCase() === 'TB') val = val * 1024;
-        if (val < 50) isLowDisk = true;
-      } else if (rawDisk.includes('/') || rawDisk.toLowerCase().includes('free')) {
-        // Fallback: parse something like "24 GB / 100 GB" or "Free: 24 GB"
-        const numMatch = rawDisk.match(/(\d+(?:\.\d+)?)\s*(GB|TB)/i);
-        if (numMatch) {
-          let val = parseFloat(numMatch[1]);
-          if (numMatch[2].toUpperCase() === 'TB') val = val * 1024;
-          if (val < 50) isLowDisk = true;
+      let totalRamGB = 0;
+      if (rawRam.includes('/')) {
+        const parts = rawRam.split('/');
+        const totalMatch = parts[1].match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+        if (totalMatch) {
+          totalRamGB = parseFloat(totalMatch[1]);
+          if (totalMatch[2].toUpperCase() === 'MB') totalRamGB /= 1024;
+          if (totalMatch[2].toUpperCase() === 'TB') totalRamGB *= 1024;
         }
+      } else {
+        const ramMatch = rawRam.match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+        if (ramMatch) {
+          totalRamGB = parseFloat(ramMatch[1]);
+          if (ramMatch[2].toUpperCase() === 'MB') totalRamGB /= 1024;
+          if (ramMatch[2].toUpperCase() === 'TB') totalRamGB *= 1024;
+        }
+      }
+      if (totalRamGB > 0 && totalRamGB < ramThreshold) isLowRam = true;
+
+      const diskBlocks = rawDisk.split(' | ');
+      let worstFreeVal = Infinity;
+      let freeDiskSummary = [];
+      let lowDiskDrives = [];
+      let freeDisk = "Unknown";
+
+      diskBlocks.forEach(block => {
+        if (block.includes('/')) {
+          const parts = block.split('/');
+          const usedMatch = parts[0].match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+          const totalMatch = parts[1].match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+          const driveLetterMatch = block.match(/([a-zA-Z]:)/);
+          const driveLabel = driveLetterMatch ? driveLetterMatch[1] : "";
+
+          if (usedMatch && totalMatch) {
+            let usedVal = parseFloat(usedMatch[1]);
+            if (usedMatch[2].toUpperCase() === 'TB') usedVal *= 1024;
+            if (usedMatch[2].toUpperCase() === 'MB') usedVal /= 1024;
+
+            let totalVal = parseFloat(totalMatch[1]);
+            if (totalMatch[2].toUpperCase() === 'TB') totalVal *= 1024;
+            if (totalMatch[2].toUpperCase() === 'MB') totalVal /= 1024;
+
+            // Ignore disks smaller than 10GB (likely recovery partitions or virtual drives)
+            if (totalVal < 10) return;
+
+            const freeVal = totalVal - usedVal;
+            if (freeVal < worstFreeVal) worstFreeVal = freeVal;
+            if (freeVal < 50) lowDiskDrives.push(driveLabel || "Unknown");
+            freeDiskSummary.push(driveLabel ? `${driveLabel} ${freeVal.toFixed(2)} GB` : `${freeVal.toFixed(2)} GB`);
+          }
+        } else {
+          const diskMatch = block.match(/(?:Free:\s*)?(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+          if (diskMatch) {
+            let val = parseFloat(diskMatch[1]);
+            if (diskMatch[2].toUpperCase() === 'TB') val *= 1024;
+            if (diskMatch[2].toUpperCase() === 'MB') val /= 1024;
+            if (val < worstFreeVal) worstFreeVal = val;
+            if (val < 50) lowDiskDrives.push("Unknown");
+            freeDiskSummary.push(`${val.toFixed(2)} GB`);
+          }
+        }
+      });
+
+      if (worstFreeVal !== Infinity) {
+        isLowDisk = worstFreeVal < 50;
+        freeDisk = freeDiskSummary.join(' | ');
       }
 
       return {
         id: row.id,
         hostname: row.hostname,
         ram: row.ram,
+        totalRam: totalRamGB > 0 ? `${totalRamGB.toFixed(2)} GB` : row.ram,
+        ramThreshold: ramThreshold,
+        groupNames: groupNames.replace(/,$/, ''),
         disk: row.disk,
+        freeDisk: freeDisk,
+        lowDiskDrives: lowDiskDrives,
         isLowRam,
         isLowDisk,
         needsUpgrade: isLowRam || isLowDisk
@@ -4960,6 +5284,587 @@ app.get('/api/reports/crm-sync', async (req, res) => {
   } catch (err) {
     console.error('Reports CRM Sync Error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/crm/customer/:phone ──────────────────────────────
+app.get('/api/crm/customer/:phone', async (req, res) => {
+  const { phone } = req.params;
+
+  if (!phone) {
+    return res.status(400).json({ error: 'Phone number is required.' });
+  }
+
+  try {
+    const token = await getH2hToken();
+
+    const apiUrl = `${h2hConfig.baseUrl}/api/v1/tenant/customer/${phone}?client_code=${h2hConfig.clientCode}`;
+    const response = await fetch(apiUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return res.status(response.status).json({
+        error: errorData.message || `H2H API Error: ${response.status}`,
+        details: errorData
+      });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    console.error('CRM Lookup Error:', err.message);
+    res.status(500).json({ error: 'Failed to connect to H2H CRM.', message: err.message });
+  }
+});
+
+// ── GET /api/crm/reports/stores ──────────────────────────────
+app.get('/api/crm/reports/stores', async (req, res) => {
+  try {
+    const crmPool = await getCrmPool();
+    const result = await crmPool.request().query(`
+      SELECT DISTINCT ORG_CD AS org_cd, ORG_NAME AS org_name 
+      FROM DimStore 
+      WHERE ORG_STATUS = 'O' AND ORG_LEVEL_NUMBER = 3 
+      ORDER BY ORG_NAME ASC
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/crm/reports/:type ──────────────────────────────
+app.get('/api/crm/reports/:type', async (req, res) => {
+  const { type } = req.params;
+  const { fromDate, toDate, store, search, page = 1, perPage = 100, sortBy, sortDir = 'desc' } = req.query;
+
+  try {
+    const crmPool = await getCrmPool();
+    const offset = (parseInt(page) - 1) * parseInt(perPage);
+    const limit = parseInt(perPage);
+
+    let query = "";
+    let countQuery = "";
+    let params = { fromDate, toDate };
+
+    if (type === 'txn-analysis') {
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const orderCol = sortBy || 'h.bill_DT';
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+      query = `
+        SELECT
+            q.RLITQ_ORG_CD AS org_cd,
+            d.ORG_NAME AS store_name,
+            q.RLITQ_BILL_NO AS bill_no,
+            CONVERT(DATE, h.bill_dt) AS txn_date,
+            h.bill_time AS txn_time,
+            q.RLITQ_CARD_NO AS card_no,
+            m.RLICM_NAME AS cust_name,
+            m.RLICM_MOBILE_NO AS phone_no,
+            q.RLITQ_OPENING_POINTS AS prev_points,
+            FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) AS point_earned,
+            h.NET_VALUE AS bill_value,
+            (ISNULL(q.RLITQ_OPENING_POINTS, 0) + FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points,
+            CASE WHEN FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
+            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
+        FROM POS_SALES_HDR (NOLOCK) h
+        INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        ${where}
+        ORDER BY ${orderCol} ${orderDir}
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+      `;
+
+      countQuery = `
+        SELECT 
+            COUNT(*) as total,
+            SUM(ISNULL(h.NET_VALUE, 0)) AS total_bill_value,
+            SUM(FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points_earned
+        FROM POS_SALES_HDR (NOLOCK) h
+        INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        ${where}
+      `;
+    }
+    else if (type === 'frequent-shopper') {
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT x.*,
+               CASE WHEN x.frequently > 3 THEN 'LOYAL' WHEN x.frequently >= 1 THEN 'REGULAR' ELSE 'PASSIVE' END AS cust_category
+        FROM (
+            SELECT
+                q.RLITQ_ORG_CD AS org_cd,
+                d.ORG_NAME AS store_name,
+                q.RLITQ_CARD_NO AS card_no,
+                m.RLICM_NAME AS cust_name,
+                m.RLICM_MOBILE_NO AS phone_no,
+                COUNT(q.RLITQ_CARD_NO) AS frequently
+            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
+            ${where}
+            GROUP BY q.RLITQ_ORG_CD, d.ORG_NAME, q.RLITQ_CARD_NO, m.RLICM_NAME, m.RLICM_MOBILE_NO
+        ) x
+        ORDER BY frequently DESC
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+      `;
+
+      countQuery = `
+        SELECT COUNT(DISTINCT q.RLITQ_CARD_NO) as total
+        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        ${where}
+      `;
+    }
+    else if (type === 'member-enrollment') {
+      // member-enrollment and top-spender typically use data warehouse tables
+      // For trial, I'll implement member-enrollment
+      let where = "WHERE m.join_date BETWEEN @fromDate AND @toDate";
+      if (search) {
+        where += " AND (m.member_id LIKE @search OR m.name LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+         SELECT m.member_id, m.join_date, m.city, m.acquisition_channel,
+                COALESCE(lt.lifetime_txn, 0) as lifetime_txn,
+                COALESCE(lt.lifetime_sales, 0) as lifetime_sales
+         FROM dim_member m
+         LEFT JOIN (
+           SELECT member_id, COUNT(DISTINCT transaction_id) as lifetime_txn, SUM(net_amount) as lifetime_sales
+           FROM fact_transactions
+           GROUP BY member_id
+         ) lt ON m.member_id = lt.member_id
+         ${where}
+         ORDER BY m.join_date DESC
+         OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+       `;
+      countQuery = `SELECT COUNT(*) as total FROM dim_member m ${where}`;
+    }
+    else if (type === 'top-spender') {
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.BILL_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT TOP 100
+            q.RLITQ_CARD_NO AS card_no,
+            MAX(m.RLICM_NAME) AS cust_name,
+            MAX(m.RLICM_MOBILE_NO) AS phone_no,
+            COUNT(DISTINCT q.RLITQ_BILL_NO) AS total_txn,
+            SUM(ISNULL(h.NET_VALUE, 0)) AS total_net_sales
+        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        ${where}
+        GROUP BY q.RLITQ_CARD_NO
+        ORDER BY total_net_sales DESC
+      `;
+      countQuery = `SELECT 100 AS total`;
+    }
+    else if (type === 'fraud-analysis') {
+      let where = "WHERE h.BILL_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const cte = `
+        WITH trx AS (
+          SELECT
+            q.RLITQ_ORG_CD AS org_cd,
+            q.RLITQ_CARD_NO AS card_no,
+            m.RLICM_NAME AS cust_name,
+            m.RLICM_MOBILE_NO,
+            d.ORG_NAME AS store_name,
+            h.SESSION_NO,
+            h.NET_VALUE,
+            CAST(h.BILL_DT AS DATE) AS trx_date,
+            CAST(h.BILL_TIME AS TIME) AS bill_time,
+            LAG(CAST(h.BILL_TIME AS TIME)) OVER (
+              PARTITION BY q.RLITQ_CARD_NO, q.RLITQ_ORG_CD, h.SESSION_NO, CAST(h.BILL_DT AS DATE)
+              ORDER BY CAST(h.BILL_TIME AS TIME)
+            ) AS prev_bill_time
+          FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
+          LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+          LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+          LEFT JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO
+          ${where}
+        ),
+        trx_interval AS (
+          SELECT
+            *,
+            CASE
+              WHEN DATEDIFF(SECOND, prev_bill_time, bill_time) < 0 THEN NULL
+              ELSE DATEDIFF(SECOND, prev_bill_time, bill_time)
+            END AS interval_sec
+          FROM trx
+        )
+      `;
+
+      query = `
+        ${cte}
+        SELECT
+          trx_date AS trans_date,
+          card_no,
+          cust_name,
+          org_cd,
+          store_name,
+          SESSION_NO,
+          COUNT(*) AS frequently,
+          ROUND(AVG(CAST(interval_sec AS FLOAT)), 0) AS avg_interval_sec,
+          MIN(interval_sec) AS min_interval_sec,
+          ROUND(AVG(CAST(ISNULL(NET_VALUE, 0) AS FLOAT)), 0) AS avg_value,
+          'Suspicious Activity' AS fraud_warning
+        FROM trx_interval
+        GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
+        HAVING COUNT(*) > 5
+        ORDER BY trans_date DESC, frequently DESC
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+      `;
+
+      countQuery = `
+        ${cte}
+        SELECT COUNT(*) as total FROM (
+          SELECT trx_date
+          FROM trx_interval
+          GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
+          HAVING COUNT(*) > 5
+        ) sub
+      `;
+    }
+    else {
+      return res.status(400).json({ error: 'Invalid report type' });
+    }
+
+    const request = crmPool.request();
+    Object.keys(params).forEach(key => {
+      request.input(key, sql.NVarChar, params[key]);
+    });
+
+    const [dataRes, countRes] = await Promise.all([
+      request.query(query),
+      request.query(countQuery)
+    ]);
+
+    const total = countRes.recordset[0]?.total || 0;
+    const summary = countRes.recordset[0] || {};
+
+    res.json({
+      rows: dataRes.recordset,
+      total,
+      summary,
+      page: parseInt(page),
+      perPage: parseInt(perPage),
+      totalPages: Math.ceil(total / parseInt(perPage))
+    });
+
+  } catch (err) {
+    console.error(`CRM Report Error (${type}):`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/crm/reports/:type/export/:format ─────────────────
+app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
+  const { type, format } = req.params;
+  const { fromDate, toDate, store, search, sortBy, sortDir = 'desc' } = req.query;
+
+  try {
+    const crmPool = await getCrmPool();
+    let query = "";
+    let params = { fromDate, toDate };
+    let columns = [];
+    let title = "";
+
+    // Reuse the same logic as the main endpoint, but WITHOUT pagination
+    if (type === 'txn-analysis') {
+      title = "Wise Customer Transaction Analysis";
+      columns = [
+        { header: 'Store Code', key: 'org_cd', width: 15 },
+        { header: 'Store Name', key: 'store_name', width: 25 },
+        { header: 'Bill No', key: 'bill_no', width: 20 },
+        { header: 'Date', key: 'txn_date', width: 15 },
+        { header: 'Time', key: 'txn_time', width: 10 },
+        { header: 'Card No', key: 'card_no', width: 20 },
+        { header: 'Customer', key: 'cust_name', width: 25 },
+        { header: 'Phone', key: 'phone_no', width: 15 },
+        { header: 'Prev Pts', key: 'prev_points', width: 10 },
+        { header: 'Earned', key: 'point_earned', width: 10 },
+        { header: 'Value', key: 'bill_value', width: 15, style: { numFmt: '#,##0' } },
+        { header: 'Total Pts', key: 'total_points', width: 10 },
+        { header: 'Status', key: 'point_status', width: 10 },
+        { header: 'Category', key: 'bill_category', width: 10 },
+      ];
+
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+      const orderCol = sortBy || 'h.bill_DT';
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+      query = `
+        SELECT
+            q.RLITQ_ORG_CD AS org_cd, d.ORG_NAME AS store_name, q.RLITQ_BILL_NO AS bill_no,
+            CONVERT(DATE, h.bill_dt) AS txn_date, h.bill_time AS txn_time,
+            q.RLITQ_CARD_NO AS card_no, m.RLICM_NAME AS cust_name, m.RLICM_MOBILE_NO AS phone_no,
+            q.RLITQ_OPENING_POINTS AS prev_points, FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) AS point_earned,
+            h.NET_VALUE AS bill_value, (ISNULL(q.RLITQ_OPENING_POINTS, 0) + FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points,
+            CASE WHEN FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
+            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
+        FROM POS_SALES_HDR (NOLOCK) h
+        INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        ${where}
+        ORDER BY ${orderCol} ${orderDir}
+      `;
+    }
+    else if (type === 'frequent-shopper') {
+      title = "Customer Frequently Shopper";
+      columns = [
+        { header: 'Org Code', key: 'org_cd', width: 10 },
+        { header: 'Store Name', key: 'store_name', width: 25 },
+        { header: 'Card No', key: 'card_no', width: 20 },
+        { header: 'Customer', key: 'cust_name', width: 25 },
+        { header: 'Phone No', key: 'phone_no', width: 15 },
+        { header: 'Frequency', key: 'frequently', width: 10 },
+        { header: 'Category', key: 'cust_category', width: 15 },
+      ];
+
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT x.*, CASE WHEN x.frequently > 3 THEN 'LOYAL' WHEN x.frequently >= 1 THEN 'REGULAR' ELSE 'PASSIVE' END AS cust_category
+        FROM (
+            SELECT q.RLITQ_ORG_CD AS org_cd, d.ORG_NAME AS store_name, q.RLITQ_CARD_NO AS card_no,
+                   m.RLICM_NAME AS cust_name, m.RLICM_MOBILE_NO AS phone_no, COUNT(q.RLITQ_CARD_NO) AS frequently
+            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
+            ${where}
+            GROUP BY q.RLITQ_ORG_CD, d.ORG_NAME, q.RLITQ_CARD_NO, m.RLICM_NAME, m.RLICM_MOBILE_NO
+        ) x
+        ORDER BY frequently DESC
+      `;
+    }
+    else if (type === 'member-enrollment') {
+      title = "Member Enrollment Analysis";
+      columns = [
+        { header: 'Member ID', key: 'member_id', width: 15 },
+        { header: 'Join Date', key: 'join_date', width: 15 },
+        { header: 'City', key: 'city', width: 20 },
+        { header: 'Channel', key: 'acquisition_channel', width: 20 },
+        { header: 'Lifetime Txn', key: 'lifetime_txn', width: 15 },
+        { header: 'Lifetime Sales', key: 'lifetime_sales', width: 20, style: { numFmt: '#,##0' } },
+      ];
+
+      let where = "WHERE m.join_date BETWEEN @fromDate AND @toDate";
+      if (search) {
+        where += " AND (m.member_id LIKE @search OR m.name LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT m.member_id, m.join_date, m.city, m.acquisition_channel,
+               COALESCE(lt.lifetime_txn, 0) as lifetime_txn, COALESCE(lt.lifetime_sales, 0) as lifetime_sales
+        FROM dim_member m
+        LEFT JOIN (
+          SELECT member_id, COUNT(DISTINCT transaction_id) as lifetime_txn, SUM(net_amount) as lifetime_sales
+          FROM fact_transactions GROUP BY member_id
+        ) lt ON m.member_id = lt.member_id
+        ${where}
+        ORDER BY m.join_date DESC
+      `;
+    }
+    else if (type === 'top-spender') {
+      title = "Top Spender Analysis";
+      columns = [
+        { header: 'Card No', key: 'card_no', width: 20 },
+        { header: 'Customer', key: 'cust_name', width: 25 },
+        { header: 'Phone No', key: 'phone_no', width: 15 },
+        { header: 'Net Sales', key: 'total_net_sales', width: 20, style: { numFmt: '#,##0' } },
+        { header: 'Total Txn', key: 'total_txn', width: 10 },
+        { header: 'Tier', key: 'spender_tier', width: 15 },
+      ];
+
+      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.BILL_DT BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      query = `
+        SELECT
+            q.RLITQ_CARD_NO AS card_no,
+            MAX(m.RLICM_NAME) AS cust_name,
+            MAX(m.RLICM_MOBILE_NO) AS phone_no,
+            COUNT(DISTINCT q.RLITQ_BILL_NO) AS total_txn,
+            SUM(ISNULL(h.NET_VALUE, 0)) AS total_net_sales,
+            CASE 
+                WHEN SUM(ISNULL(h.NET_VALUE, 0)) >= 5000000 THEN 'Platinum'
+                WHEN SUM(ISNULL(h.NET_VALUE, 0)) >= 1000000 THEN 'Gold'
+                ELSE 'Silver' 
+            END AS spender_tier
+        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
+        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        ${where}
+        GROUP BY q.RLITQ_CARD_NO
+        ORDER BY total_net_sales DESC
+      `;
+    }
+
+    const request = crmPool.request();
+    Object.keys(params).forEach(key => {
+      request.input(key, sql.NVarChar, params[key]);
+    });
+
+    const result = await request.query(query);
+    const rows = result.recordset;
+
+    if (format === 'excel') {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Report');
+
+      // Style headers
+      worksheet.columns = columns;
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+
+      worksheet.addRows(rows);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=${type}-report.xlsx`);
+      await workbook.xlsx.write(res);
+      res.end();
+    }
+    else if (format === 'pdf') {
+      const doc = new PDFDocument({ margin: 30, layout: 'landscape' });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=${type}-report.pdf`);
+      doc.pipe(res);
+
+      doc.fontSize(18).text(title, { align: 'center' });
+      doc.fontSize(10).text(`Period: ${fromDate} to ${toDate}`, { align: 'center' });
+      doc.moveDown();
+
+      // Simple table drawing logic
+      const tableTop = 100;
+      let y = tableTop;
+
+      // Draw Headers
+      doc.fontSize(8).font('Helvetica-Bold');
+      let x = 30;
+      columns.forEach(col => {
+        doc.text(col.header, x, y, { width: col.width * 7, truncate: true });
+        x += col.width * 7;
+      });
+
+      y += 15;
+      doc.moveTo(30, y).lineTo(x, y).stroke();
+      y += 5;
+
+      // Draw Rows
+      doc.font('Helvetica');
+      rows.slice(0, 500).forEach(row => { // Limit PDF to 500 rows for performance
+        if (y > 550) {
+          doc.addPage({ layout: 'landscape' });
+          y = 30;
+
+          // Redraw headers on new page
+          doc.fontSize(8).font('Helvetica-Bold');
+          x = 30;
+          columns.forEach(col => {
+            doc.text(col.header, x, y, { width: col.width * 7, truncate: true });
+            x += col.width * 7;
+          });
+          y += 15;
+          doc.moveTo(30, y).lineTo(x, y).stroke();
+          y += 5;
+          doc.font('Helvetica');
+        }
+        x = 30;
+        columns.forEach(col => {
+          let val = row[col.key];
+          if (val instanceof Date) val = val.toISOString().split('T')[0];
+          doc.text(String(val || '-'), x, y, { width: col.width * 7, truncate: true });
+          x += col.width * 7;
+        });
+        y += 12;
+      });
+
+      if (rows.length > 500) {
+        doc.moveDown().text(`... and ${rows.length - 500} more records (Export to Excel for full data)`, { italic: true });
+      }
+
+      doc.end();
+    } else {
+      res.status(400).send('Invalid format');
+    }
+  } catch (err) {
+    console.error('Export Error:', err);
+    res.status(500).send(err.message);
   }
 });
 
@@ -5434,7 +6339,7 @@ app.listen(port, '0.0.0.0', async () => {
             SELECT TOP 1000 id FROM ActivityLog ORDER BY id DESC
           )
         `);
-        
+
       if (result.rowsAffected[0] > 0) {
         console.log(`🧹 [Cleanup] Deleted ${result.rowsAffected[0]} old ActivityLog entries (kept latest 1000)`);
       }

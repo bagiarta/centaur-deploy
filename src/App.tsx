@@ -20,6 +20,9 @@ import WorkflowsPage from "@/pages/WorkflowsPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import RoleManagementPage from "./pages/RoleManagementPage";
 import TicketsPage from "./pages/TicketsPage";
+import CrmLookupPage from "./pages/CrmLookupPage";
+import CrmReportsPage from "./pages/CrmReportsPage";
+import CrmSyncPage from "./pages/CrmSyncPage";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/LoginPage";
@@ -163,6 +166,10 @@ const App = () => (
                 </AppShell>
               </ProtectedRoute>
             } />
+            {/* CRM Center */}
+            <Route path="/crm/lookup" element={<ProtectedRoute><AppShell><CrmLookupPage /></AppShell></ProtectedRoute>} />
+            <Route path="/crm/sync" element={<ProtectedRoute><AppShell><CrmSyncPage /></AppShell></ProtectedRoute>} />
+            <Route path="/crm/reports/:type" element={<ProtectedRoute><AppShell><CrmReportsPage /></AppShell></ProtectedRoute>} />
             <Route path="/settings" element={
               <ProtectedRoute>
                 <AppShell>
