@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Terminal, Play, RefreshCw, Power, FileCode, Package2, Activity, Save, Clock, Trash2, ChevronDown, CheckCircle, XCircle, Search } from "lucide-react";
+import { Terminal, Play, RefreshCw, Power, FileCode, Package2, Activity, Save, Clock, Trash2, ChevronDown, ChevronRight, ChevronLeft, CheckCircle, XCircle, Search } from "lucide-react";
 import { PageHeader, SectionCard } from "@/components/ui-enterprise";
 import { cn } from "@/lib/utils";
 import CodeMirror from '@uiw/react-codemirror';
@@ -45,6 +45,7 @@ export default function RemoteCommandsPage() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [scheduleName, setScheduleName] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
+  const [devicesCollapsed, setDevicesCollapsed] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -250,56 +251,77 @@ export default function RemoteCommandsPage() {
         subtitle="Execute commands, scripts, and installers on selected devices"
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="flex flex-col lg:flex-row gap-4 relative">
         {/* Device selector */}
-        <SectionCard
-          title="Select Devices"
-          subtitle={`${selected.length} selected`}
-          className="lg:col-span-1"
-          actions={
-            <button onClick={toggleAll} className="text-xs text-primary hover:underline" disabled={filteredDevices.length === 0}>
-              {allFilteredSelected ? "Deselect filtered" : "Select filtered"}
-            </button>
-          }
-        >
-          <div className="p-4 border-b border-border">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" />
-              <input
-                type="text"
-                placeholder="Search hostname or IP..."
-                className="w-full bg-surface-overlay border border-border rounded-md pl-9 pr-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="divide-y divide-border max-h-64 overflow-y-auto">
-            {filteredDevices.map(d => (
-              <label key={d.id} className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-surface/40 transition-colors">
+        <div className={cn(
+          "transition-all duration-300 ease-in-out flex flex-col gap-4 overflow-hidden",
+          devicesCollapsed ? "lg:w-0 lg:opacity-0 lg:pointer-events-none" : "lg:w-80 w-full opacity-100"
+        )}>
+          <SectionCard
+            title="Select Devices"
+            subtitle={`${selected.length} selected`}
+            className="flex-none lg:flex-1"
+            actions={
+              <button onClick={toggleAll} className="text-xs text-primary hover:underline" disabled={filteredDevices.length === 0}>
+                {allFilteredSelected ? "Deselect filtered" : "Select filtered"}
+              </button>
+            }
+          >
+            <div className="p-4 border-b border-border">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" />
                 <input
-                  type="checkbox"
-                  checked={selected.includes(d.id)}
-                  onChange={() => toggle(d.id)}
-                  className="accent-primary"
+                  type="text"
+                  placeholder="Search hostname or IP..."
+                  className="w-full bg-surface-overlay border border-border rounded-md pl-9 pr-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
                 />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-mono font-medium text-foreground truncate">{d.hostname}</p>
-                  <p className="text-xs text-foreground-muted">{d.ip}</p>
-                </div>
-                <div className={cn(
-                  "w-1.5 h-1.5 rounded-full shrink-0",
-                  d.status === "online" ? "bg-success" :
-                  d.status === "offline" ? "bg-foreground-subtle" :
-                  d.status === "error" ? "bg-danger" : "bg-primary"
-                )} />
-              </label>
-            ))}
-          </div>
-        </SectionCard>
+              </div>
+            </div>
+            <div className="divide-y divide-border max-h-64 overflow-y-auto">
+              {filteredDevices.map(d => (
+                <label key={d.id} className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-surface/40 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(d.id)}
+                    onChange={() => toggle(d.id)}
+                    className="accent-primary"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-mono font-medium text-foreground truncate">{d.hostname}</p>
+                    <p className="text-xs text-foreground-muted">{d.ip}</p>
+                  </div>
+                  <div className={cn(
+                    "w-1.5 h-1.5 rounded-full shrink-0",
+                    d.status === "online" ? "bg-success" :
+                    d.status === "offline" ? "bg-foreground-subtle" :
+                    d.status === "error" ? "bg-danger" : "bg-primary"
+                  )} />
+                </label>
+              ))}
+            </div>
+          </SectionCard>
+        </div>
+
+        {/* Floating Toggle Button */}
+        <button 
+          onClick={() => setDevicesCollapsed(!devicesCollapsed)}
+          className={cn(
+            "hidden lg:flex absolute top-1/2 -translate-y-1/2 z-30 w-6 h-20 bg-surface border border-border shadow-xl items-center justify-center hover:bg-primary/10 group transition-all duration-300 rounded-r-xl",
+            devicesCollapsed ? "left-0" : "left-80"
+          )}
+          title={devicesCollapsed ? "Expand device list" : "Collapse device list"}
+        >
+          {devicesCollapsed ? (
+            <ChevronRight className="w-4 h-4 text-primary group-hover:scale-125 transition-transform" />
+          ) : (
+            <ChevronLeft className="w-4 h-4 text-foreground-muted group-hover:text-primary group-hover:scale-125 transition-transform" />
+          )}
+        </button>
 
         {/* Command builder + output */}
-        <div className="lg:col-span-2 space-y-4">
+        <div className="flex-1 space-y-4">
           <SectionCard title="Command Builder">
             <div className="p-5 space-y-4">
               {/* Presets */}

@@ -12,7 +12,18 @@ interface Role {
   is_admin: boolean;
 }
 
-const ALL_MENUS = navItems.map(item => ({ id: item.id, label: item.label }));
+// Flatten navItems including children (CRM submenu etc.)
+const ALL_MENUS: { id: string; label: string; parentLabel?: string }[] = [];
+navItems.forEach(item => {
+  if (!item.hidden) {
+    ALL_MENUS.push({ id: item.id, label: item.label });
+    if (item.children) {
+      item.children.forEach(child => {
+        ALL_MENUS.push({ id: child.id, label: child.label, parentLabel: item.label });
+      });
+    }
+  }
+});
 
 export default function RoleManagementPage() {
   const [roles, setRoles] = useState<Role[]>([]);
@@ -245,21 +256,37 @@ export default function RoleManagementPage() {
                   <div className="space-y-3">
                     <label className="text-xs font-bold text-foreground-muted uppercase tracking-wider ml-1">Menu Mapping Access</label>
                     <div className="grid grid-cols-1 gap-2">
-                      {ALL_MENUS.map(menu => (
-                        <button
-                          key={menu.id}
-                          onClick={() => toggleMenu(menu.id)}
-                          className={cn(
-                            "flex items-center justify-between p-3 rounded-xl border transition-all text-left",
-                            selectedMenus.includes(menu.id)
-                              ? "bg-primary/5 border-primary/30 text-primary shadow-sm"
-                              : "bg-surface border-border text-foreground-muted hover:border-white/10"
-                          )}
-                        >
-                          <span className="text-sm font-medium">{menu.label}</span>
-                          {selectedMenus.includes(menu.id) && <Check className="w-4 h-4" />}
-                        </button>
-                      ))}
+                      {(() => {
+                        let lastParent: string | undefined = undefined;
+                        return ALL_MENUS.map(menu => {
+                          const isChild = !!menu.parentLabel;
+                          const showHeader = isChild && menu.parentLabel !== lastParent;
+                          if (showHeader) lastParent = menu.parentLabel;
+                          else if (!isChild) lastParent = undefined;
+                          return (
+                            <React.Fragment key={menu.id}>
+                              {showHeader && (
+                                <p className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider mt-2 ml-1 pl-2 border-l-2 border-primary/30">
+                                  {menu.parentLabel} Submenus
+                                </p>
+                              )}
+                              <button
+                                onClick={() => toggleMenu(menu.id)}
+                                className={cn(
+                                  "flex items-center justify-between p-3 rounded-xl border transition-all text-left",
+                                  isChild && "ml-3 py-2",
+                                  selectedMenus.includes(menu.id)
+                                    ? "bg-primary/5 border-primary/30 text-primary shadow-sm"
+                                    : "bg-surface border-border text-foreground-muted hover:border-white/10"
+                                )}
+                              >
+                                <span className={cn("font-medium", isChild ? "text-xs" : "text-sm")}>{menu.label}</span>
+                                {selectedMenus.includes(menu.id) && <Check className="w-4 h-4" />}
+                              </button>
+                            </React.Fragment>
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
                 )}

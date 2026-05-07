@@ -1,159 +1,50 @@
-require('dotenv').config();
-const express = require('express');
-const fs = require('fs');
-const cors = require('cors');
-const sql = require('mssql');
-const path = require('path');
-const multer = require('multer');
-const { exec } = require('child_process');
-const util = require('util');
-const https = require('https');
-const OpenAI = require('openai');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const mammoth = require('mammoth');
-const PDFDocument = require('pdfkit');
+
+import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import multer from 'multer';
+import sql from 'mssql';
+import { exec } from 'child_process';
+import util from 'util';
+import https from 'https';
+import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import mammoth from 'mammoth';
+import PDFDocument from 'pdfkit';
+import cron from 'node-cron';
+import ExcelJS from 'exceljs';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
-const cron = require('node-cron');
-const ExcelJS = require('exceljs');
 
-// ── TIMEZONE HELPER FUNCTIONS ──────────────────────────────
-function getCurrentTimestamp() {
-  // Return timestamp in configured timezone
-  return new Date().toLocaleString('id-ID', {
-    timeZone: process.env.TZ || 'Asia/Makassar',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
+import { poolPromise, dbConfig } from '../config/db.js';
+import { h2hConfig, getH2hToken } from '../config/h2h.js';
+import { getCurrentTimestamp, getCurrentTimeHHMM, getISOTimestamp } from '../utils/timeUtils.js';
+
+// Recreate some missing utility constants/functions from server.cjs
+const execPromise = (cmd, options = {}) => {
+  return new Promise((resolve, reject) => {
+    exec(cmd, { windowsHide: true, ...options }, (error, stdout, stderr) => {
+      if (error) reject(error);
+      else resolve({ stdout, stderr });
+    });
   });
-}
-
-function getCurrentTimeHHMM() {
-  // Return HH:MM format in configured timezone
-  return new Date().toLocaleString('id-ID', {
-    timeZone: process.env.TZ || 'Asia/Makassar',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
-}
-
-function getISOTimestamp() {
-  return new Date().toISOString();
-}
-
-/**
- * Validates if the SQL query is a safe READ-ONLY SELECT statement.
- * Blocks multiple statements (;), comments that could hide logic, 
- * and DDL/DML mutation keywords.
- */
-function isValidSafeSQL(script) {
-  if (!script || typeof script !== 'string') return false;
-
-  // 1. Remove comments to see the actual commands
-  // Single line comments starting with --
-  // Block comments /* ... */
-  const cleanScript = script
-    .replace(/--.*$/gm, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .trim();
-
-  if (!cleanScript) return false;
-
-  const normalized = cleanScript.toUpperCase();
-
-  // 2. Must start with SELECT (ignoring what we just cleaned)
-  if (!normalized.startsWith('SELECT')) return false;
-
-  // 3. Block multiple statements (semicolon)
-  // We allow a semicolon at the very end of the script, but not elsewhere
-  const withoutTrailingSemicolon = cleanScript.replace(/;\s*$/, '');
-  if (withoutTrailingSemicolon.includes(';')) return false;
-
-  // 4. Block mutation keywords
-  const blockedKeywords = [
-    'UPDATE', 'DELETE', 'INSERT', 'DROP', 'TRUNCATE', 'ALTER', 'CREATE',
-    'RECONFIGURE', 'EXEC', 'EXECUTE', 'MERGE', 'GRANT', 'REVOKE',
-    'INTO', 'WRITETEXT', 'UPDATETEXT', 'DELETETEXT'
-  ];
-
-  for (const keyword of blockedKeywords) {
-    const regex = new RegExp(`\\b${keyword}\\b`, 'i');
-    if (regex.test(normalized)) return false;
-  }
-
-  return true;
-}
-
-// ── H2H CRM INTEGRATION ──────────────────────────────
-const h2hConfig = {
-  baseUrl: (process.env.H2H_BASE_URL || '').replace(/\/$/, ''),
-  clientId: process.env.H2H_CLIENT_ID,
-  clientSecret: process.env.H2H_CLIENT_SECRET,
-  username: process.env.H2H_USERNAME,
-  password: process.env.H2H_PASSWORD,
-  clientCode: process.env.H2H_CLIENT_CODE,
-  verifySsl: process.env.H2H_VERIFY_SSL === 'true'
 };
 
-let h2hTokenCache = {
-  token: null,
-  expiresAt: 0
-};
+const workflowStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/workflows/'),
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+});
+const workflowUpload = multer({ storage: workflowStorage });
 
-async function getH2hToken() {
-  const now = Date.now();
-  if (h2hTokenCache.token && h2hTokenCache.expiresAt > now) {
-    return h2hTokenCache.token;
-  }
-
-  console.log('🔄 Fetching new H2H CRM token...');
-
-  // Custom agent to handle verifySsl if needed
-  const fetchOptions = {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'password',
-      username: h2hConfig.username,
-      password: h2hConfig.password,
-      client_id: h2hConfig.clientId,
-      client_secret: h2hConfig.clientSecret
-    })
-  };
-
-  const response = await fetch(`${h2hConfig.baseUrl}/oauth/token`, fetchOptions);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('H2H Token Error:', response.status, errorText);
-    throw new Error(`H2H Token Error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  if (!data.access_token) {
-    throw new Error('H2H Token Error: access_token not found in response');
-  }
-
-  h2hTokenCache = {
-    token: data.access_token,
-    expiresAt: now + (data.expires_in - 300) * 1000 // 5 min buffer
-  };
-
-  return h2hTokenCache.token;
-}
-
-// ── CRM REPORTS DATABASE POOL ──────────────────────────────
+// CRM Pool recreated
 let crmPoolPromise = null;
 
 async function getCrmPool() {
   if (crmPoolPromise) return crmPoolPromise;
-
   try {
     const pool = await poolPromise;
-    // Search for the device by name or IP
     const deviceRes = await pool.request()
       .input('name', sql.NVarChar, 'DBWH SERVER')
       .input('ip', sql.NVarChar, '192.168.85.55')
@@ -168,34 +59,22 @@ async function getCrmPool() {
     let config;
 
     if (device && device.db_user && device.db_password) {
-      console.log('✅ Found CRM Server (DBWH SERVER) in Devices table. Using dynamic connection.');
       config = {
         user: device.db_user,
         password: device.db_password,
         server: device.ip,
         database: device.db_name,
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-          enableArithAbort: true
-        },
-        connectionTimeout: 15000,
-        requestTimeout: 60000
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+        connectionTimeout: 15000, requestTimeout: 60000
       };
     } else {
-      console.warn('⚠️ CRM Server (DBWH SERVER) not found or missing DB credentials. Using fallback.');
       config = {
         user: process.env.CRM_DB_USER || 'sa',
         password: process.env.CRM_DB_PASS || 'default_pass',
         server: process.env.CRM_DB_SERVER || '192.168.85.55',
         database: process.env.CRM_DB_NAME || 'DBWH_8555',
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-          enableArithAbort: true
-        },
-        connectionTimeout: 15000,
-        requestTimeout: 60000
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+        connectionTimeout: 15000, requestTimeout: 60000
       };
     }
 
@@ -204,1394 +83,25 @@ async function getCrmPool() {
     return crmPoolPromise;
   } catch (err) {
     console.error('❌ Failed to initialize CRM Pool:', err.message);
-    crmPoolPromise = null; // Allow retry
+    crmPoolPromise = null;
     throw err;
   }
 }
 
-
-
-// Multer Config for Workflows
-const workflowStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/workflows/'),
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
-});
-const workflowUpload = multer({ storage: workflowStorage });
-const execPromise = (cmd, options = {}) => {
-  return new Promise((resolve, reject) => {
-    exec(cmd, { windowsHide: true, ...options }, (error, stdout, stderr) => {
-      if (error) reject(error);
-      else resolve({ stdout, stderr });
-    });
-  });
-};
-
-const app = express();
-const port = process.env.PORT || 3001;
+// Ensure __dirname is available for file uploads
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.resolve(path.dirname(__filename), '..');
 const REPO_PATH = path.resolve('F:\\PepiUpdater\\Repo');
-
-// Ensure Repo path exists
-if (!fs.existsSync(REPO_PATH)) {
-  fs.mkdirSync(REPO_PATH, { recursive: true });
-}
-
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
-
-
-// Configure Multer for package uploads
 const packageStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, REPO_PATH);
-  },
-  filename: (req, file, cb) => {
-    // Preserve original filename but ensure it's safe
-    cb(null, file.originalname);
-  }
+  destination: (req, file, cb) => cb(null, REPO_PATH),
+  filename: (req, file, cb) => cb(null, file.originalname)
 });
 const packageUpload = multer({ storage: packageStorage });
 
-// SQL Server configuration
-const dbConfig = {
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  server: process.env.DB_SERVER,
-  database: process.env.DB_NAME,
-  options: {
-    encrypt: false, // For local dev, usually false
-    trustServerCertificate: true,
-  },
-  pool: {
-    max: 20,
-    min: 5,
-    idleTimeoutMillis: 30000
-  },
-  connectionTimeout: 15000,
-  requestTimeout: 30000
-};
+const router = express.Router();
 
-// Application State
-let poolPromise;
-
-// Attempt to initialize database connection and create table
-async function initDb() {
-  try {
-    poolPromise = sql.connect(dbConfig);
-    const pool = await poolPromise;
-
-    // Connectivity Event listener
-    pool.on('error', err => {
-      console.error('⚠️ [SQL POOL ERROR]:', err.message);
-      if (err.message.includes('broken') || err.message.includes('Connection loss')) {
-        console.warn('-- Possible Network Instability detected with ' + dbConfig.server + ' --');
-      }
-    });
-
-    console.log('✅ Connected to SQL Server:', dbConfig.server);
-
-    const tables = [
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Devices' AND xtype='U')
-       CREATE TABLE Devices (
-           id NVARCHAR(50) PRIMARY KEY,
-           hostname NVARCHAR(100) NOT NULL,
-           ip NVARCHAR(50) NOT NULL,
-           os_version NVARCHAR(100),
-           cpu NVARCHAR(100),
-           ram NVARCHAR(50),
-           disk NVARCHAR(50),
-           agent_version NVARCHAR(50),
-           status NVARCHAR(50),
-           last_seen NVARCHAR(50),
-           group_ids NVARCHAR(500),
-           location NVARCHAR(200),
-           latitude FLOAT,
-           longitude FLOAT
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='DeviceGroups' AND xtype='U')
-       CREATE TABLE DeviceGroups (
-           id NVARCHAR(50) PRIMARY KEY,
-           name NVARCHAR(100) NOT NULL,
-           device_count INT DEFAULT 0,
-           color NVARCHAR(50)
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Packages' AND xtype='U')
-       CREATE TABLE Packages (
-           id NVARCHAR(50) PRIMARY KEY,
-           name NVARCHAR(100) NOT NULL,
-           version NVARCHAR(50),
-           checksum NVARCHAR(255),
-           file_path NVARCHAR(500),
-           size NVARCHAR(50),
-           type NVARCHAR(20),
-           uploaded_at NVARCHAR(50),
-           uploaded_by NVARCHAR(100)
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Deployments' AND xtype='U')
-       CREATE TABLE Deployments (
-           id NVARCHAR(50) PRIMARY KEY,
-           package_id NVARCHAR(50),
-           package_name NVARCHAR(100),
-           package_version NVARCHAR(50),
-           target_path NVARCHAR(500),
-           schedule_time NVARCHAR(100),
-           created_by NVARCHAR(100),
-           created_at NVARCHAR(50),
-           status NVARCHAR(50),
-           total_targets INT DEFAULT 0,
-           success_count INT DEFAULT 0,
-           failed_count INT DEFAULT 0,
-           pending_count INT DEFAULT 0
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='DeploymentTargets' AND xtype='U')
-       CREATE TABLE DeploymentTargets (
-           deployment_id NVARCHAR(50),
-           device_id NVARCHAR(50),
-           hostname NVARCHAR(100),
-           ip NVARCHAR(50),
-           status NVARCHAR(50),
-           log NVARCHAR(MAX),
-           updated_at NVARCHAR(50),
-           progress INT DEFAULT 0,
-           PRIMARY KEY (deployment_id, device_id)
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='AgentJobs' AND xtype='U')
-       CREATE TABLE AgentJobs (
-           id NVARCHAR(50) PRIMARY KEY,
-           created_at NVARCHAR(50),
-           created_by NVARCHAR(100),
-           ip_range NVARCHAR(MAX),
-           total INT DEFAULT 0,
-           success_count INT DEFAULT 0,
-           failed_count INT DEFAULT 0,
-           pending_count INT DEFAULT 0
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='AgentInstallTargets' AND xtype='U')
-       CREATE TABLE AgentInstallTargets (
-           job_id NVARCHAR(50),
-           device_ip NVARCHAR(50),
-           hostname NVARCHAR(100),
-           status NVARCHAR(50),
-           log NVARCHAR(MAX),
-           updated_at NVARCHAR(50),
-           PRIMARY KEY (job_id, device_ip)
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ActivityLog' AND xtype='U')
-       CREATE TABLE ActivityLog (
-           id INT IDENTITY(1,1) PRIMARY KEY,
-           time NVARCHAR(50),
-           [user] NVARCHAR(100),
-           action NVARCHAR(MAX),
-           created_at DATETIME DEFAULT GETDATE()
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='DeviceDbConnections' AND xtype='U')
-       CREATE TABLE DeviceDbConnections (
-           device_id NVARCHAR(50) PRIMARY KEY,
-           db_name NVARCHAR(100),
-           db_user NVARCHAR(100),
-           db_password NVARCHAR(100),
-           updated_at DATETIME DEFAULT GETDATE()
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Roles' AND xtype='U')
-        CREATE TABLE Roles (
-            id NVARCHAR(50) PRIMARY KEY,
-            name NVARCHAR(100) NOT NULL,
-            menu_permissions NVARCHAR(MAX),
-            is_admin BIT DEFAULT 0
-        )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Users' AND xtype='U')
-        CREATE TABLE Users (
-            id NVARCHAR(50) PRIMARY KEY,
-            username NVARCHAR(100) UNIQUE NOT NULL,
-            password_hash NVARCHAR(MAX) NOT NULL,
-            full_name NVARCHAR(200),
-            role_id NVARCHAR(50),
-            created_at DATETIME DEFAULT GETDATE()
-        )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='NotificationSettings' AND xtype='U')
-      CREATE TABLE NotificationSettings (
-        id NVARCHAR(50) PRIMARY KEY,
-        webhook_url NVARCHAR(500),
-        whatsapp_token NVARCHAR(500),
-        whatsapp_target NVARCHAR(200),
-        whatsapp_group NVARCHAR(200),
-        alert_offline BIT DEFAULT 1,
-        alert_deployment_success BIT DEFAULT 1,
-        alert_deployment_failed BIT DEFAULT 1,
-        offline_timeout_mins INT DEFAULT 10
-      )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ThemeSettings' AND xtype='U')
-      CREATE TABLE ThemeSettings (
-        id NVARCHAR(50) PRIMARY KEY,
-        sidebarBg NVARCHAR(20),
-        sidebarText NVARCHAR(20),
-        sidebarAccent NVARCHAR(20),
-        mainBg NVARCHAR(20),
-        contentText NVARCHAR(20),
-        cardBg NVARCHAR(20),
-        primaryBrand NVARCHAR(20),
-        appLogo NVARCHAR(MAX),
-        logoSize INT,
-        appName NVARCHAR(200),
-        updated_at DATETIME DEFAULT GETDATE()
-      )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='AssistantKeywords' AND xtype='U')
-      CREATE TABLE AssistantKeywords (
-        id NVARCHAR(50) PRIMARY KEY,
-        keyword NVARCHAR(200) NOT NULL,
-        description NVARCHAR(500),
-        action_type NVARCHAR(50) NOT NULL,
-        target_host NVARCHAR(100),
-        script_text NVARCHAR(MAX) NOT NULL,
-        parameter_keys NVARCHAR(MAX),
-        requires_admin BIT DEFAULT 0,
-        requires_confirmation BIT DEFAULT 0,
-        is_enabled BIT DEFAULT 1,
-        created_at DATETIME DEFAULT GETDATE(),
-        updated_at DATETIME DEFAULT GETDATE()
-      )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='SqlTemplates' AND xtype='U')
-      CREATE TABLE SqlTemplates (
-        id NVARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(200) NOT NULL,
-        description NVARCHAR(500),
-        script NVARCHAR(MAX),
-        created_by NVARCHAR(100),
-        created_at DATETIME DEFAULT GETDATE()
-      )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RemoteCommandScripts' AND xtype='U')
-      CREATE TABLE RemoteCommandScripts (
-        id NVARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(200) NOT NULL,
-        description NVARCHAR(500),
-        script NVARCHAR(MAX),
-        created_by NVARCHAR(100),
-        created_at DATETIME DEFAULT GETDATE()
-      )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RemoteSqlSchedules' AND xtype='U')
-      CREATE TABLE RemoteSqlSchedules (
-        id NVARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(200) NOT NULL,
-        script NVARCHAR(MAX),
-        target_device_ids NVARCHAR(MAX),
-        next_run_at DATETIME,
-        status NVARCHAR(50) DEFAULT 'pending',
-        created_at DATETIME DEFAULT GETDATE()
-      )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RemoteCommandSchedules' AND xtype='U')
-      CREATE TABLE RemoteCommandSchedules (
-        id NVARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(200) NOT NULL,
-        script NVARCHAR(MAX),
-        target_device_ids NVARCHAR(MAX),
-        next_run_at DATETIME,
-        status NVARCHAR(50) DEFAULT 'pending',
-        created_at DATETIME DEFAULT GETDATE()
-      )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Workflows' AND xtype='U')
-       CREATE TABLE Workflows (
-         id NVARCHAR(50) PRIMARY KEY,
-         title NVARCHAR(200) NOT NULL,
-         content NVARCHAR(MAX) NOT NULL,
-         category NVARCHAR(100),
-         file_name NVARCHAR(255),
-         file_path NVARCHAR(MAX),
-         created_by NVARCHAR(100),
-         created_at DATETIME DEFAULT GETDATE(),
-         updated_at DATETIME DEFAULT GETDATE()
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='PendingCommands' AND xtype='U')
-       CREATE TABLE PendingCommands (
-         id NVARCHAR(50) PRIMARY KEY,
-         exec_id NVARCHAR(50) NOT NULL,
-         device_id NVARCHAR(50) NOT NULL,
-         hostname NVARCHAR(100),
-         ip NVARCHAR(50),
-         command NVARCHAR(MAX) NOT NULL,
-         status NVARCHAR(20) DEFAULT 'pending',
-         result_log NVARCHAR(MAX),
-         created_at DATETIME DEFAULT GETDATE(),
-         executed_at DATETIME NULL
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='DeviceSoftware' AND xtype='U')
-       CREATE TABLE DeviceSoftware (
-         id INT IDENTITY(1,1) PRIMARY KEY,
-         device_id NVARCHAR(50) NOT NULL,
-         name NVARCHAR(500) NOT NULL,
-         version NVARCHAR(100),
-         publisher NVARCHAR(200),
-         updated_at DATETIME DEFAULT GETDATE()
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TroubleTickets' AND xtype='U')
-       CREATE TABLE TroubleTickets (
-         id NVARCHAR(50) PRIMARY KEY,
-         title NVARCHAR(200) NOT NULL,
-         description NVARCHAR(MAX) NOT NULL,
-         category NVARCHAR(100),
-         priority NVARCHAR(50),
-         status NVARCHAR(50),
-         outlet_name NVARCHAR(150),
-         hostname NVARCHAR(100),
-         created_by NVARCHAR(100),
-         created_at DATETIME DEFAULT GETDATE(),
-         resolved_by NVARCHAR(100),
-         resolved_at DATETIME,
-         resolution_note NVARCHAR(MAX),
-         closed_by NVARCHAR(100),
-         closed_at DATETIME,
-         updated_at DATETIME DEFAULT GETDATE()
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TicketLogs' AND xtype='U')
-       CREATE TABLE TicketLogs (
-         id INT IDENTITY(1,1) PRIMARY KEY,
-         ticket_id NVARCHAR(50) NOT NULL,
-         action NVARCHAR(MAX) NOT NULL,
-         performed_by NVARCHAR(100) NOT NULL,
-         created_at DATETIME DEFAULT GETDATE()
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TicketGroups' AND xtype='U')
-       CREATE TABLE TicketGroups (
-         id INT IDENTITY(1,1) PRIMARY KEY,
-         ticket_id NVARCHAR(50) NOT NULL,
-         group_id NVARCHAR(50) NOT NULL,
-         created_at DATETIME DEFAULT GETDATE()
-       )`,
-      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TicketTargets' AND xtype='U')
-       CREATE TABLE TicketTargets (
-         id INT IDENTITY(1,1) PRIMARY KEY,
-         ticket_id NVARCHAR(50) NOT NULL,
-         hostname NVARCHAR(100) NOT NULL,
-         status NVARCHAR(50) DEFAULT 'Pending',
-         remark NVARCHAR(MAX),
-         updated_at DATETIME DEFAULT GETDATE()
-       )`
-    ];
-
-    for (let query of tables) {
-      await pool.request().query(query);
-    }
-
-    // Ensure SystemConfigs table exists
-    await pool.request().query(`
-      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='SystemConfigs' AND xtype='U')
-      CREATE TABLE SystemConfigs (
-        [key] NVARCHAR(100) PRIMARY KEY,
-        [value] NVARCHAR(MAX),
-        updated_at DATETIME DEFAULT GETDATE()
-      )
-    `);
-
-
-    // Add retry_count and last_error to DeploymentTargets if they don't exist
-    const checkColumns = await pool.request().query(`
-      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_NAME = 'DeploymentTargets' AND COLUMN_NAME IN ('retry_count', 'last_error')
-    `);
-
-    if (!checkColumns.recordset.find(c => c.COLUMN_NAME === 'retry_count')) {
-      await pool.request().query('ALTER TABLE DeploymentTargets ADD retry_count INT DEFAULT 0');
-    }
-    if (!checkColumns.recordset.find(c => c.COLUMN_NAME === 'last_error')) {
-      await pool.request().query('ALTER TABLE DeploymentTargets ADD last_error NVARCHAR(MAX)');
-    }
-
-    // DeviceGroups expansion
-    const checkGroupCols = await pool.request().query(`
-      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_NAME = 'DeviceGroups' AND COLUMN_NAME = 'description'
-    `);
-    if (checkGroupCols.recordset.length === 0) {
-      await pool.request().query('ALTER TABLE DeviceGroups ADD description NVARCHAR(500)');
-    }
-
-    // Workflows table extra columns expansion
-    const checkWfCols = await pool.request().query(`
-      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_NAME = 'Workflows' AND COLUMN_NAME IN ('file_name', 'file_path')
-    `);
-    if (!checkWfCols.recordset.find(c => c.COLUMN_NAME === 'file_name')) {
-      await pool.request().query('ALTER TABLE Workflows ADD file_name NVARCHAR(255)');
-    }
-    if (!checkWfCols.recordset.find(c => c.COLUMN_NAME === 'file_path')) {
-      await pool.request().query('ALTER TABLE Workflows ADD file_path NVARCHAR(MAX)');
-    }
-
-    // Devices table expansion for Network Monitors
-    const checkDevCols = await pool.request().query(`
-      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_NAME = 'Devices' AND COLUMN_NAME IN ('device_type', 'network_ports', 'location', 'latitude', 'longitude')
-    `);
-    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'device_type')) {
-      await pool.request().query("ALTER TABLE Devices ADD device_type NVARCHAR(50) DEFAULT 'PC'");
-    }
-    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'network_ports')) {
-      await pool.request().query("ALTER TABLE Devices ADD network_ports NVARCHAR(MAX)");
-    }
-
-    // Devices table expansion for Location and Coordinates
-    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'location')) {
-      await pool.request().query("ALTER TABLE Devices ADD location NVARCHAR(200)");
-    }
-    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'latitude')) {
-      await pool.request().query("ALTER TABLE Devices ADD latitude FLOAT");
-    }
-    if (!checkDevCols.recordset.find(c => c.COLUMN_NAME === 'longitude')) {
-      await pool.request().query("ALTER TABLE Devices ADD longitude FLOAT");
-    }
-
-    await pool.request().query('ALTER TABLE AgentJobs ALTER COLUMN ip_range NVARCHAR(MAX)').catch(() => { });
-
-    // Add sql_safe_mode to NotificationSettings if it doesn't exist
-    const checkSqlModeCol = await pool.request().query(`
-      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_NAME = 'NotificationSettings' AND COLUMN_NAME = 'sql_safe_mode'
-    `);
-    if (checkSqlModeCol.recordset.length === 0) {
-      await pool.request().query('ALTER TABLE NotificationSettings ADD sql_safe_mode BIT DEFAULT 1');
-    }
-
-    // Seed initial mock data if tables are empty
-    await seedData(pool);
-
-    // TicketTargets expansion
-    const checkTargetCols = await pool.request().query(`
-      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_NAME = 'TicketTargets' AND COLUMN_NAME = 'solved_by'
-    `);
-    if (checkTargetCols.recordset.length === 0) {
-      await pool.request().query('ALTER TABLE TicketTargets ADD solved_by NVARCHAR(100)');
-    }
-
-    console.log('✅ Database fully initialized (DBWH_8529)');
-  } catch (err) {
-    console.error('❌ Database Connection Failed! Bad Config: ', err);
-  }
-}
-
-async function seedData(pool) {
-  // Check if Groups exists
-  const groupsRes = await pool.request().query('SELECT COUNT(*) as count FROM DeviceGroups');
-  if (groupsRes.recordset[0].count === 0) {
-    console.log('Seeding DeviceGroups...');
-    await pool.request().query(`
-      INSERT INTO DeviceGroups (id, name, device_count, color) VALUES 
-      ('g1', 'Workstations', 5, 'primary'),
-      ('g2', 'Servers', 3, 'info'),
-      ('g3', 'Dev Laptops', 2, 'success'),
-      ('g4', 'Kiosk Devices', 2, 'warning')
-    `);
-  }
-
-  // Devices
-  const devRes = await pool.request().query('SELECT COUNT(*) as count FROM Devices');
-  if (devRes.recordset[0].count === 0) {
-    console.log('Seeding Devices with starter inventory...');
-    await pool.request().query(`
-     --NSERT INTO Devices (id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen)
-      --LUES
-      --dev-1', 'WORKSTATION-01', '192.168.1.11', 'Windows 10', 'Intel i5', '16GB', '512GB', '2.6.0', 'online', 'g1', GETDATE()),
-      --dev-2', 'WORKSTATION-02', '192.168.1.12', 'Windows 10', 'Intel i7', '16GB', '1TB', '2.6.0', 'offline', 'g1', GETDATE()),
-      --dev-3', 'SERVER-01', '192.168.1.20', 'Windows Server 2019', 'Xeon', '32GB', '2TB', '2.5.8', 'online', 'g2', GETDATE())
-    `);
-  }
-
-  // Packages
-  const pkgRes = await pool.request().query('SELECT COUNT(*) as count FROM Packages');
-  if (pkgRes.recordset[0].count === 0) {
-    console.log('Seeding Packages with starter entries...');
-    await pool.request().query(`
-      INSERT INTO Packages (id, name, version, checksum, file_path, size, type, uploaded_at, uploaded_by)
-      VALUES
-      ('pkg-1', 'Centaur Agent', '2.6.0', 'abc123', 'CentaurAgent-2.6.0.msi', '40MB', 'msi', GETDATE(), 'admin'),
-      ('pkg-2', 'Database Patch', '1.2.3', 'def456', 'DBPatch-1.2.3.zip', '120MB', 'zip', GETDATE(), 'admin')
-    `);
-  }
-
-  // Deployments
-  const depRes = await pool.request().query('SELECT COUNT(*) as count FROM Deployments');
-  if (depRes.recordset[0].count === 0) {
-    console.log('Seeding Deployments with starter tasks...');
-    await pool.request().query(`
-      INSERT INTO Deployments (id, package_id, package_name, package_version, target_path, schedule_time, created_by, created_at, status, total_targets, success_count, failed_count, pending_count)
-      VALUES
-      ('dep-1', 'pkg-1', 'Centaur Agent', '2.6.0', 'C:\\Deployments', '2025-01-01 09:00', 'admin', GETDATE(), 'running', 3, 2, 0, 1)
-    `);
-    await pool.request().query(`
-      INSERT INTO DeploymentTargets (deployment_id, device_id, hostname, ip, status, log, updated_at, progress)
-      VALUES
-      ('dep-1', 'dev-1', 'WORKSTATION-01', '192.168.1.11', 'success', 'Installed successfully', GETDATE(), 100),
-      ('dep-1', 'dev-2', 'WORKSTATION-02', '192.168.1.12', 'pending', 'Waiting for agent', GETDATE(), 0),
-      ('dep-1', 'dev-3', 'SERVER-01', '192.168.1.20', 'success', 'Installed successfully', GETDATE(), 100)
-    `);
-  }
-
-
-  // DeploymentTargets
-  const dptRes = await pool.request().query('SELECT COUNT(*) as count FROM DeploymentTargets');
-  if (dptRes.recordset[0].count === 0) {
-    console.log('Seeding DeploymentTargets (No default items)...');
-  }
-
-  // Workflows (Knowledge Base)
-  const wfRes = await pool.request().query('SELECT COUNT(*) as count FROM Workflows');
-  if (wfRes.recordset[0].count === 0) {
-    console.log('Seeding Workflows with starter knowledge base entries...');
-    await pool.request().query(`
-      INSERT INTO Workflows (id, title, content, category, file_name, file_path, created_by, created_at, updated_at)
-      VALUES
-      ('wf-1', 'Cara Tambah Device', '1. Masuk ke halaman Devices\n2. Klik Add Device\n3. Isi informasi lalu Save', 'Setup', NULL, NULL, 'admin', GETDATE(), GETDATE()),
-      ('wf-2', 'Buat Deployment', '1. Buka halaman Deployments\n2. Pilih paket\n3. Pilih target\n4. Klik Submit', 'Deploy', NULL, NULL, 'admin', GETDATE(), GETDATE())
-    `);
-  }
-
-  // AgentJobs
-  const ajRes = await pool.request().query('SELECT COUNT(*) as count FROM AgentJobs');
-  if (ajRes.recordset[0].count === 0) {
-    console.log('Seeding AgentJobs...');
-    await pool.request().query(`
-      INSERT INTO AgentJobs (id, created_at, created_by, ip_range, total, success_count, failed_count, pending_count) VALUES 
-      ('aj1', '2025-03-09 08:30', 'admin', '192.168.1.1–254', 24, 20, 2, 2)
-    `);
-  }
-
-  // AgentInstallTargets
-  const aitRes = await pool.request().query('SELECT COUNT(*) as count FROM AgentInstallTargets');
-  if (aitRes.recordset[0].count === 0) {
-    console.log('Seeding AgentInstallTargets...');
-    await pool.request().query(`
-      INSERT INTO AgentInstallTargets (job_id, device_ip, hostname, status, log, updated_at) VALUES 
-      ('aj1', '192.168.1.11', 'WORKSTATION-01', 'success', 'Connected via WMI. MSI pushed.', '08:34'),
-      ('aj1', '192.168.1.14', 'WORKSTATION-04', 'failed', 'ERROR: WMI access denied.', '08:36')
-    `);
-  }
-
-  // ActivityLog
-  const actRes = await pool.request().query('SELECT COUNT(*) as count FROM ActivityLog');
-  if (actRes.recordset[0].count === 0) {
-    console.log('Seeding ActivityLog...');
-    await pool.request().query(`
-      INSERT INTO ActivityLog (time, [user], action) VALUES 
-      ('08:42', 'admin', 'System initialization complete')
-    `);
-  }
-
-
-  // Roles & Admin User
-  const roleRes = await pool.request().query('SELECT COUNT(*) as count FROM Roles');
-  if (roleRes.recordset[0].count === 0) {
-    console.log('Seeding Roles & Admin User...');
-    await pool.request().query(`
-      INSERT INTO Roles (id, name, menu_permissions, is_admin) VALUES 
-      ('role-admin', 'Administrator', '*', 1),
-      ('role-user', 'Standard User', '["overview", "devices"]', 0)
-    `);
-
-    await pool.request().query(`
-      INSERT INTO Users (id, username, password_hash, full_name, role_id) VALUES 
-      ('user-admin', 'admin', 'admin123', 'System Administrator', 'role-admin')
-    `);
-  }
-
-  // SystemConfigs Default
-  const configRes = await pool.request().query('SELECT COUNT(*) as count FROM SystemConfigs');
-  if (configRes.recordset[0].count === 0) {
-    console.log('Seeding SystemConfigs (Latest Agent Version)...');
-    await pool.request().query(`
-      INSERT INTO SystemConfigs ([key], [value]) VALUES 
-      ('LATEST_AGENT_VERSION', '1.0.0'),
-      ('AGENT_UPDATE_URL', 'http://localhost:3001/public/CentaurAgent_v2.0.0.msi')
-    `);
-  }
-  // Purge any orphaned logs/targets before starting
-  console.log('Purging orphaned data...');
-  try {
-    const pool = await poolPromise;
-    await pool.request().query(`
-      DELETE FROM ActivityLog 
-      WHERE action LIKE 'Command %' AND user = 'system'
-    `);
-
-    // Note: AgentInstallTargets are NOT purged based on Devices 
-    // because they represent new installations that aren't devices yet.
-
-    await pool.request().query(`
-      DELETE FROM DeploymentTargets 
-      WHERE device_id NOT IN (SELECT id FROM Devices)
-    `);
-  } catch (err) {
-    console.error("Purging error:", err.message);
-  }
-}
-
-// ── POST /api/deployments/:id/targets ──────────────────────
-app.post('/api/deployments/:id/targets', async (req, res) => {
-  const { id } = req.params;
-  const { targets } = req.body;
-
-  if (!targets || !Array.isArray(targets) || targets.length === 0) {
-    return res.status(400).json({ error: "No targets provided" });
-  }
-
-  try {
-    const pool = await poolPromise;
-    const transaction = new sql.Transaction(pool);
-    await transaction.begin();
-
-    try {
-      // 1. Insert New Targets
-      for (const t of targets) {
-        // Check if device already exists for this deployment to avoid duplicates
-        const check = await transaction.request()
-          .input('deployment_id', sql.NVarChar, id)
-          .input('device_id', sql.NVarChar, t.device_id)
-          .query('SELECT 1 FROM DeploymentTargets WHERE deployment_id = @deployment_id AND device_id = @device_id');
-
-        if (check.recordset.length > 0) continue;
-
-        await transaction.request()
-          .input('deployment_id', sql.NVarChar, id)
-          .input('device_id', sql.NVarChar, t.device_id)
-          .input('hostname', sql.NVarChar, t.hostname)
-          .input('ip', sql.NVarChar, t.ip)
-          .input('status', sql.NVarChar, 'pending')
-          .input('log', sql.NVarChar, 'Waiting for agent...')
-          .input('updated_at', sql.NVarChar, new Date().toISOString())
-          .input('progress', sql.Int, 0)
-          .query(`
-            INSERT INTO DeploymentTargets 
-            (deployment_id, device_id, hostname, ip, status, log, updated_at, progress)
-            VALUES 
-            (@deployment_id, @device_id, @hostname, @ip, @status, @log, @updated_at, @progress)
-          `);
-      }
-
-      // 2. Update Deployment Counts
-      await transaction.request()
-        .input('id', sql.NVarChar, id)
-        .input('new_count', sql.Int, targets.length)
-        .query(`
-          UPDATE Deployments 
-          SET total_targets = total_targets + @new_count,
-              pending_count = pending_count + @new_count,
-              status = 'running' -- Force status back to running if it was success/failed
-          WHERE id = @id
-        `);
-
-      await transaction.commit();
-      res.json({ success: true, message: 'Targets added successfully' });
-    } catch (err) {
-      await transaction.rollback();
-      throw err;
-    }
-  } catch (err) {
-    console.error('Add targets error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /api/devices/:id/db-connection ──────────────────
-app.get('/api/devices/:id/db-connection', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request()
-      .input('device_id', sql.NVarChar, id)
-      .query('SELECT * FROM DeviceDbConnections WHERE device_id = @device_id');
-
-    if (result.recordset.length > 0) {
-      res.json(result.recordset[0]);
-    } else {
-      res.json(null);
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /api/devices/:id/db-connection ─────────────────
-app.post('/api/devices/:id/db-connection', async (req, res) => {
-  const { id } = req.params;
-  const { db_name, db_user, db_password } = req.body;
-
-  try {
-    const pool = await poolPromise;
-    await pool.request()
-      .input('device_id', sql.NVarChar, id)
-      .input('db_name', sql.NVarChar, db_name)
-      .input('db_user', sql.NVarChar, db_user)
-      .input('db_password', sql.NVarChar, db_password)
-      .query(`
-        IF EXISTS (SELECT 1 FROM DeviceDbConnections WHERE device_id = @device_id)
-        BEGIN
-          UPDATE DeviceDbConnections 
-          SET db_name = @db_name, db_user = @db_user, db_password = @db_password, updated_at = GETDATE()
-          WHERE device_id = @device_id
-        END
-        ELSE
-        BEGIN
-          INSERT INTO DeviceDbConnections (device_id, db_name, db_user, db_password)
-          VALUES (@device_id, @db_name, @db_user, @db_password)
-        END
-      `);
-    res.json({ message: 'Database connection settings saved successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /api/webhook/test-device-ping (TRIAL EXPERIMENT) ─
-app.post('/api/webhook/test-device-ping', (req, res) => {
-  const payload = req.body;
-
-  // If MikroTik sends GET or raw body not parsed as json properly, try capturing query
-  const finalPayload = Object.keys(payload).length === 0 ? req.query : payload;
-
-  const logEntry = `[${getCurrentTimestamp()}] TRIAL WEBHOOK RECEIVED: ${JSON.stringify(finalPayload)}\n`;
-
-  const logFile = path.join(__dirname, 'scratch', 'test_webhook_log.txt');
-  if (!fs.existsSync(path.join(__dirname, 'scratch'))) {
-    fs.mkdirSync(path.join(__dirname, 'scratch'));
-  }
-
-  fs.appendFileSync(logFile, logEntry);
-  console.log('✅ Trial Webhook Data Received:', finalPayload);
-
-  res.json({ success: true, message: 'Trial data received', data: finalPayload });
-});
-
-// ── GET /api/webhook/test-results (VIEW EXPERIMENT) ─
-app.get('/api/webhook/test-results', (req, res) => {
-  const logFile = path.join(__dirname, 'scratch', 'test_webhook_log.txt');
-  if (fs.existsSync(logFile)) {
-    const data = fs.readFileSync(logFile, 'utf8');
-    res.type('text/plain');
-    res.send("=== HASIL UJI COBA MIKROTIK (AUTO-REFRESH) ===\n\n" + data);
-  } else {
-    res.send("Belum ada data uji coba yang masuk.");
-  }
-});
-
-// ──  POST /api/webhook/device-ping (LIVE SYSTEM) ──────────
-app.post('/api/webhook/device-ping', async (req, res) => {
-  console.log(`[DEBUG] Received Live Ping at ${new Date().toISOString()}`);
-  console.log(`[DEBUG] Body:`, JSON.stringify(req.body));
-  console.log(`[DEBUG] Query:`, JSON.stringify(req.query));
-
-  const payload = Object.keys(req.body).length === 0 ? req.query : req.body;
-  const { hostname, ports, date: mtDate, time: mtTime } = payload;
-
-  if (mtDate || mtTime) {
-    console.log(`[DEBUG] Router Clock: ${mtDate} ${mtTime}`);
-  }
-
-  if (!hostname) {
-    console.log(`[DEBUG] No hostname found in payload.`);
-    return res.status(400).json({ error: 'hostname is required' });
-  }
-
-  console.log(`[DEBUG] Processing ping for hostname: "${hostname}"`);
-
-  try {
-    const pool = await poolPromise;
-    console.log(`[DEBUG] DB Pool acquired for ${hostname}`);
-    const nowObj = new Date();
-
-    // Check if device exists
-    const check = await pool.request()
-      .input('hostname', sql.NVarChar, hostname)
-      .query('SELECT id, status, network_ports, device_type FROM Devices WHERE hostname = @hostname');
-    console.log(`[DEBUG] DB Check completed for ${hostname}. Found: ${check.recordset.length}`);
-
-    let portsJson = null;
-    if (ports) {
-      portsJson = typeof ports === 'string' ? ports : JSON.stringify(ports);
-    }
-
-    if (check.recordset.length > 0) {
-      // Update existing device
-      const oldStatus = check.recordset[0].status;
-      const isoNow = new Date().toISOString();
-      await pool.request()
-        .input('hostname', sql.NVarChar, hostname)
-        .input('last_seen', sql.NVarChar, isoNow)
-        .input('status', sql.NVarChar, 'online')
-        .input('network_ports', sql.NVarChar, portsJson)
-        .query(`
-          UPDATE Devices 
-          SET last_seen = @last_seen, status = @status, network_ports = ISNULL(@network_ports, network_ports)
-          WHERE hostname = @hostname
-        `);
-
-      if (oldStatus !== 'online') {
-        console.log(`✅ Network Hook: Device ${hostname} is back online.`);
-      }
-    } else {
-      // Create new network device if doesn't exist
-      const deviceId = 'net-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
-      console.log(`[DEBUG] Registering NEW device: ${hostname} with ID: ${deviceId}`);
-      await pool.request()
-        .input('id', sql.NVarChar, deviceId)
-        .input('hostname', sql.NVarChar, hostname)
-        .input('ip', sql.NVarChar, req.ip || '')
-        .input('os_version', sql.NVarChar, 'Agentless (Webhook)')
-        .input('status', sql.NVarChar, 'online')
-        .input('last_seen', sql.NVarChar, new Date().toISOString())
-        .input('device_type', sql.NVarChar, 'Network')
-        .input('network_ports', sql.NVarChar, portsJson)
-        .query(`
-          INSERT INTO Devices (id, hostname, ip, os_version, status, last_seen, device_type, network_ports)
-          VALUES (@id, @hostname, @ip, @os_version, @status, @last_seen, @device_type, @network_ports)
-        `);
-      console.log(`✅ Network Hook: Registered new device ${hostname}`);
-    }
-
-    res.json({ success: true, message: 'Device status updated' });
-  } catch (err) {
-    console.error('❌ Webhook processing error:', err);
-    res.status(500).json({ error: 'Failed to process webhook', detail: err.message });
-  }
-});
-
-// ── GET /api/devices ──────────────────────────────────────
-app.get('/api/devices', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request().query('SELECT * FROM Devices');
-
-    // Parse the group_ids back into arrays and convert last_seen to local timezone
-    const devices = result.recordset.map(row => {
-      let lastSeenLocal = 'Never';
-      if (row.last_seen) {
-        try {
-          const utcDate = new Date(row.last_seen);
-          if (!isNaN(utcDate.getTime())) {
-            lastSeenLocal = utcDate.toLocaleString('id-ID', {
-              timeZone: process.env.TZ || 'Asia/Makassar',
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false
-            });
-          } else {
-            lastSeenLocal = row.last_seen;
-          }
-        } catch (e) {
-          lastSeenLocal = row.last_seen;
-        }
-      }
-
-      return {
-        ...row,
-        group_ids: row.group_ids ? row.group_ids.split(',').filter(Boolean) : [],
-        last_seen: lastSeenLocal
-      };
-    });
-
-    res.json(devices);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /api/remote-commands ─────────────────────────────
-app.post('/api/remote-commands', async (req, res) => {
-  try {
-    const { devices, command } = req.body;
-    const pool = await poolPromise;
-
-    if (!devices || !command || devices.length === 0) {
-      return res.status(400).json({ error: 'Missing devices or command' });
-    }
-
-    // Log the execution in ActivityLog
-    const timestamp = getCurrentTimeHHMM(); // HH:mm in configured timezone
-    const actionDesc = `Command executed on ${devices.length} device(s): ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`;
-
-    await pool.request()
-      .input('time', sql.NVarChar, timestamp)
-      .input('user', sql.NVarChar, 'admin')
-      .input('action', sql.NVarChar, actionDesc)
-      .query(`
-        INSERT INTO ActivityLog (time, [user], action)
-        VALUES (@time, @user, @action)
-      `);
-
-    // Simulate Output
-    const output = [];
-    devices.forEach((hostname, i) => {
-      // Small simulated delay time strings
-      const timeStr = new Date(Date.now() + i * 1000).toISOString().slice(11, 19);
-      output.push(`[${timeStr}] ${hostname.padEnd(15)} → OK`);
-    });
-    output.push(`[${new Date().toISOString().slice(11, 19)}] ✓ Command completed on ${devices.length}/${devices.length} selected devices`);
-
-    res.json({ success: true, output });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /api/devices ─────────────────────────────────────
-app.post('/api/devices', async (req, res) => {
-  try {
-    const { id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude } = req.body;
-    console.log(`[DEVICE_POST] id: ${id}, location: ${location}, lat: ${latitude}, lon: ${longitude}`);
-    const pool = await poolPromise;
-    const gids = Array.isArray(group_ids) ? group_ids.join(',') : '';
-
-    await pool.request()
-      .input('id', sql.NVarChar, id)
-      .input('hostname', sql.NVarChar, hostname)
-      .input('ip', sql.NVarChar, ip)
-      .input('os_version', sql.NVarChar, os_version || '')
-      .input('cpu', sql.NVarChar, cpu || '')
-      .input('ram', sql.NVarChar, ram || '')
-      .input('disk', sql.NVarChar, disk || '')
-      .input('agent_version', sql.NVarChar, agent_version || '')
-      .input('status', sql.NVarChar, status || 'online')
-      .input('group_ids', sql.NVarChar, gids)
-      .input('last_seen', sql.NVarChar, last_seen || new Date().toISOString())
-      .input('device_type', sql.NVarChar, device_type || 'PC')
-      .input('location', sql.NVarChar, location)
-      .input('latitude', sql.Float, latitude)
-      .input('longitude', sql.Float, longitude)
-      .query(`
-        INSERT INTO Devices (id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude)
-        VALUES (@id, @hostname, @ip, @os_version, @cpu, @ram, @disk, @agent_version, @status, @group_ids, @last_seen, @device_type, @location, @latitude, @longitude)
-      `);
-
-    res.status(201).json({ message: 'Device created completely' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── PUT /api/devices/:id ──────────────────────────────────
-app.put('/api/devices/:id', async (req, res) => {
-  try {
-    const { hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude } = req.body;
-    console.log(`[DEVICE_PUT] id: ${req.params.id}, location: ${location}, lat: ${latitude}, lon: ${longitude}`);
-    const pool = await poolPromise;
-    const gids = Array.isArray(group_ids) ? group_ids.join(',') : '';
-
-    await pool.request()
-      .input('id', sql.NVarChar, req.params.id)
-      .input('hostname', sql.NVarChar, hostname)
-      .input('ip', sql.NVarChar, ip)
-      .input('os_version', sql.NVarChar, os_version || '')
-      .input('cpu', sql.NVarChar, cpu || '')
-      .input('ram', sql.NVarChar, ram || '')
-      .input('disk', sql.NVarChar, disk || '')
-      .input('agent_version', sql.NVarChar, agent_version || '')
-      .input('status', sql.NVarChar, status || 'online')
-      .input('group_ids', sql.NVarChar, gids)
-      .input('last_seen', sql.NVarChar, last_seen || new Date().toISOString())
-      .input('device_type', sql.NVarChar, device_type || 'PC')
-      .input('location', sql.NVarChar, location)
-      .input('latitude', sql.Float, latitude)
-      .input('longitude', sql.Float, longitude)
-      .query(`
-        UPDATE Devices SET 
-          hostname = @hostname, ip = @ip, os_version = @os_version, 
-          cpu = @cpu, ram = @ram, disk = @disk, agent_version = @agent_version, 
-          status = @status, group_ids = @group_ids, last_seen = @last_seen, device_type = @device_type,
-          location = @location, latitude = @latitude, longitude = @longitude
-        WHERE id = @id
-      `);
-
-    res.status(200).json({ message: 'Device updated completely' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── DELETE /api/devices/:id ───────────────────────────────
-app.delete('/api/devices/:id', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const deviceId = req.params.id;
-
-    // Get hostname before deleting
-    const devRes = await pool.request()
-      .input('id', sql.NVarChar, deviceId)
-      .query('SELECT hostname FROM Devices WHERE id = @id');
-
-    const hostname = devRes.recordset[0]?.hostname;
-
-    const transaction = new sql.Transaction(pool);
-    await transaction.begin();
-
-    try {
-      await transaction.request()
-        .input('id', sql.NVarChar, deviceId)
-        .query('DELETE FROM DeploymentTargets WHERE device_id = @id');
-
-      if (hostname) {
-        await transaction.request()
-          .input('hostname', sql.NVarChar, hostname)
-          .query('DELETE FROM AgentInstallTargets WHERE hostname = @hostname');
-
-        await transaction.request()
-          .input('hostnamePattern', sql.NVarChar, '%' + hostname + '%')
-          .query('DELETE FROM ActivityLog WHERE action LIKE @hostnamePattern');
-      }
-
-      await transaction.request()
-        .input('id', sql.NVarChar, deviceId)
-        .query('DELETE FROM Devices WHERE id = @id');
-
-      await transaction.commit();
-      res.json({ message: 'Device deleted successfully' });
-    } catch (err) {
-      await transaction.rollback();
-      throw err;
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /api/devices/register ────────────────────────────
-// Endpoint for the manual powershell installer to hit
-app.post('/api/devices/register', async (req, res) => {
-  try {
-    const { id, hostname, ip, os, status, last_seen } = req.body;
-    const pool = await poolPromise;
-
-    // Check if device already exists by hostname
-    const existing = await pool.request()
-      .input('hostname', sql.NVarChar, hostname)
-      .query('SELECT * FROM Devices WHERE hostname = @hostname');
-
-    if (existing.recordset.length > 0) {
-      await pool.request()
-        .input('hostname', sql.NVarChar, hostname)
-        .input('ip', sql.NVarChar, ip || existing.recordset[0].ip)
-        .input('os', sql.NVarChar, os || existing.recordset[0].os_version)
-        .input('status', sql.NVarChar, status || 'online')
-        .input('last_seen', sql.NVarChar, last_seen || new Date().toISOString())
-        .query(`
-          UPDATE Devices SET ip = @ip, os_version = @os, status = @status, last_seen = @last_seen
-          WHERE hostname = @hostname
-        `);
-    } else {
-      await pool.request()
-        .input('id', sql.NVarChar, id || `dev-${Date.now()}`)
-        .input('hostname', sql.NVarChar, hostname)
-        .input('ip', sql.NVarChar, ip || '')
-        .input('os', sql.NVarChar, os || 'Windows')
-        .input('status', sql.NVarChar, status || 'online')
-        .input('last_seen', sql.NVarChar, last_seen || new Date().toISOString())
-        .query(`
-          INSERT INTO Devices (id, hostname, ip, os_version, status, last_seen)
-          VALUES (@id, @hostname, @ip, @os, @status, @last_seen)
-        `);
-    }
-
-    res.status(200).json({ message: 'Device registered successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /api/groups ───────────────────────────────────────
-app.get('/api/groups', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request().query(`
-      SELECT
-        g.id,
-        g.name,
-        g.description,
-        g.color,
-        COUNT(d.id) AS device_count
-      FROM DeviceGroups g
-      LEFT JOIN Devices d
-        ON ',' + ISNULL(d.group_ids, '') + ',' LIKE '%,' + g.id + ',%'
-      GROUP BY g.id, g.name, g.description, g.color
-      ORDER BY g.name ASC
-    `);
-    res.json(result.recordset);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /api/groups ──────────────────────────────────────
-app.post('/api/groups', async (req, res) => {
-  try {
-    const { id, name, description, color } = req.body;
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, id || `group-${Date.now()}`)
-      .input('name', sql.NVarChar, name)
-      .input('description', sql.NVarChar, description || '')
-      .input('color', sql.NVarChar, color || '#3b82f6')
-      .query(`
-        INSERT INTO DeviceGroups (id, name, description, color)
-        VALUES (@id, @name, @description, @color)
-      `);
-    res.status(201).json({ message: 'Group created successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── PUT /api/groups/:id ───────────────────────────────────
-app.put('/api/groups/:id', async (req, res) => {
-  try {
-    const { name, description, color } = req.body;
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, req.params.id)
-      .input('name', sql.NVarChar, name)
-      .input('description', sql.NVarChar, description || '')
-      .input('color', sql.NVarChar, color || '#3b82f6')
-      .query(`
-        UPDATE DeviceGroups SET name = @name, description = @description, color = @color
-        WHERE id = @id
-      `);
-    res.json({ message: 'Group updated successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── DELETE /api/groups/:id ────────────────────────────────
-app.delete('/api/groups/:id', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const groupId = req.params.id;
-
-    // Optional: Remove group association from devices instead of cascading?
-    // For now, simple delete. If Devices table uses a comma-separated list, 
-    // we might need more complex logic to clean up Devices.group_ids.
-
-    await pool.request()
-      .input('id', sql.NVarChar, groupId)
-      .query('DELETE FROM DeviceGroups WHERE id = @id');
-
-    res.json({ message: 'Group deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /api/packages ─────────────────────────────────────
-app.get('/api/packages', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request().query('SELECT * FROM Packages');
-    res.json(result.recordset);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /api/packages/download/:filename ──────────────────
-app.get('/api/packages/download/:filename', async (req, res) => {
-  const { filename } = req.params;
-  const filePath = path.join(REPO_PATH, filename);
-
-  if (fs.existsSync(filePath)) {
-    res.download(filePath);
-  } else {
-    res.status(404).json({ error: 'File not found in repository' });
-  }
-});
-
-// ── POST /api/groups/:id/devices ─────────────────────────
-app.post('/api/groups/:id/devices', async (req, res) => {
-  const groupId = req.params.id;
-  const { device_ids } = req.body; // Array of device IDs that should belong to this group
-
-  try {
-    const pool = await poolPromise;
-    const transaction = new sql.Transaction(pool);
-    await transaction.begin();
-
-    try {
-      // 1. Fetch all devices to process memberships
-      const allDevicesRes = await transaction.request().query('SELECT id, group_ids FROM Devices');
-      const allDevices = allDevicesRes.recordset;
-
-      for (const device of allDevices) {
-        let currentGroups = device.group_ids ? device.group_ids.split(',').filter(Boolean) : [];
-        const shouldBeIn = device_ids.includes(device.id);
-        const isIn = currentGroups.includes(groupId);
-
-        let modified = false;
-        if (shouldBeIn && !isIn) {
-          currentGroups.push(groupId);
-          modified = true;
-        } else if (!shouldBeIn && isIn) {
-          currentGroups = currentGroups.filter(id => id !== groupId);
-          modified = true;
-        }
-
-        if (modified) {
-          const newGroupIds = currentGroups.join(',');
-          await transaction.request()
-            .input('id', sql.NVarChar, device.id)
-            .input('group_ids', sql.NVarChar, newGroupIds)
-            .query('UPDATE Devices SET group_ids = @group_ids WHERE id = @id');
-        }
-      }
-
-      await transaction.commit();
-      res.json({ message: 'Group memberships updated successfully' });
-    } catch (err) {
-      await transaction.rollback();
-      throw err;
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /api/sql/test-connection ──────────────────────
-app.post('/api/sql/test-connection', async (req, res) => {
-  const { server, database, user, password } = req.body;
-  const config = {
-    user,
-    password,
-    server,
-    database,
-    options: {
-      encrypt: false, // Usually false for local/internal MS SQL
-      trustServerCertificate: true,
-      connectTimeout: 5000
-    },
-    pool: { max: 1, min: 0, idleTimeoutMillis: 5000 }
-  };
-
-  try {
-    const testPool = new sql.ConnectionPool(config);
-    await testPool.connect();
-    await testPool.close();
-    res.json({ message: 'Connection successful' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /api/sql/execute ──────────────────────────────
-app.post('/api/sql/execute', async (req, res) => {
-  const { script, target_device_ids, force } = req.body;
-  const userId = req.headers['x-user-id'] || 'anonymous';
-
-  try {
-    const pool = await poolPromise;
-
-    // 0. Fetch Global Security Settings
-    const settingsRes = await pool.request().query("SELECT sql_safe_mode FROM NotificationSettings WHERE id = 'global'");
-    const rawMode = settingsRes.recordset[0]?.sql_safe_mode;
-
-    // Robust Evaluation: Default to true if null/undefined.
-    // handles BIT (boolean true/false) or numeric 0/1.
-    const isGlobalSafeMode = (rawMode === null || rawMode === undefined) ? true : !!rawMode;
-
-    console.log(`[SQL_DEBUG_V3] raw: ${rawMode} (${typeof rawMode}), isSafe: ${isGlobalSafeMode}`);
-    console.log(`[SQL_EXEC] user: ${userId}, globalSafe: ${isGlobalSafeMode}`);
-
-    // 0.5 Fetch User Role to check Admin status
-    const userRes = await pool.request().input('uid', sql.NVarChar, userId).query(`
-      SELECT r.is_admin FROM Users u JOIN Roles r ON u.role_id = r.id WHERE u.id = @uid
-    `);
-    const isAdmin = userRes.recordset[0]?.is_admin || false;
-
-    // 1. SECURITY ENFORCEMENT
-    // Simple rule: Global Safe Mode from DB is the single source of truth.
-    // - Global ON  → only SELECT allowed (no bypass)
-    // - Global OFF → all queries allowed
-
-
-    if (isGlobalSafeMode && !isValidSafeSQL(script)) {
-      // Allow Admin to bypass if they explicitly use the "force" flag
-      if (isAdmin && force === true) {
-        console.log(`[SQL_BYPASS] Admin ${userId} bypassed Safe Mode.`);
-      } else {
-        return res.status(400).json({
-          error: "SQL Safe Mode aktif. Hanya kueri SELECT yang diizinkan.",
-          can_bypass: isAdmin
-        });
-      }
-    }
-
-    // 2. Fetch connection details for all targets
-    const connRes = await pool.request().query('SELECT * FROM DeviceDbConnections');
-    const allConns = connRes.recordset;
-
-    // 3. Fetch device IPs (Server addresses)
-    const devRes = await pool.request().query('SELECT id, ip, hostname FROM Devices');
-    const allDevs = devRes.recordset;
-
-    const results = {};
-    const executionPromises = target_device_ids.map(async (deviceId) => {
-      const dev = allDevs.find(d => d.id === deviceId);
-      const conn = allConns.find(c => c.device_id === deviceId);
-
-      if (!dev) {
-        results[deviceId] = { status: 'error', error: 'Device not found' };
-        return;
-      }
-      if (!conn) {
-        results[deviceId] = { status: 'error', error: 'Database connection not configured for this device' };
-        return;
-      }
-
-      const config = {
-        user: conn.db_user,
-        password: conn.db_password,
-        server: dev.ip,
-        database: conn.db_name,
-        options: { encrypt: false, trustServerCertificate: true, connectTimeout: 10000 },
-        pool: { max: 1, min: 0, idleTimeoutMillis: 10000 }
-      };
-
-      try {
-        const remotePool = new sql.ConnectionPool(config);
-        await remotePool.connect();
-        const result = await remotePool.request().query(script);
-        await remotePool.close();
-
-        // Audit log
-        await pool.request()
-          .input('time', sql.NVarChar, new Date().toLocaleString())
-          .input('u', sql.NVarChar, userId)
-          .input('act', sql.NVarChar, `SQL EXEC on [${dev.hostname}]: ${script.substring(0, 200)}`)
-          .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @u, @act)")
-          .catch(e => console.error("Audit fail", e));
-
-        results[deviceId] = {
-          status: 'success',
-          hostname: dev.hostname,
-          ip: dev.ip,
-          recordset: result.recordset,
-          rowsAffected: result.rowsAffected
-        };
-      } catch (err) {
-        results[deviceId] = {
-          status: 'error',
-          hostname: dev.hostname,
-          ip: dev.ip,
-          error: err.message
-        };
-      }
-    });
-
-    await Promise.all(executionPromises);
-    res.json({ results });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /api/deployments ──────────────────────────────────
-app.get('/api/deployments', async (req, res) => {
+router.get('/api/deployments', async (req, res) => {
   try {
     console.log('GET /api/deployments called');
     const pool = await poolPromise;
@@ -1606,7 +116,7 @@ app.get('/api/deployments', async (req, res) => {
 });
 
 // ── GET /api/deployment-targets ───────────────────────────
-app.get('/api/deployment-targets', async (req, res) => {
+router.get('/api/deployment-targets', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
@@ -1656,7 +166,7 @@ function parseIPRange(input) {
 }
 
 // ── GET /api/agent-jobs ───────────────────────────────────
-app.get('/api/agent-jobs', async (req, res) => {
+router.get('/api/agent-jobs', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query('SELECT * FROM AgentJobs ORDER BY created_at DESC');
@@ -1667,7 +177,7 @@ app.get('/api/agent-jobs', async (req, res) => {
 });
 
 // ── POST /api/agent-jobs ──────────────────────────────────
-app.post('/api/agent-jobs', async (req, res) => {
+router.post('/api/agent-jobs', async (req, res) => {
   try {
     const { id, ip_range, created_by, username, password, device_targets } = req.body;
     const pool = await poolPromise;
@@ -1806,7 +316,7 @@ app.post('/api/agent-jobs', async (req, res) => {
 });
 
 // ── POST /api/agent-jobs/retry ──────────────────────────
-app.post('/api/agent-jobs/retry', async (req, res) => {
+router.post('/api/agent-jobs/retry', async (req, res) => {
   const { job_id, device_ip, username, password } = req.body;
   console.log(`[AGENT] Retry requested for Job: ${job_id}, IP: ${device_ip}, User: ${username}`);
 
@@ -1894,7 +404,7 @@ app.post('/api/agent-jobs/retry', async (req, res) => {
 });
 
 // ── DELETE /api/agent-jobs/:id ───────────────────────────
-app.delete('/api/agent-jobs/:id', async (req, res) => {
+router.delete('/api/agent-jobs/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const pool = await poolPromise;
@@ -1909,7 +419,7 @@ app.delete('/api/agent-jobs/:id', async (req, res) => {
 });
 
 // ── GET /api/agent-install-targets ────────────────────────
-app.get('/api/agent-install-targets', async (req, res) => {
+router.get('/api/agent-install-targets', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
@@ -1923,7 +433,7 @@ app.get('/api/agent-install-targets', async (req, res) => {
 });
 
 // ── GET /api/activity-log ─────────────────────────────────
-app.get('/api/activity-log', async (req, res) => {
+router.get('/api/activity-log', async (req, res) => {
   try {
     const pool = await poolPromise;
     const requestUser = await getRequestUser(req, pool);
@@ -1938,7 +448,7 @@ app.get('/api/activity-log', async (req, res) => {
   }
 });
 
-app.get('/api/activity-log/export', async (req, res) => {
+router.get('/api/activity-log/export', async (req, res) => {
   try {
     const pool = await poolPromise;
     const requestUser = await getRequestUser(req, pool);
@@ -1973,7 +483,7 @@ app.get('/api/activity-log/export', async (req, res) => {
 });
 
 // ── DELETE /api/packages/:id ──────────────────────────────
-app.delete('/api/packages/:id', async (req, res) => {
+router.delete('/api/packages/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
     await pool.request()
@@ -1986,7 +496,7 @@ app.delete('/api/packages/:id', async (req, res) => {
 });
 
 // ── DELETE /api/deployments/:id ───────────────────────────
-app.delete('/api/deployments/:id', async (req, res) => {
+router.delete('/api/deployments/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
@@ -2013,7 +523,7 @@ app.delete('/api/deployments/:id', async (req, res) => {
 });
 
 // ── POST /api/packages ─────────────────────────────────────
-app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
+router.post('/api/packages', packageUpload.single('file'), async (req, res) => {
   try {
     const { id, name, version, type, uploaded_by } = req.body;
     const file = req.file;
@@ -2049,7 +559,7 @@ app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
 });
 
 // ── POST /api/deployments ──────────────────────────────────
-app.post('/api/deployments', async (req, res) => {
+router.post('/api/deployments', async (req, res) => {
   try {
     const {
       id, package_id, package_name, package_version,
@@ -2119,7 +629,7 @@ app.post('/api/deployments', async (req, res) => {
 
 
 // ── POST /api/agent/heartbeat ──────────────────────────
-app.post('/api/agent/heartbeat', async (req, res) => {
+router.post('/api/agent/heartbeat', async (req, res) => {
   try {
     const { hostname, ip, cpu, ram, disk, agent_version, os_version } = req.body;
     if (!hostname) return res.status(400).json({ error: "Hostname is required" });
@@ -2174,7 +684,7 @@ app.post('/api/agent/heartbeat', async (req, res) => {
 });
 
 // ── GET /api/devices/:id/software ──────────────────────────
-app.get('/api/devices/:id/software', async (req, res) => {
+router.get('/api/devices/:id/software', async (req, res) => {
   try {
     const { id } = req.params;
     const pool = await poolPromise;
@@ -2188,7 +698,7 @@ app.get('/api/devices/:id/software', async (req, res) => {
 });
 
 // ── POST /api/agent/software-inventory ─────────────────────
-app.post('/api/agent/software-inventory', async (req, res) => {
+router.post('/api/agent/software-inventory', async (req, res) => {
   try {
     const { hostname, software } = req.body;
     if (!hostname) return res.status(400).json({ error: "Hostname is required" });
@@ -2237,7 +747,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
 });
 
 // ── GET /api/agent/config ──────────────────────────────
-app.get('/api/agent/config', async (req, res) => {
+router.get('/api/agent/config', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT [key], [value] FROM SystemConfigs WHERE [key] IN ('LATEST_AGENT_VERSION', 'AGENT_UPDATE_URL')");
@@ -2250,7 +760,7 @@ app.get('/api/agent/config', async (req, res) => {
 });
 
 // ── POST /api/agent/config ─────────────────────────────
-app.post('/api/agent/config', async (req, res) => {
+router.post('/api/agent/config', async (req, res) => {
   const { LATEST_AGENT_VERSION, AGENT_UPDATE_URL } = req.body;
   try {
     const pool = await poolPromise;
@@ -2289,7 +799,7 @@ app.post('/api/agent/config', async (req, res) => {
 });
 
 // ── GET /api/agent/version ───────────────────────────────
-app.get('/api/agent/version', async (req, res) => {
+router.get('/api/agent/version', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT [value] FROM SystemConfigs WHERE [key] = 'LATEST_AGENT_VERSION'");
@@ -2301,7 +811,7 @@ app.get('/api/agent/version', async (req, res) => {
 });
 
 // ── GET /api/agent/pending?hostname=... ──────────────────
-app.get('/api/agent/pending', async (req, res) => {
+router.get('/api/agent/pending', async (req, res) => {
   const { hostname } = req.query;
   if (!hostname) return res.json({ commands: [] });
   try {
@@ -2325,7 +835,7 @@ app.get('/api/agent/pending', async (req, res) => {
 });
 
 // ── GET /api/agent/pending-deployments?hostname=... ──────
-app.get('/api/agent/pending-deployments', async (req, res) => {
+router.get('/api/agent/pending-deployments', async (req, res) => {
   const { hostname } = req.query;
   if (!hostname) return res.json({ deployments: [] });
   try {
@@ -2358,7 +868,7 @@ app.get('/api/agent/pending-deployments', async (req, res) => {
 });
 
 // ── POST /api/agent/software-inventory ───────────────────
-app.post('/api/agent/software-inventory', async (req, res) => {
+router.post('/api/agent/software-inventory', async (req, res) => {
   const { hostname, software } = req.body;
   if (!hostname || !Array.isArray(software)) return res.status(400).json({ error: 'Missing hostname or software list' });
   try {
@@ -2395,7 +905,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
 });
 
 // ── POST /api/agent/command-result ───────────────────────
-app.post('/api/agent/command-result', async (req, res) => {
+router.post('/api/agent/command-result', async (req, res) => {
   const { command_id, exec_id, hostname, status, result_log } = req.body;
   if (!command_id) return res.status(400).json({ error: 'Missing command_id' });
   try {
@@ -2440,7 +950,7 @@ app.post('/api/agent/command-result', async (req, res) => {
 });
 
 // ── POST /api/agent/deploy-status ─────────────────────────
-app.post('/api/agent/deploy-status', async (req, res) => {
+router.post('/api/agent/deploy-status', async (req, res) => {
   const { deployment_id, device_id, status, progress, log } = req.body;
   try {
     const pool = await poolPromise;
@@ -2511,7 +1021,7 @@ app.post('/api/agent/deploy-status', async (req, res) => {
 });
 
 // ── AUTHENTICATION ────────────────────────────────────────
-app.post('/api/auth/login', async (req, res) => {
+router.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   try {
     const pool = await poolPromise;
@@ -2540,7 +1050,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.post('/api/auth/change-password', async (req, res) => {
+router.post('/api/auth/change-password', async (req, res) => {
   const { oldPassword, newPassword } = req.body;
   const userId = req.headers['x-user-id'];
 
@@ -2655,7 +1165,7 @@ async function fetchActivityLogs(pool, requestUser, options = {}) {
   return result.recordset;
 }
 
-app.get('/api/users', async (req, res) => {
+router.get('/api/users', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
@@ -2669,7 +1179,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-app.post('/api/users', async (req, res) => {
+router.post('/api/users', async (req, res) => {
   const { username, password, full_name, role_id } = req.body;
   try {
     const pool = await poolPromise;
@@ -2689,7 +1199,7 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-app.put('/api/users/:id', async (req, res) => {
+router.put('/api/users/:id', async (req, res) => {
   const { id } = req.params;
   const { username, full_name, role_id, password } = req.body;
   try {
@@ -2720,7 +1230,7 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/users/:id', async (req, res) => {
+router.delete('/api/users/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const pool = await poolPromise;
@@ -2732,7 +1242,7 @@ app.delete('/api/users/:id', async (req, res) => {
 });
 
 // ── ROLE MANAGEMENT ────────────────────────────────────────
-app.get('/api/roles', async (req, res) => {
+router.get('/api/roles', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query('SELECT * FROM Roles');
@@ -2742,7 +1252,7 @@ app.get('/api/roles', async (req, res) => {
   }
 });
 
-app.post('/api/roles', async (req, res) => {
+router.post('/api/roles', async (req, res) => {
   const { name, menu_permissions, is_admin } = req.body;
   try {
     const pool = await poolPromise;
@@ -2761,7 +1271,7 @@ app.post('/api/roles', async (req, res) => {
   }
 });
 
-app.put('/api/roles/:id', async (req, res) => {
+router.put('/api/roles/:id', async (req, res) => {
   const { id } = req.params;
   const { name, menu_permissions, is_admin } = req.body;
   try {
@@ -2782,7 +1292,7 @@ app.put('/api/roles/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/roles/:id', async (req, res) => {
+router.delete('/api/roles/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const pool = await poolPromise;
@@ -2799,7 +1309,7 @@ app.delete('/api/roles/:id', async (req, res) => {
 });
 
 // ── NOTIFICATION SETTINGS ────────────────────────────────────
-app.get('/api/assistant-keywords', async (req, res) => {
+router.get('/api/assistant-keywords', async (req, res) => {
   try {
     const pool = await poolPromise;
     const adminUser = await requireAdminUser(req, res, pool);
@@ -2820,7 +1330,7 @@ app.get('/api/assistant-keywords', async (req, res) => {
   }
 });
 
-app.post('/api/assistant-keywords', async (req, res) => {
+router.post('/api/assistant-keywords', async (req, res) => {
   const {
     keyword, description, action_type, target_host, script_text,
     parameter_keys, requires_admin, requires_confirmation, is_enabled
@@ -2862,7 +1372,7 @@ app.post('/api/assistant-keywords', async (req, res) => {
   }
 });
 
-app.put('/api/assistant-keywords/:id', async (req, res) => {
+router.put('/api/assistant-keywords/:id', async (req, res) => {
   const {
     keyword, description, action_type, target_host, script_text,
     parameter_keys, requires_admin, requires_confirmation, is_enabled
@@ -2908,7 +1418,7 @@ app.put('/api/assistant-keywords/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/assistant-keywords/:id', async (req, res) => {
+router.delete('/api/assistant-keywords/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
     const adminUser = await requireAdminUser(req, res, pool);
@@ -2924,7 +1434,7 @@ app.delete('/api/assistant-keywords/:id', async (req, res) => {
   }
 });
 
-app.post('/api/assistant-keywords/test', async (req, res) => {
+router.post('/api/assistant-keywords/test', async (req, res) => {
   const { keyword, test_input } = req.body;
 
   try {
@@ -2957,7 +1467,7 @@ app.post('/api/assistant-keywords/test', async (req, res) => {
   }
 });
 
-app.get('/api/notification-settings', async (req, res) => {
+router.get('/api/notification-settings', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
@@ -2967,7 +1477,7 @@ app.get('/api/notification-settings', async (req, res) => {
   }
 });
 
-app.post('/api/notification-settings', async (req, res) => {
+router.post('/api/notification-settings', async (req, res) => {
   const {
     webhook_url, whatsapp_token, whatsapp_target, whatsapp_group,
     alert_offline, alert_deployment_success, alert_deployment_failed,
@@ -3019,7 +1529,7 @@ const DEFAULT_THEME_SETTINGS = {
   appName: "pepinetupdater"
 };
 
-app.get('/api/theme', async (req, res) => {
+router.get('/api/theme', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT TOP 1 * FROM ThemeSettings WHERE id = 'global'");
@@ -3046,7 +1556,7 @@ app.get('/api/theme', async (req, res) => {
   }
 });
 
-app.post('/api/theme', async (req, res) => {
+router.post('/api/theme', async (req, res) => {
   const theme = {
     ...DEFAULT_THEME_SETTINGS,
     ...(req.body || {}),
@@ -3094,7 +1604,7 @@ app.post('/api/theme', async (req, res) => {
   }
 });
 
-app.post('/api/test-notification', async (req, res) => {
+router.post('/api/test-notification', async (req, res) => {
   try {
     const pool = await poolPromise;
     const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
@@ -3139,7 +1649,7 @@ app.post('/api/test-notification', async (req, res) => {
 });
 
 // ── POST /api/test-whatsapp ───────────────────────────────────
-app.post('/api/test-whatsapp', async (req, res) => {
+router.post('/api/test-whatsapp', async (req, res) => {
   try {
     const pool = await poolPromise;
     const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
@@ -3192,7 +1702,7 @@ app.post('/api/test-whatsapp', async (req, res) => {
 });
 
 // ── SQL TEMPLATES ─────────────────────────────────────────────
-app.get('/api/sql/templates', async (req, res) => {
+router.get('/api/sql/templates', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query('SELECT * FROM SqlTemplates ORDER BY name ASC');
@@ -3202,7 +1712,7 @@ app.get('/api/sql/templates', async (req, res) => {
   }
 });
 
-app.post('/api/sql/templates', async (req, res) => {
+router.post('/api/sql/templates', async (req, res) => {
   const { id, name, description, script, created_by } = req.body;
   try {
     const pool = await poolPromise;
@@ -3231,7 +1741,7 @@ app.post('/api/sql/templates', async (req, res) => {
   }
 });
 
-app.put('/api/sql/templates/:id', async (req, res) => {
+router.put('/api/sql/templates/:id', async (req, res) => {
   const { id } = req.params;
   const { name, description, script } = req.body;
   try {
@@ -3248,7 +1758,7 @@ app.put('/api/sql/templates/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/sql/templates/:id', async (req, res) => {
+router.delete('/api/sql/templates/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
     await pool.request().input('id', sql.NVarChar, req.params.id).query('DELETE FROM SqlTemplates WHERE id = @id');
@@ -3259,10 +1769,10 @@ app.delete('/api/sql/templates/:id', async (req, res) => {
 });
 
 // Alias for older/other parts if needed
-app.get('/api/sql-templates', (req, res) => res.redirect('/api/sql/templates'));
+router.get('/api/sql-templates', (req, res) => res.redirect('/api/sql/templates'));
 
 // ── REMOTE COMMAND SCRIPTS ──────────────────────────────────────
-app.get('/api/remote-commands/scripts', async (req, res) => {
+router.get('/api/remote-commands/scripts', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query('SELECT * FROM RemoteCommandScripts ORDER BY name ASC');
@@ -3272,7 +1782,7 @@ app.get('/api/remote-commands/scripts', async (req, res) => {
   }
 });
 
-app.post('/api/remote-commands/scripts', async (req, res) => {
+router.post('/api/remote-commands/scripts', async (req, res) => {
   const { id, name, description, script, created_by } = req.body;
   try {
     const pool = await poolPromise;
@@ -3299,7 +1809,7 @@ app.post('/api/remote-commands/scripts', async (req, res) => {
   }
 });
 
-app.delete('/api/remote-commands/scripts/:id', async (req, res) => {
+router.delete('/api/remote-commands/scripts/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
     await pool.request().input('id', sql.NVarChar, req.params.id).query('DELETE FROM RemoteCommandScripts WHERE id = @id');
@@ -3371,7 +1881,7 @@ async function executeRemoteCommand(targets, command, res) {
   }
 }
 
-app.post('/api/remote-commands/run', async (req, res) => {
+router.post('/api/remote-commands/run', async (req, res) => {
   const { device_ids, command, admin_user, admin_pass } = req.body;
 
   try {
@@ -3398,7 +1908,7 @@ app.post('/api/remote-commands/run', async (req, res) => {
 const commandExecutions = new Map();
 
 // ── SQL EXPORT & SCHEDULES ────────────────────────────────────
-app.post('/api/sql/export', (req, res) => {
+router.post('/api/sql/export', (req, res) => {
   const { results } = req.body;
   if (!results) return res.status(400).json({ error: 'No results to export' });
 
@@ -3421,7 +1931,7 @@ app.post('/api/sql/export', (req, res) => {
   res.send(csv);
 });
 
-app.post('/api/sql/schedules', async (req, res) => {
+router.post('/api/sql/schedules', async (req, res) => {
   const { name, script, target_device_ids, next_run_at } = req.body;
   try {
     const pool = await poolPromise;
@@ -3438,7 +1948,7 @@ app.post('/api/sql/schedules', async (req, res) => {
   }
 });
 
-app.post('/api/remote-commands/schedules', async (req, res) => {
+router.post('/api/remote-commands/schedules', async (req, res) => {
   const { name, script, target_device_ids, next_run_at } = req.body;
   try {
     const pool = await poolPromise;
@@ -3468,12 +1978,12 @@ const remotePoolManager = {
   }
 };
 
-app.post('/api/agent/commands/execute', async (req, res) => {
+router.post('/api/agent/commands/execute', async (req, res) => {
   const { targets, command } = req.body;
   await executeRemoteCommand(targets, command, res);
 });
 
-app.get('/api/agent/commands/results', (req, res) => {
+router.get('/api/agent/commands/results', (req, res) => {
   const { exec_id } = req.query;
   const data = commandExecutions.get(exec_id);
   if (!data) return res.status(404).json({ error: 'Exec ID not found' });
@@ -3768,7 +2278,7 @@ async function runOfflineDetector() {
   }
 }
 
-app.get('/api/devices/offline-summary', async (req, res) => {
+router.get('/api/devices/offline-summary', async (req, res) => {
   try {
     const pool = await poolPromise;
     const settingsRes = await pool.request().query("SELECT offline_timeout_mins FROM NotificationSettings WHERE id = 'global'");
@@ -3904,7 +2414,7 @@ cron.schedule('0 0 * * 0', () => {
 });
 
 // Manual trigger API (for testing)
-app.post('/api/reports/trigger-weekly', async (req, res) => {
+router.post('/api/reports/trigger-weekly', async (req, res) => {
   await generateWeeklyReportPDF();
   res.json({ message: "Weekly report generation triggered." });
 });
@@ -4168,16 +2678,16 @@ cron.schedule('0 8 * * *', () => {
 });
 
 // Manual trigger for testing
-app.post('/api/reports/trigger-daily-tickets', async (req, res) => {
+router.post('/api/reports/trigger-daily-tickets', async (req, res) => {
   await sendDailyOutstandingTicketsNotification(true);
   res.json({ message: "Daily ticket notification triggered manually." });
 });
 
 // Serve Weekly Reports Folder
-app.use('/reports/weekly', express.static(path.join(__dirname, 'reports', 'weekly')));
+router.use('/reports/weekly', express.static(path.join(__dirname, 'reports', 'weekly')));
 
 // ── WORKFLOW KNOWLEDGE BASE ──────────────────────────────────
-app.get('/api/workflows', async (req, res) => {
+router.get('/api/workflows', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT id, title, category, file_name, created_by, created_at, updated_at FROM Workflows ORDER BY category, title");
@@ -4188,7 +2698,7 @@ app.get('/api/workflows', async (req, res) => {
 });
 
 // Categories for UI filtering
-app.get('/api/workflows/categories', async (req, res) => {
+router.get('/api/workflows/categories', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT DISTINCT category FROM Workflows WHERE category IS NOT NULL ORDER BY category");
@@ -4199,7 +2709,7 @@ app.get('/api/workflows/categories', async (req, res) => {
 });
 
 // Get specific workflow details
-app.get('/api/workflows/:id', async (req, res) => {
+router.get('/api/workflows/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request()
@@ -4216,7 +2726,7 @@ app.get('/api/workflows/:id', async (req, res) => {
 });
 
 // Download Workflow File
-app.get('/api/workflows/:id/download', async (req, res) => {
+router.get('/api/workflows/:id/download', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().input('id', sql.NVarChar, req.params.id).query("SELECT file_name, file_path FROM Workflows WHERE id = @id");
@@ -4232,7 +2742,7 @@ app.get('/api/workflows/:id/download', async (req, res) => {
 });
 
 // View Workflow File (Inline)
-app.get('/api/workflows/:id/view', async (req, res) => {
+router.get('/api/workflows/:id/view', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().input('id', sql.NVarChar, req.params.id).query("SELECT file_name, file_path FROM Workflows WHERE id = @id");
@@ -4247,7 +2757,7 @@ app.get('/api/workflows/:id/view', async (req, res) => {
   }
 });
 
-app.post('/api/workflows/upload', workflowUpload.single('file'), async (req, res) => {
+router.post('/api/workflows/upload', workflowUpload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   try {
@@ -4277,7 +2787,7 @@ app.post('/api/workflows/upload', workflowUpload.single('file'), async (req, res
   }
 });
 
-app.post('/api/workflows', async (req, res) => {
+router.post('/api/workflows', async (req, res) => {
   const { id, title, content, category, created_by, fileName, filePath, userId: bodyUid } = req.body;
   const uid = req.headers['x-user-id'] || bodyUid;
 
@@ -4305,7 +2815,7 @@ app.post('/api/workflows', async (req, res) => {
   }
 });
 
-app.put('/api/workflows/:id', async (req, res) => {
+router.put('/api/workflows/:id', async (req, res) => {
   const { title, content, category, fileName, filePath, userId: bodyUid } = req.body;
   const uid = req.headers['x-user-id'] || bodyUid;
 
@@ -4336,7 +2846,7 @@ app.put('/api/workflows/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/workflows/:id', async (req, res) => {
+router.delete('/api/workflows/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
     await pool.request()
@@ -4706,7 +3216,7 @@ async function resolveAssistantKeyword(pool, currUser, prompt) {
 const ASSISTANT_COOLDOWN_MS = 3000;
 const assistantRequestTimes = new Map();
 
-app.post('/api/chat', async (req, res) => {
+router.post('/api/chat', async (req, res) => {
   let { userId, prompt, history, user: bodyUser } = req.body;
   const headerUserId = req.headers['x-user-id'];
 
@@ -5060,7 +3570,7 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
 });
 
 // ── GET /api/reports/deployments ──────────────────────────
-app.get('/api/reports/deployments', async (req, res) => {
+router.get('/api/reports/deployments', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
@@ -5077,7 +3587,7 @@ app.get('/api/reports/deployments', async (req, res) => {
 });
 
 // ── GET /api/reports/health ───────────────────────────────
-app.get('/api/reports/health', async (req, res) => {
+router.get('/api/reports/health', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
@@ -5188,7 +3698,7 @@ app.get('/api/reports/health', async (req, res) => {
 });
 
 // ── GET /api/reports/inventory ────────────────────────────
-app.get('/api/reports/inventory', async (req, res) => {
+router.get('/api/reports/inventory', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
@@ -5206,7 +3716,7 @@ app.get('/api/reports/inventory', async (req, res) => {
 });
 
 // ── GET /api/reports/tickets ──────────────────────────────
-app.get('/api/reports/tickets', async (req, res) => {
+router.get('/api/reports/tickets', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
@@ -5224,7 +3734,7 @@ app.get('/api/reports/tickets', async (req, res) => {
 
 // ── GET /api/reports/crm-sync ─────────────────────────────
 // Returns LOYAL_CRM_ITEM_MST sync stats grouped by day (today + yesterday)
-app.get('/api/reports/crm-sync', async (req, res) => {
+router.get('/api/reports/crm-sync', async (req, res) => {
   try {
     const pool = await poolPromise;
 
@@ -5288,7 +3798,7 @@ app.get('/api/reports/crm-sync', async (req, res) => {
 });
 
 // ── GET /api/crm/customer/:phone ──────────────────────────────
-app.get('/api/crm/customer/:phone', async (req, res) => {
+router.get('/api/crm/customer/:phone', async (req, res) => {
   const { phone } = req.params;
 
   if (!phone) {
@@ -5323,7 +3833,7 @@ app.get('/api/crm/customer/:phone', async (req, res) => {
 });
 
 // ── GET /api/crm/reports/stores ──────────────────────────────
-app.get('/api/crm/reports/stores', async (req, res) => {
+router.get('/api/crm/reports/stores', async (req, res) => {
   try {
     const crmPool = await getCrmPool();
     const result = await crmPool.request().query(`
@@ -5339,7 +3849,7 @@ app.get('/api/crm/reports/stores', async (req, res) => {
 });
 
 // ── GET /api/crm/reports/:type ──────────────────────────────
-app.get('/api/crm/reports/:type', async (req, res) => {
+router.get('/api/crm/reports/:type', async (req, res) => {
   const { type } = req.params;
   const { fromDate, toDate, store, search, page = 1, perPage = 100, sortBy, sortDir = 'desc' } = req.query;
 
@@ -5606,7 +4116,7 @@ app.get('/api/crm/reports/:type', async (req, res) => {
 });
 
 // ── GET /api/crm/reports/:type/export/:format ─────────────────
-app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
+router.get('/api/crm/reports/:type/export/:format', async (req, res) => {
   const { type, format } = req.params;
   const { fromDate, toDate, store, search, sortBy, sortDir = 'desc' } = req.query;
 
@@ -5869,7 +4379,7 @@ app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
 });
 
 // ── HELPDESK TICKETS API ──────────────────────────────────────
-app.get('/api/tickets/updates', async (req, res) => {
+router.get('/api/tickets/updates', async (req, res) => {
   try {
     const pool = await poolPromise;
     const { username, can_manage, since } = req.query;
@@ -5891,7 +4401,7 @@ app.get('/api/tickets/updates', async (req, res) => {
   }
 });
 
-app.get('/api/tickets', async (req, res) => {
+router.get('/api/tickets', async (req, res) => {
   try {
     const pool = await poolPromise;
     const { username, can_manage } = req.query;
@@ -5958,7 +4468,7 @@ app.get('/api/tickets', async (req, res) => {
   }
 });
 
-app.post('/api/tickets', async (req, res) => {
+router.post('/api/tickets', async (req, res) => {
   try {
     const { id, title, description, category, priority, outlet_name, hostname, created_by, assigned_to, selected_group_ids } = req.body;
     const pool = await poolPromise;
@@ -6021,7 +4531,7 @@ app.post('/api/tickets', async (req, res) => {
   }
 });
 
-app.put('/api/tickets/:id/status', async (req, res) => {
+router.put('/api/tickets/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { status, resolved_by, resolution_note, closed_by } = req.body;
@@ -6102,7 +4612,7 @@ app.put('/api/tickets/:id/status', async (req, res) => {
 });
 
 // ── NEW: Bulk update targets and groups ───────────────────────
-app.put('/api/tickets/:id/targets', async (req, res) => {
+router.put('/api/tickets/:id/targets', async (req, res) => {
   try {
     const { id } = req.params;
     const { hostname, selected_group_ids, performed_by } = req.body;
@@ -6183,7 +4693,7 @@ app.put('/api/tickets/:id/targets', async (req, res) => {
   }
 });
 // ── Individual Ticket Target Update ──────────────────────────
-app.put('/api/tickets/:id/targets/:targetId', async (req, res) => {
+router.put('/api/tickets/:id/targets/:targetId', async (req, res) => {
   try {
     const { id, targetId } = req.params;
     const { status, remark, performed_by, hostname: bodyHostname } = req.body;
@@ -6256,7 +4766,7 @@ app.put('/api/tickets/:id/targets/:targetId', async (req, res) => {
 });
 
 
-app.put('/api/tickets/:id/assign', async (req, res) => {
+router.put('/api/tickets/:id/assign', async (req, res) => {
   try {
     const { id } = req.params;
     const { assigned_to, performed_by } = req.body;
@@ -6283,7 +4793,7 @@ app.put('/api/tickets/:id/assign', async (req, res) => {
   }
 });
 
-app.get('/api/users', async (req, res) => {
+router.get('/api/users', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT id, username, full_name, role_id FROM Users ORDER BY username ASC");
@@ -6293,7 +4803,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-app.get('/api/tickets/:id/logs', async (req, res) => {
+router.get('/api/tickets/:id/logs', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request()
@@ -6306,50 +4816,277 @@ app.get('/api/tickets/:id/logs', async (req, res) => {
 });
 
 // ── STATIC FILES & SPA FALLBACK ───────────────────────────────
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(path.join(__dirname, 'dist')));
-app.get(/.*/, (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
+router.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+router.use(express.static(path.join(__dirname, 'public')));
+router.use(express.static(path.join(__dirname, 'dist')));
+// Catch-all removed
 
 // ── START SERVER ──────────────────────────────────────────────
-app.listen(port, '0.0.0.0', async () => {
-  console.log(`🚀 Server running on http://0.0.0.0:${port}`);
-  await initDb();
 
-  // Start offline detector — runs every 60 seconds (safe version)
-  async function detectorLoop() {
-    try {
-      await runOfflineDetector();
-    } catch (err) {
-      console.error('Offline Detector Loop Error:', err);
-    }
-    setTimeout(detectorLoop, 60 * 1000);
+
+// ── GET /api/crm/sync-status ──────────────────────────────
+router.get('/api/crm/sync-status', async (req, res) => {
+  let hoPool = null;
+  try {
+    hoPool = await getHoServerPool();
+
+    const totals = await hoPool.request().query(`
+      SELECT
+        COUNT(*) as total_items,
+        SUM(CASE WHEN is_sync = '1' THEN 1 ELSE 0 END) as synced,
+        SUM(CASE WHEN ISNULL(is_sync, '0') <> '1' THEN 1 ELSE 0 END) as pending
+      FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+      WHERE CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -7, GETDATE()))
+    `);
+
+    const configRes = await hoPool.request().query(
+      'SELECT TOP 1 PROCESS_EXEC_DATE FROM dbo.LOYAL_CRM_PROCESS_CONFIG'
+    );
+
+    const daily = await hoPool.request().query(`
+      SELECT
+        CONVERT(date, last_timestamp) as sync_date,
+        SUM(CASE WHEN is_sync = '1' THEN 1 ELSE 0 END) as synced_count,
+        SUM(CASE WHEN ISNULL(is_sync, '0') <> '1' THEN 1 ELSE 0 END) as pending_count,
+        COUNT(*) as total
+      FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+      WHERE CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -7, GETDATE()))
+      GROUP BY CONVERT(date, last_timestamp)
+      ORDER BY sync_date DESC
+    `);
+
+    const recentErrors = await hoPool.request().query(`
+      SELECT TOP 5 ITEM_CODE, ITEM_NAME, RESPONSE_MSG, LAST_TIMESTAMP
+      FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+      WHERE RESPONSE_MSG NOT LIKE 'Success%' 
+        AND ISNULL(RESPONSE_MSG, '') <> ''
+        AND CONVERT(date, last_timestamp) >= CONVERT(date, DATEADD(day, -7, GETDATE()))
+      ORDER BY CAST(LAST_TIMESTAMP AS DATETIME) DESC
+    `);
+
+    res.json({
+      totals: totals.recordset[0],
+      process_exec_date: configRes.recordset[0]?.PROCESS_EXEC_DATE || null,
+      daily: daily.recordset,
+      recent_errors: recentErrors.recordset
+    });
+  } catch (err) {
+    console.error('Error fetching CRM sync status:', err);
+    res.status(500).json({ error: 'Failed to fetch sync status', details: err.message });
+  } finally {
+    if (hoPool) try { await hoPool.close(); } catch (_) {}
   }
-  detectorLoop();
-  // Start log cleanup loop — runs every 24 hours
-  async function logCleanupLoop() {
-    try {
-      const pool = await poolPromise;
-      const result = await pool.request()
-        .query(`
-          DELETE FROM ActivityLog 
-          WHERE id NOT IN (
-            SELECT TOP 1000 id FROM ActivityLog ORDER BY id DESC
-          )
-        `);
-
-      if (result.rowsAffected[0] > 0) {
-        console.log(`🧹 [Cleanup] Deleted ${result.rowsAffected[0]} old ActivityLog entries (kept latest 1000)`);
-      }
-    } catch (err) {
-      console.error('Log Cleanup Loop Error:', err);
-    }
-    setTimeout(logCleanupLoop, 24 * 60 * 60 * 1000);
-  }
-  logCleanupLoop();
-
-  console.log('🔍 Offline detector started (monitoring heartbeats, with proactive ping check)');
 });
 
+// ── GET /api/crm/test-connection ──────────────────────────
+router.get('/api/crm/test-connection', async (req, res) => {
+  let hoPool = null;
+  try {
+    hoPool = await getHoServerPool();
+    const result = await hoPool.request().query('SELECT @@VERSION as version');
+    res.json({ success: true, message: 'Connected to HOSERVER successfully.', version: result.recordset[0].version });
+  } catch (err) {
+    console.error('CRM Connection test failed:', err);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    if (hoPool) try { await hoPool.close(); } catch (_) {}
+  }
+});
+
+// ── Helper: Get HOSERVER pool (where LOYAL_CRM_ITEM_MST lives) ──
+async function getHoServerPool() {
+  const pool = await poolPromise;
+  
+  // Dynamic lookup for HOSERVER
+  const hoDevRes = await pool.request()
+    .input('hostname', sql.NVarChar, 'HOSERVER')
+    .query('SELECT id, ip FROM Devices WHERE hostname = @hostname');
+  
+  if (hoDevRes.recordset.length === 0) throw new Error('HOSERVER device not found in Devices table');
+  
+  const { id: hoDeviceId, ip: dbIp } = hoDevRes.recordset[0];
+  // Per user request, ensure we use 192.168.85.18 if the record says otherwise or just confirm it
+  const hoIp = (dbIp === '192.168.85.18' || dbIp.includes('85.18')) ? dbIp : '192.168.85.18';
+  
+  const hoConnRes = await pool.request()
+    .input('did', sql.NVarChar, hoDeviceId)
+    .query('SELECT * FROM DeviceDbConnections WHERE device_id = @did');
+  
+  if (hoConnRes.recordset.length === 0) throw new Error('HOSERVER DB connection not configured in DeviceDbConnections');
+  
+  const hoConn = hoConnRes.recordset[0];
+  console.log(`[CRM] Connecting to HO Database at ${hoIp} (DB: ${hoConn.db_name}, User: ${hoConn.db_user})`);
+  
+  const hoPool = new sql.ConnectionPool({
+    user: hoConn.db_user,
+    password: hoConn.db_password,
+    server: hoIp,
+    database: hoConn.db_name,
+    options: { 
+      encrypt: false, 
+      enableArithAbort: true, 
+      trustServerCertificate: true,
+      connectTimeout: 15000
+    },
+    pool: { max: 1, min: 0, idleTimeoutMillis: 30000 }
+  });
+
+  try {
+    await hoPool.connect();
+    const checkDb = await hoPool.request().query('SELECT DB_NAME() as current_db');
+    console.log(`[CRM] Connected. Current DB: ${checkDb.recordset[0].current_db}`);
+    return hoPool;
+  } catch (err) {
+    console.error(`[CRM] Failed to connect to HO Server (${hoIp}):`, err.message);
+    throw err;
+  }
+}
+
+// ── GET /api/crm/sync-logs ──────────────────────────────
+router.get('/api/crm/sync-logs', async (req, res) => {
+  let hoPool = null;
+  try {
+    hoPool = await getHoServerPool();
+    
+    // Ensure table exists (fail-safe)
+    await hoPool.request().query(`
+      IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'sync_item_crm_job_log')
+      BEGIN
+          CREATE TABLE dbo.sync_item_crm_job_log (
+              log_id INT IDENTITY(1,1) PRIMARY KEY,
+              log_date DATETIME DEFAULT GETDATE(),
+              issue_date DATETIME,
+              item_code VARCHAR(50),
+              item_name VARCHAR(150),
+              item_stk_uom VARCHAR(10),
+              item_vendor_cd VARCHAR(50),
+              status VARCHAR(50),
+              message VARCHAR(MAX)
+          );
+      END
+    `);
+
+    const result = await hoPool.request().query(`
+      SELECT TOP 5 * FROM sync_item_crm_job_log ORDER BY log_date DESC
+    `);
+    
+    res.json(result.recordset);
+  } catch (err) {
+    console.error('Error fetching sync logs:', err);
+    res.status(500).json({ error: 'Failed to fetch logs', details: err.message });
+  } finally {
+    if (hoPool) try { await hoPool.close(); } catch (_) {}
+  }
+});
+
+// ── POST /api/crm/sync-retry ──────────────────────────────
+router.post('/api/crm/sync-retry', async (req, res) => {
+  let hoPool = null;
+  try {
+    const days = Math.max(1, Math.min(30, parseInt(req.body.days) || 2));
+    hoPool = await getHoServerPool();
+    
+    // Ensure table exists
+    await hoPool.request().query(`
+      IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'sync_item_crm_job_log')
+      BEGIN
+          CREATE TABLE dbo.sync_item_crm_job_log (
+              log_id INT IDENTITY(1,1) PRIMARY KEY,
+              log_date DATETIME DEFAULT GETDATE(),
+              issue_date DATETIME,
+              item_code VARCHAR(50),
+              item_name VARCHAR(150),
+              item_stk_uom VARCHAR(10),
+              item_vendor_cd VARCHAR(50),
+              status VARCHAR(50),
+              message VARCHAR(MAX)
+          );
+      END
+    `);
+
+    // Check failed count in the configured days range
+    const checkFailed = await hoPool.request()
+      .input('days', sql.Int, days)
+      .query(`
+        SELECT COUNT(*) as failedCount 
+        FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+        WHERE RESPONSE_MSG NOT LIKE 'Success%'
+          AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE())
+      `);
+    
+    const countFailed = checkFailed.recordset[0].failedCount;
+    
+    if (countFailed > 0) {
+      // Find the oldest target date
+      const targetDateRes = await hoPool.request()
+        .input('days', sql.Int, days)
+        .query(`
+          SELECT TOP 1 CAST(CAST(LAST_TIMESTAMP AS DATETIME) AS DATE) as targetDate
+          FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+          WHERE RESPONSE_MSG NOT LIKE 'Success%'
+            AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE())
+          ORDER BY CAST(LAST_TIMESTAMP AS DATETIME) ASC
+        `);
+      
+      const targetDate = targetDateRes.recordset[0].targetDate;
+      
+      const transaction = new sql.Transaction(hoPool);
+      await transaction.begin();
+      
+      try {
+        const reqQuery = new sql.Request(transaction);
+        reqQuery.input('targetDate', sql.Date, targetDate);
+        reqQuery.input('days', sql.Int, days);
+        
+        await reqQuery.query(`
+          UPDATE dbo.LOYAL_CRM_PROCESS_CONFIG
+          SET PROCESS_EXEC_DATE = DATEADD(day, -1, @targetDate);
+        `);
+        
+        await reqQuery.query(`
+          INSERT INTO dbo.sync_item_crm_job_log (
+              log_date, issue_date, item_code, item_name, item_stk_uom, item_vendor_cd, status, message
+          )
+          SELECT 
+              GETDATE(), CAST(LAST_TIMESTAMP AS DATETIME), ITEM_CODE, ITEM_NAME, ITEM_STK_UOM, ITEM_VENDOR_CD, 'FAILED', RESPONSE_MSG
+          FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
+          WHERE RESPONSE_MSG NOT LIKE 'Success%'
+            AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE());
+        `);
+        
+        await reqQuery.query(`
+          UPDATE dbo.LOYAL_CRM_ITEM_MST set IS_SYNC='0', RESPONSE_MSG=''
+          WHERE RESPONSE_MSG NOT LIKE 'Success%'
+            AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE());
+        `);
+        
+        await transaction.commit();
+        res.json({ success: true, message: `Successfully pushed ${countFailed} failed items for retry (${days}-day range).` });
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
+    } else {
+      await hoPool.request().query(`
+        INSERT INTO dbo.sync_item_crm_job_log (
+            log_date, issue_date, status, message
+        )
+        VALUES (
+            GETDATE(),
+            CAST(CAST(DATEADD(day, -1, GETDATE()) AS DATE) AS DATETIME), 
+            'SUCCESS',
+            'No failed records found. Process date remains unchanged.'
+        );
+      `);
+      
+      res.json({ success: true, message: `No failed records found in the last ${days} day(s). Process date remains unchanged.` });
+    }
+  } catch (err) {
+    console.error('Error during CRM sync retry:', err);
+    res.status(500).json({ error: 'Failed to process sync retry', details: err.message });
+  } finally {
+    if (hoPool) try { await hoPool.close(); } catch (_) {}
+  }
+});
+
+export default router;

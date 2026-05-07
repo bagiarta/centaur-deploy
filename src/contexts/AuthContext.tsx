@@ -46,6 +46,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem("pepi_user");
   };
 
+  useEffect(() => {
+    if (!user) return;
+
+    let timeoutId: NodeJS.Timeout;
+    const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        console.log("User inactive for 30 minutes, logging out...");
+        logout();
+      }, INACTIVITY_TIMEOUT);
+    };
+
+    const events = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"];
+    events.forEach(event => document.addEventListener(event, resetTimer));
+
+    resetTimer();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(event => document.removeEventListener(event, resetTimer));
+    };
+  }, [user]);
+
   const hasPermission = (menuKey: string) => {
     if (!user) return false;
     if (user.is_admin || user.menu_permissions === "*") return true;
