@@ -18,7 +18,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 
-import { poolPromise, dbConfig } from '../config/db.js';
+import { poolPromise, dbConfig, initDb } from '../config/db.js';
 import { h2hConfig, getH2hToken } from '../config/h2h.js';
 import { getCurrentTimestamp, getCurrentTimeHHMM, getISOTimestamp } from '../utils/timeUtils.js';
 
@@ -479,6 +479,29 @@ router.get('/api/activity-log/export', async (req, res) => {
     res.send(`\uFEFF${csv}`);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/packages ─────────────────────────────────────
+router.get('/api/packages', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM Packages');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/packages/download/:filename ──────────────────
+router.get('/api/packages/download/:filename', async (req, res) => {
+  const { filename } = req.params;
+  const filePath = path.join(REPO_PATH, filename);
+
+  if (fs.existsSync(filePath)) {
+    res.download(filePath);
+  } else {
+    res.status(404).json({ error: 'File not found in repository' });
   }
 });
 
@@ -1515,6 +1538,102 @@ router.post('/api/notification-settings', async (req, res) => {
   }
 });
 
+// ── NOTIFICATION SCHEDULES CRUD ──────────────────────────────
+router.get('/api/notification-schedules', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT * FROM NotificationSchedules ORDER BY schedule_time ASC");
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/notification-types', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query("SELECT * FROM NotificationTypes ORDER BY label ASC");
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/notification-schedules', async (req, res) => {
+  const { name, notif_type, schedule_time, whatsapp_target, whatsapp_group, is_enabled } = req.body;
+  console.log('[API] Creating new schedule:', { name, notif_type, schedule_time });
+  try {
+    const pool = await poolPromise;
+    const id = 'sch_' + Date.now();
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('notif_type', sql.NVarChar, notif_type)
+      .input('schedule_time', sql.NVarChar, schedule_time)
+      .input('schedule_day', sql.NVarChar, req.body.schedule_day || 'Daily')
+      .input('wa_target', sql.NVarChar, whatsapp_target || '')
+      .input('wa_group', sql.NVarChar, whatsapp_group || '')
+      .input('enabled', sql.Bit, (is_enabled === true || is_enabled === 1 || is_enabled === undefined) ? 1 : 0)
+      .query(`
+        INSERT INTO NotificationSchedules (id, name, notif_type, schedule_time, schedule_day, whatsapp_target, whatsapp_group, is_enabled)
+        VALUES (@id, @name, @notif_type, @schedule_time, @schedule_day, @wa_target, @wa_group, @enabled)
+      `);
+    console.log(`[API] Schedule created with ID: ${id}`);
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('[API] Create error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/notification-schedules/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, notif_type, schedule_time, whatsapp_target, whatsapp_group, is_enabled } = req.body;
+  console.log(`[API] Updating schedule ${id}:`, { name, notif_type, schedule_time, is_enabled });
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('notif_type', sql.NVarChar, notif_type)
+      .input('schedule_time', sql.NVarChar, schedule_time)
+      .input('schedule_day', sql.NVarChar, req.body.schedule_day || 'Daily')
+      .input('wa_target', sql.NVarChar, whatsapp_target || '')
+      .input('wa_group', sql.NVarChar, whatsapp_group || '')
+      .input('enabled', sql.Bit, (is_enabled === true || is_enabled === 1) ? 1 : 0)
+      .query(`
+        UPDATE NotificationSchedules SET
+          name = @name, notif_type = @notif_type, schedule_time = @schedule_time,
+          schedule_day = @schedule_day,
+          whatsapp_target = @wa_target, whatsapp_group = @wa_group, is_enabled = @enabled,
+          updated_at = GETDATE()
+        WHERE id = @id
+      `);
+
+    if (result.rowsAffected[0] === 0) {
+      console.warn(`[API] No schedule found with ID ${id} for update.`);
+      return res.status(404).json({ error: "Schedule not found" });
+    }
+
+    console.log(`[API] Schedule ${id} updated successfully.`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(`[API] Update error for ${id}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/notification-schedules/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = await poolPromise;
+    await pool.request().input('id', sql.NVarChar, id).query("DELETE FROM NotificationSchedules WHERE id = @id");
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/test-notification (Discord/Webhook) ─────────────
 const DEFAULT_THEME_SETTINGS = {
   sidebarBg: "#10331f",
@@ -1978,6 +2097,54 @@ const remotePoolManager = {
   }
 };
 
+async function sendWhatsapp(message, options = {}) {
+  const { customTarget, customGroup } = options;
+  try {
+    const pool = await poolPromise;
+    const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
+    const settings = settingsRes.recordset[0];
+    if (!settings || !settings.whatsapp_token) return;
+
+    // Use custom overrides if provided, otherwise fallback to global settings
+    const target = customTarget || settings.whatsapp_target;
+    const group = customGroup || settings.whatsapp_group;
+
+    const targets = Array.from(new Set(
+      [target, group]
+        .filter(Boolean)
+        .map(t => t.trim())
+    )).join(',');
+
+    if (!targets) return;
+
+    const payload = JSON.stringify({ token: settings.whatsapp_token, target: targets, message, countryCode: '62' });
+    const requestOptions = {
+      hostname: 'api.fonnte.com', path: '/send', method: 'POST',
+      headers: { 'Authorization': settings.whatsapp_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+    };
+    const req = https.request(requestOptions);
+    req.on('error', (err) => { console.error('[WHATSAPP] Request Error:', err.message); });
+    req.write(payload);
+    req.end();
+    console.log(`[WHATSAPP] Message sent to: ${targets}`);
+  } catch (err) {
+    console.error('[WHATSAPP] Error:', err.message);
+  }
+}
+
+// ── TRIAL: Dynamic Routing Endpoint ──────────────────────────
+router.post('/api/trial/test-routed-whatsapp', async (req, res) => {
+  const { message, target, group } = req.body;
+  if (!message) return res.status(400).json({ error: "Message is required" });
+
+  try {
+    await sendWhatsapp(message, { customTarget: target, customGroup: group });
+    res.json({ success: true, message: `Trial notification sent to ${target || group || 'Default'}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/api/agent/commands/execute', async (req, res) => {
   const { targets, command } = req.body;
   await executeRemoteCommand(targets, command, res);
@@ -2016,39 +2183,9 @@ async function sendWebhook(title, description, color = 0x5865F2) {
   }
 }
 
-async function sendWhatsapp(message) {
-  try {
-    const pool = await poolPromise;
-    const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
-    const settings = settingsRes.recordset[0];
-    if (!settings || !settings.whatsapp_token) return;
-
-    // Deduplicate targets (ensure number doesn't appear in both individual and group fields)
-    const targets = Array.from(new Set(
-      [settings.whatsapp_target, settings.whatsapp_group]
-        .filter(Boolean)
-        .map(t => t.trim())
-    )).join(',');
-
-    if (!targets) return;
-
-    const payload = JSON.stringify({ token: settings.whatsapp_token, target: targets, message, countryCode: '62' });
-    const options = {
-      hostname: 'api.fonnte.com', path: '/send', method: 'POST',
-      headers: { 'Authorization': settings.whatsapp_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-    };
-    const req = https.request(options);
-    req.on('error', () => { });
-    req.write(payload);
-    req.end();
-  } catch (err) {
-    console.error('[WHATSAPP] Error:', err.message);
-  }
-}
-
 async function runOfflineDetector() {
   try {
-    const pool = await poolPromise;
+    const pool = await initDb();
     if (!pool) return;
 
     const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
@@ -2298,7 +2435,8 @@ router.get('/api/devices/offline-summary', async (req, res) => {
 });
 
 // ── WEEKLY REPORT PDF GENERATOR ───────────────────────────────
-async function generateWeeklyReportPDF() {
+async function generateWeeklyReportPDF(options = {}) {
+  const { customTarget, customGroup } = options;
   console.log('[REPORT] V2 - Generating Automated Weekly Report PDF...');
   try {
     const pool = await poolPromise;
@@ -2401,7 +2539,7 @@ async function generateWeeklyReportPDF() {
         `_Weekly PDF has been archived on the server._`;
 
       await sendWebhook(`📊 Weekly Performance Report`, summary.replace(/\*/g, '**'), 0x3b82f6);
-      await sendWhatsapp(summary);
+      await sendWhatsapp(summary, { customTarget, customGroup });
     });
   } catch (err) {
     console.error('⚠️ Weekly report error:', err.message);
@@ -2409,9 +2547,7 @@ async function generateWeeklyReportPDF() {
 }
 
 // Schedule Cron: Every Sunday at 00:00
-cron.schedule('0 0 * * 0', () => {
-  generateWeeklyReportPDF();
-});
+// Weekly cron disabled in favor of Dynamic Scheduler
 
 // Manual trigger API (for testing)
 router.post('/api/reports/trigger-weekly', async (req, res) => {
@@ -2424,7 +2560,9 @@ router.post('/api/reports/trigger-weekly', async (req, res) => {
  * Summarizes tickets that are not Closed/Resolved and shows progress %.
  * Also includes LOYAL_CRM_ITEM_MST sync status from HOSERVER.
  */
-async function sendDailyOutstandingTicketsNotification(isManual = false) {
+async function sendDailyOutstandingTicketsNotification(options = {}) {
+  const isManual = options.isManual || false;
+  const { customTarget, customGroup } = options;
   console.log('[REPORT] Generating Daily Outstanding Ticket + CRM Sync Notification...');
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -2597,62 +2735,62 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
     try {
       const crmPool = await getCrmPool();
       const fraudRes = await crmPool.request().query(`
-        WITH trx AS (
-          SELECT
-            q.RLITQ_ORG_CD AS org_cd,
-            q.RLITQ_CARD_NO AS card_no,
-            m.RLICM_NAME AS cust_name,
-            d.ORG_NAME AS store_name,
-            h.SESSION_NO,
-            h.NET_VALUE,
-            CAST(h.BILL_DT AS DATE) AS trx_date,
-            CAST(h.BILL_TIME AS TIME) AS bill_time,
-            LAG(CAST(h.BILL_TIME AS TIME)) OVER (
-              PARTITION BY q.RLITQ_CARD_NO, q.RLITQ_ORG_CD, h.SESSION_NO, CAST(h.BILL_DT AS DATE)
-              ORDER BY CAST(h.BILL_TIME AS TIME)
-            ) AS prev_bill_time
-          FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
-          LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-          LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
-          LEFT JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO
-          WHERE CAST(h.BILL_DT AS DATE) = CAST(DATEADD(day, -1, GETDATE()) AS DATE)
+        WITH DailyCounts AS (
+            SELECT 
+                q.RLITQ_CARD_NO as card_no,
+                MAX(m.RLICM_NAME) as cust_name,
+                CAST(h.BILL_DT AS DATE) as trx_date,
+                COUNT(q.RLITQ_BILL_NO) as daily_trx_count,
+                MAX(q.RLITQ_ORG_CD) as org_cd,
+                MAX(d.ORG_NAME) as store_name,
+                MAX(h.COUNTER_NO) as counter_no,
+                MAX(h.SESSION_NO) as session_no,
+                MAX(h.SALESMAN_ID_SEC) as salesman_id
+            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
+            JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
+            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+            WHERE CAST(h.BILL_DT AS DATE) >= CAST(DATEADD(day, -7, GETDATE()) AS DATE)
+            GROUP BY q.RLITQ_CARD_NO, CAST(h.BILL_DT AS DATE)
+            HAVING COUNT(q.RLITQ_BILL_NO) > 3
+               AND COUNT(DISTINCT h.COUNTER_NO) = 1
+               AND COUNT(DISTINCT h.SESSION_NO) = 1
         ),
-        trx_interval AS (
-          SELECT
-            *,
-            CASE
-              WHEN DATEDIFF(SECOND, prev_bill_time, bill_time) < 0 THEN NULL
-              ELSE DATEDIFF(SECOND, prev_bill_time, bill_time)
-            END AS interval_sec
-          FROM trx
+        ConsecutiveLag AS (
+            SELECT 
+                card_no, cust_name, org_cd, store_name,
+                trx_date as latest_date,
+                LAG(trx_date) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_date,
+                daily_trx_count as latest_count, 
+                LAG(daily_trx_count) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_count,
+                salesman_id as latest_salesman,
+                LAG(salesman_id) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_salesman
+            FROM DailyCounts
+        ),
+        ConsecutiveCheck AS (
+            SELECT *
+            FROM ConsecutiveLag 
+            WHERE DATEDIFF(day, prev_date, latest_date) = 1
+              AND prev_salesman = latest_salesman
+              AND latest_date = CAST(DATEADD(day, -1, GETDATE()) AS DATE)
         )
-        SELECT
-          trx_date AS trans_date,
-          card_no,
-          cust_name,
-          org_cd,
-          store_name,
-          SESSION_NO,
-          COUNT(*) AS frequently,
-          ROUND(AVG(CAST(ISNULL(NET_VALUE, 0) AS FLOAT)), 0) AS avg_value
-        FROM trx_interval
-        GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
-        HAVING COUNT(*) > 5
-        ORDER BY frequently DESC
+        SELECT * FROM ConsecutiveCheck
+        ORDER BY latest_count DESC
       `);
 
       if (fraudRes.recordset.length > 0) {
         summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
         summary += `🚨 *CRM FRAUD ANALYSIS: Suspicious Activity Detected*\n`;
-        summary += `_Harap segera melakukan review pada report CRM Fraud Analysis!_\n\n`;
+        summary += `_Kriteria: >3 trx/hari selama 2 hari berturut-turut (Sesi & Salesman sama)_\n\n`;
 
         for (const row of fraudRes.recordset) {
-          summary += `📅 Date: ${new Date(row.trans_date).toLocaleDateString('id-ID')}\n`;
-          summary += `🏪 Store: ${row.org_cd} - ${row.store_name}\n`;
-          summary += `💳 Card No: ${row.card_no}\n`;
-          summary += `👤 Customer: ${row.cust_name || 'N/A'}\n`;
-          summary += `⚠️ Frequency: *${row.frequently}* transactions\n`;
-          summary += `💰 Avg Value: *Rp ${new Intl.NumberFormat('id-ID').format(row.avg_value || 0)}*\n\n`;
+          summary += `👤 *${row.cust_name || 'Unknown Member'}*\n`;
+          summary += `💳 No Kartu: ${row.card_no}\n`;
+          summary += `🏪 Store: (${row.org_cd}) ${row.store_name}\n`;
+          const prevD = new Date(row.prev_date).toLocaleDateString('id-ID');
+          const lateD = new Date(row.latest_date).toLocaleDateString('id-ID');
+          summary += `📅 Periode: ${prevD} s/d ${lateD}\n`;
+          summary += `📊 Trx: *${row.prev_count} trx* & *${row.latest_count} trx*\n\n`;
         }
       }
     } catch (fraudErr) {
@@ -2663,7 +2801,7 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
 
     // 4. Send Notifications
     await sendWebhook(`🎟️ Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
-    await sendWhatsapp(summary);
+    await sendWhatsapp(summary, { customTarget, customGroup });
 
     console.log('[REPORT] Daily ticket + CRM notification sent.');
 
@@ -2672,14 +2810,16 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
   }
 }
 
-// Schedule Daily Ticketing Notification: Every day at 08:00
+// Original static daily schedule (08:00) - Disabled in favor of Dynamic Scheduler
+/*
 cron.schedule('0 8 * * *', () => {
-  sendDailyOutstandingTicketsNotification(false);
+  sendDailyOutstandingTicketsNotification({ isManual: false });
 });
+*/
 
 // Manual trigger for testing
 router.post('/api/reports/trigger-daily-tickets', async (req, res) => {
-  await sendDailyOutstandingTicketsNotification(true);
+  await sendDailyOutstandingTicketsNotification({ isManual: true });
   res.json({ message: "Daily ticket notification triggered manually." });
 });
 
@@ -3797,6 +3937,38 @@ router.get('/api/reports/crm-sync', async (req, res) => {
   }
 });
 
+// ── GET /api/reports/dbwh-jobs ────────────────────────────
+// Returns SQL Server Agent job history from DBWH server
+router.get('/api/reports/dbwh-jobs', async (req, res) => {
+  try {
+    const crmPool = await getCrmPool();
+    const result = await crmPool.request().query(`
+      SELECT distinct
+        j.name AS JobName
+       ,h.step_name AS StepName
+       ,msdb.dbo.agent_datetime(h.run_date, h.run_time) AS StartDateTime
+       ,h.run_duration AS Duration_HHMMSS
+       ,CASE h.run_status
+          WHEN 0 THEN 'Failed'
+          WHEN 1 THEN 'Succeeded'
+          WHEN 2 THEN 'Retry'
+          WHEN 3 THEN 'Canceled'
+          WHEN 4 THEN 'In Progress'
+        END AS StatusJob
+       ,h.message AS LogMessage
+      FROM msdb.dbo.sysjobs j
+      INNER JOIN msdb.dbo.sysjobhistory h
+        ON j.job_id = h.job_id
+      WHERE h.run_date = CONVERT(VARCHAR(8), GETDATE(), 112)
+      ORDER BY StartDateTime DESC;
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    console.error('Reports DBWH Jobs Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/crm/customer/:phone ──────────────────────────────
 router.get('/api/crm/customer/:phone', async (req, res) => {
   const { phone } = req.params;
@@ -4020,67 +4192,61 @@ router.get('/api/crm/reports/:type', async (req, res) => {
       }
 
       const cte = `
-        WITH trx AS (
-          SELECT
-            q.RLITQ_ORG_CD AS org_cd,
-            q.RLITQ_CARD_NO AS card_no,
-            m.RLICM_NAME AS cust_name,
-            m.RLICM_MOBILE_NO,
-            d.ORG_NAME AS store_name,
-            h.SESSION_NO,
-            h.NET_VALUE,
-            CAST(h.BILL_DT AS DATE) AS trx_date,
-            CAST(h.BILL_TIME AS TIME) AS bill_time,
-            LAG(CAST(h.BILL_TIME AS TIME)) OVER (
-              PARTITION BY q.RLITQ_CARD_NO, q.RLITQ_ORG_CD, h.SESSION_NO, CAST(h.BILL_DT AS DATE)
-              ORDER BY CAST(h.BILL_TIME AS TIME)
-            ) AS prev_bill_time
-          FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
-          LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-          LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
-          LEFT JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO
-          ${where}
+        WITH DailyCounts AS (
+            SELECT 
+                q.RLITQ_CARD_NO as card_no,
+                MAX(m.RLICM_NAME) as cust_name,
+                CAST(h.BILL_DT AS DATE) as trx_date,
+                COUNT(q.RLITQ_BILL_NO) as daily_trx_count,
+                MAX(q.RLITQ_ORG_CD) as org_cd,
+                MAX(d.ORG_NAME) as store_name,
+                MAX(h.COUNTER_NO) as counter_no,
+                MAX(h.SESSION_NO) as session_no,
+                MAX(h.SALESMAN_ID_SEC) as salesman_id
+            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
+            JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
+            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+            ${where}
+            GROUP BY q.RLITQ_CARD_NO, CAST(h.BILL_DT AS DATE)
+            HAVING COUNT(q.RLITQ_BILL_NO) > 3
+               AND COUNT(DISTINCT h.COUNTER_NO) = 1
+               AND COUNT(DISTINCT h.SESSION_NO) = 1
         ),
-        trx_interval AS (
-          SELECT
-            *,
-            CASE
-              WHEN DATEDIFF(SECOND, prev_bill_time, bill_time) < 0 THEN NULL
-              ELSE DATEDIFF(SECOND, prev_bill_time, bill_time)
-            END AS interval_sec
-          FROM trx
+        ConsecutiveLag AS (
+            SELECT 
+                card_no, 
+                cust_name, 
+                org_cd,
+                store_name,
+                trx_date as latest_date,
+                LAG(trx_date) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_date,
+                daily_trx_count as latest_count, 
+                LAG(daily_trx_count) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_count,
+                salesman_id as latest_salesman,
+                LAG(salesman_id) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_salesman,
+                'Suspicious Activity' as fraud_warning
+            FROM DailyCounts
+        ),
+        ConsecutiveCheck AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY card_no ORDER BY latest_date DESC) as rn
+            FROM ConsecutiveLag 
+            WHERE DATEDIFF(day, prev_date, latest_date) = 1
+              AND latest_salesman = prev_salesman
         )
       `;
 
       query = `
         ${cte}
-        SELECT
-          trx_date AS trans_date,
-          card_no,
-          cust_name,
-          org_cd,
-          store_name,
-          SESSION_NO,
-          COUNT(*) AS frequently,
-          ROUND(AVG(CAST(interval_sec AS FLOAT)), 0) AS avg_interval_sec,
-          MIN(interval_sec) AS min_interval_sec,
-          ROUND(AVG(CAST(ISNULL(NET_VALUE, 0) AS FLOAT)), 0) AS avg_value,
-          'Suspicious Activity' AS fraud_warning
-        FROM trx_interval
-        GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
-        HAVING COUNT(*) > 5
-        ORDER BY trans_date DESC, frequently DESC
+        SELECT * FROM ConsecutiveCheck WHERE rn = 1
+        ORDER BY latest_date DESC, latest_count DESC
         OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
       `;
 
       countQuery = `
         ${cte}
-        SELECT COUNT(*) as total FROM (
-          SELECT trx_date
-          FROM trx_interval
-          GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
-          HAVING COUNT(*) > 5
-        ) sub
+        SELECT COUNT(*) as total FROM ConsecutiveCheck WHERE rn = 1
       `;
     }
     else {
@@ -4874,7 +5040,7 @@ router.get('/api/crm/sync-status', async (req, res) => {
     console.error('Error fetching CRM sync status:', err);
     res.status(500).json({ error: 'Failed to fetch sync status', details: err.message });
   } finally {
-    if (hoPool) try { await hoPool.close(); } catch (_) {}
+    if (hoPool) try { await hoPool.close(); } catch (_) { }
   }
 });
 
@@ -4889,42 +5055,42 @@ router.get('/api/crm/test-connection', async (req, res) => {
     console.error('CRM Connection test failed:', err);
     res.status(500).json({ success: false, error: err.message });
   } finally {
-    if (hoPool) try { await hoPool.close(); } catch (_) {}
+    if (hoPool) try { await hoPool.close(); } catch (_) { }
   }
 });
 
 // ── Helper: Get HOSERVER pool (where LOYAL_CRM_ITEM_MST lives) ──
 async function getHoServerPool() {
   const pool = await poolPromise;
-  
+
   // Dynamic lookup for HOSERVER
   const hoDevRes = await pool.request()
     .input('hostname', sql.NVarChar, 'HOSERVER')
     .query('SELECT id, ip FROM Devices WHERE hostname = @hostname');
-  
+
   if (hoDevRes.recordset.length === 0) throw new Error('HOSERVER device not found in Devices table');
-  
+
   const { id: hoDeviceId, ip: dbIp } = hoDevRes.recordset[0];
   // Per user request, ensure we use 192.168.85.18 if the record says otherwise or just confirm it
   const hoIp = (dbIp === '192.168.85.18' || dbIp.includes('85.18')) ? dbIp : '192.168.85.18';
-  
+
   const hoConnRes = await pool.request()
     .input('did', sql.NVarChar, hoDeviceId)
     .query('SELECT * FROM DeviceDbConnections WHERE device_id = @did');
-  
+
   if (hoConnRes.recordset.length === 0) throw new Error('HOSERVER DB connection not configured in DeviceDbConnections');
-  
+
   const hoConn = hoConnRes.recordset[0];
   console.log(`[CRM] Connecting to HO Database at ${hoIp} (DB: ${hoConn.db_name}, User: ${hoConn.db_user})`);
-  
+
   const hoPool = new sql.ConnectionPool({
     user: hoConn.db_user,
     password: hoConn.db_password,
     server: hoIp,
     database: hoConn.db_name,
-    options: { 
-      encrypt: false, 
-      enableArithAbort: true, 
+    options: {
+      encrypt: false,
+      enableArithAbort: true,
       trustServerCertificate: true,
       connectTimeout: 15000
     },
@@ -4947,7 +5113,7 @@ router.get('/api/crm/sync-logs', async (req, res) => {
   let hoPool = null;
   try {
     hoPool = await getHoServerPool();
-    
+
     // Ensure table exists (fail-safe)
     await hoPool.request().query(`
       IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'sync_item_crm_job_log')
@@ -4969,13 +5135,13 @@ router.get('/api/crm/sync-logs', async (req, res) => {
     const result = await hoPool.request().query(`
       SELECT TOP 5 * FROM sync_item_crm_job_log ORDER BY log_date DESC
     `);
-    
+
     res.json(result.recordset);
   } catch (err) {
     console.error('Error fetching sync logs:', err);
     res.status(500).json({ error: 'Failed to fetch logs', details: err.message });
   } finally {
-    if (hoPool) try { await hoPool.close(); } catch (_) {}
+    if (hoPool) try { await hoPool.close(); } catch (_) { }
   }
 });
 
@@ -4985,7 +5151,7 @@ router.post('/api/crm/sync-retry', async (req, res) => {
   try {
     const days = Math.max(1, Math.min(30, parseInt(req.body.days) || 2));
     hoPool = await getHoServerPool();
-    
+
     // Ensure table exists
     await hoPool.request().query(`
       IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'sync_item_crm_job_log')
@@ -5013,9 +5179,9 @@ router.post('/api/crm/sync-retry', async (req, res) => {
         WHERE RESPONSE_MSG NOT LIKE 'Success%'
           AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE())
       `);
-    
+
     const countFailed = checkFailed.recordset[0].failedCount;
-    
+
     if (countFailed > 0) {
       // Find the oldest target date
       const targetDateRes = await hoPool.request()
@@ -5027,22 +5193,22 @@ router.post('/api/crm/sync-retry', async (req, res) => {
             AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE())
           ORDER BY CAST(LAST_TIMESTAMP AS DATETIME) ASC
         `);
-      
+
       const targetDate = targetDateRes.recordset[0].targetDate;
-      
+
       const transaction = new sql.Transaction(hoPool);
       await transaction.begin();
-      
+
       try {
         const reqQuery = new sql.Request(transaction);
         reqQuery.input('targetDate', sql.Date, targetDate);
         reqQuery.input('days', sql.Int, days);
-        
+
         await reqQuery.query(`
           UPDATE dbo.LOYAL_CRM_PROCESS_CONFIG
           SET PROCESS_EXEC_DATE = DATEADD(day, -1, @targetDate);
         `);
-        
+
         await reqQuery.query(`
           INSERT INTO dbo.sync_item_crm_job_log (
               log_date, issue_date, item_code, item_name, item_stk_uom, item_vendor_cd, status, message
@@ -5053,13 +5219,13 @@ router.post('/api/crm/sync-retry', async (req, res) => {
           WHERE RESPONSE_MSG NOT LIKE 'Success%'
             AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE());
         `);
-        
+
         await reqQuery.query(`
           UPDATE dbo.LOYAL_CRM_ITEM_MST set IS_SYNC='0', RESPONSE_MSG=''
           WHERE RESPONSE_MSG NOT LIKE 'Success%'
             AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE());
         `);
-        
+
         await transaction.commit();
         res.json({ success: true, message: `Successfully pushed ${countFailed} failed items for retry (${days}-day range).` });
       } catch (err) {
@@ -5078,14 +5244,455 @@ router.post('/api/crm/sync-retry', async (req, res) => {
             'No failed records found. Process date remains unchanged.'
         );
       `);
-      
+
       res.json({ success: true, message: `No failed records found in the last ${days} day(s). Process date remains unchanged.` });
     }
   } catch (err) {
     console.error('Error during CRM sync retry:', err);
     res.status(500).json({ error: 'Failed to process sync retry', details: err.message });
   } finally {
-    if (hoPool) try { await hoPool.close(); } catch (_) {}
+    if (hoPool) try { await hoPool.close(); } catch (_) { }
+  }
+});
+
+// ── FRAUD ALERT NOTIFICATION ─────────────────────────────────
+async function sendFraudAlertNotification(options = {}) {
+  try {
+    const crmPool = await getCrmPool();
+    if (!crmPool) {
+      console.error('[FRAUD_ALERT] Could not connect to CRM database.');
+      return;
+    }
+
+    const { customTarget, customGroup } = options;
+
+    // Look back 7 days for consecutive days with > 3 transactions
+    const query = `
+      WITH DailyCounts AS (
+          SELECT 
+              q.RLITQ_CARD_NO as card_no,
+              MAX(m.RLICM_NAME) as cust_name,
+              CAST(h.BILL_DT AS DATE) as trx_date,
+              COUNT(q.RLITQ_BILL_NO) as daily_trx_count,
+              MAX(q.RLITQ_ORG_CD) as org_cd,
+              MAX(d.ORG_NAME) as store_name,
+              MAX(h.COUNTER_NO) as counter_no,
+              MAX(h.SESSION_NO) as session_no,
+              MAX(h.SALESMAN_ID_SEC) as salesman_id
+          FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
+          JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
+          LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+          LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+          WHERE CAST(h.BILL_DT AS DATE) >= CAST(DATEADD(day, -7, GETDATE()) AS DATE)
+          GROUP BY q.RLITQ_CARD_NO, CAST(h.BILL_DT AS DATE)
+          HAVING COUNT(q.RLITQ_BILL_NO) > 3
+             AND COUNT(DISTINCT h.COUNTER_NO) = 1
+             AND COUNT(DISTINCT h.SESSION_NO) = 1
+      ),
+      ConsecutiveLag AS (
+          SELECT 
+              card_no, 
+              cust_name, 
+              org_cd,
+              store_name,
+              trx_date as latest_date,
+              LAG(trx_date) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_date,
+              daily_trx_count as latest_count, 
+              LAG(daily_trx_count) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_count,
+              salesman_id as latest_salesman,
+              LAG(salesman_id) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_salesman
+          FROM DailyCounts
+      ),
+      ConsecutiveCheck AS (
+          SELECT *,
+                 ROW_NUMBER() OVER (PARTITION BY card_no ORDER BY latest_date DESC) as rn
+          FROM ConsecutiveLag 
+          WHERE DATEDIFF(day, prev_date, latest_date) = 1
+            AND prev_salesman = latest_salesman
+      )
+      SELECT * FROM ConsecutiveCheck WHERE rn = 1
+      ORDER BY latest_date DESC, latest_count DESC
+    `;
+
+    const result = await crmPool.request().query(query);
+    const frauds = result.recordset;
+
+    if (frauds.length === 0) {
+      console.log('[FRAUD_ALERT] No fraud detected in the last 7 days.');
+      return;
+    }
+
+    const pool = await poolPromise;
+    const settingsRes = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
+    const settings = settingsRes.recordset[0];
+
+    if (!settings || !settings.whatsapp_token) {
+      console.warn('[FRAUD_ALERT] WhatsApp token not configured, cannot send alert.');
+      return;
+    }
+
+    const targets = [customTarget || settings.whatsapp_target, customGroup || settings.whatsapp_group].filter(Boolean).join(',');
+    if (!targets) {
+      console.warn('[FRAUD_ALERT] No WhatsApp target configured.');
+      return;
+    }
+
+    let message = "🚨 *CRM FRAUD ALERT DETECTED* 🚨\n\n";
+    message += "Terdeteksi " + frauds.length + " aktivitas mencurigakan dengan kriteria:\n";
+    message += "✅ Transaksi > 3x/hari selama 2 hari berturut-turut\n";
+    message += "✅ Dilakukan di Counter & Sesi yang sama per harinya\n";
+    message += "✅ Dilayani oleh Salesman yang sama di kedua hari tersebut\n\n";
+
+    const maxItems = Math.min(frauds.length, 10);
+    for (let i = 0; i < maxItems; i++) {
+      const f = frauds[i];
+      message += "👤 *" + (f.cust_name || 'Unknown Member') + "*\n";
+      message += "💳 No Kartu: " + f.card_no + "\n";
+      message += "🏪 Store: (" + f.org_cd + ") " + (f.store_name || 'N/A') + "\n";
+      const prevD = new Date(f.prev_date).toLocaleDateString('id-ID');
+      const lateD = new Date(f.latest_date).toLocaleDateString('id-ID');
+      message += "📅 Periode: " + prevD + " s/d " + lateD + "\n";
+      message += "📊 Trx: " + f.prev_count + " trx & " + f.latest_count + " trx\n";
+      message += "------------------------------\n";
+    }
+
+    if (frauds.length > 10) {
+      message += "\n_...dan " + (frauds.length - 10) + " data lainnya._\n";
+      message += "Cek Dashboard H2H CRM untuk rincian lebih lengkap.\n";
+    }
+
+    message += "\n_" + new Date().toLocaleString('id-ID') + "_";
+
+    const payload = JSON.stringify({ token: settings.whatsapp_token, target: targets, message, countryCode: '62' });
+
+    await new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'api.fonnte.com',
+        path: '/send',
+        method: 'POST',
+        headers: {
+          'Authorization': settings.whatsapp_token,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        }
+      };
+      const req = https.request(options, (response) => {
+        let body = '';
+        response.on('data', chunk => body += chunk);
+        response.on('end', () => {
+          console.log("[FRAUD_ALERT] WhatsApp response:", body);
+          resolve();
+        });
+      });
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+
+    console.log("[FRAUD_ALERT] Sent notification to " + targets);
+
+  } catch (err) {
+    console.error('[FRAUD_ALERT] Failed to check and send fraud alert:', err);
+  }
+}
+
+// ── DYNAMIC NOTIFICATION SCHEDULER (Every Minute) ───────────
+cron.schedule('* * * * *', async () => {
+  const now = new Date();
+  const currentHHMM = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+  const daysMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const currentDayName = daysMap[now.getDay()];
+
+  try {
+    const pool = await poolPromise;
+    if (!pool) return;
+
+    // Find enabled schedules matching current time AND (Day matches OR is Daily)
+    const result = await pool.request()
+      .input('nowTime', sql.NVarChar, currentHHMM)
+      .input('nowDay', sql.NVarChar, currentDayName)
+      .query(`
+        SELECT * FROM NotificationSchedules 
+        WHERE is_enabled = 1 
+        AND schedule_time = @nowTime
+        AND (schedule_day = 'Daily' OR schedule_day = @nowDay)
+      `);
+
+    const activeSchedules = result.recordset;
+    if (activeSchedules.length === 0) return;
+
+    console.log(`[SCHEDULER] Found ${activeSchedules.length} active schedules for ${currentHHMM}`);
+
+    for (const sch of activeSchedules) {
+      try {
+        if (sch.notif_type === 'daily_report') {
+          await sendDailyOutstandingTicketsNotification({
+            customTarget: sch.whatsapp_target,
+            customGroup: sch.whatsapp_group
+          });
+        } else if (sch.notif_type === 'weekly_report') {
+          await generateWeeklyReportPDF({
+            customTarget: sch.whatsapp_target,
+            customGroup: sch.whatsapp_group
+          });
+        } else if (sch.notif_type === 'fraud_alert') {
+          await sendFraudAlertNotification({
+            customTarget: sch.whatsapp_target,
+            customGroup: sch.whatsapp_group
+          });
+        }
+      } catch (err) {
+        console.error(`[SCHEDULER] Error running schedule ${sch.name}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[SCHEDULER] Error checking schedules:', err.message);
+  }
+});
+
+// ── BACKGROUND LOOPS (Offline Detector & Cleanup) ───────────
+export async function startBackgroundTasks() {
+  console.log('🔍 Starting background monitoring loops...');
+
+  async function detectorLoop() {
+    try {
+      await runOfflineDetector();
+    } catch (err) {
+      console.error('Offline Detector Loop Error:', err);
+    }
+    setTimeout(detectorLoop, 60 * 1000);
+  }
+
+  async function logCleanupLoop() {
+    try {
+      const pool = await initDb();
+      if (!pool) {
+        console.warn('Log Cleanup skipped: Pool not ready');
+        setTimeout(logCleanupLoop, 5000);
+        return;
+      }
+      const result = await pool.request()
+        .query(`
+          DELETE FROM ActivityLog 
+          WHERE id NOT IN (
+            SELECT TOP 1000 id FROM ActivityLog ORDER BY id DESC
+          )
+        `);
+
+      if (result.rowsAffected[0] > 0) {
+        console.log(`🧹 [Cleanup] Deleted ${result.rowsAffected[0]} old ActivityLog entries (kept latest 1000)`);
+      }
+    } catch (err) {
+      console.error('Log Cleanup Loop Error:', err);
+    }
+    setTimeout(logCleanupLoop, 24 * 60 * 60 * 1000);
+  }
+
+  detectorLoop();
+  logCleanupLoop();
+  console.log('✅ Background monitoring loops active (Offline Detector & Log Cleanup)');
+}
+
+// ── USER TASKS (ACTIVITY LOGGING) ──────────────────────────
+router.get('/api/tasks', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  const isAdmin = req.headers['x-user-admin'] === 'true';
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const pool = await poolPromise;
+    let query = `SELECT * FROM UserTasks`;
+    const request = pool.request();
+
+    if (!isAdmin) {
+      query += ` WHERE user_id = @uid`;
+      request.input('uid', sql.NVarChar, userId);
+    }
+    
+    query += ` ORDER BY created_at DESC`;
+    const result = await request.query(query);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/tasks', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  const username = req.headers['x-user-name'];
+  const { title, description, start_date, target_date, status, duration, reason, solving_notes, actual_completion_date } = req.body;
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('uid', sql.NVarChar, userId)
+      .input('uname', sql.NVarChar, username)
+      .input('title', sql.NVarChar, title)
+      .input('desc', sql.NVarChar, description)
+      .input('start', sql.DateTime, start_date || new Date())
+      .input('target', sql.DateTime, target_date || null)
+      .input('actual', sql.DateTime, actual_completion_date || null)
+      .input('status', sql.NVarChar, status || 'Pending')
+      .input('duration', sql.NVarChar, duration)
+      .input('reason', sql.NVarChar, reason)
+      .input('notes', sql.NVarChar, solving_notes)
+      .input('category', sql.NVarChar, req.body.category || 'General')
+      .input('now', sql.DateTime, new Date())
+      .query(`
+        INSERT INTO UserTasks (user_id, username, title, description, start_date, target_date, actual_completion_date, status, duration, reason, solving_notes, created_at, updated_at, category)
+        VALUES (@uid, @uname, @title, @desc, @start, @target, @actual, @status, @duration, @reason, @notes, @now, @now, @category)
+      `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/tasks/:id', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  const { id } = req.params;
+  const { title, description, start_date, target_date, status, duration, reason, solving_notes, actual_completion_date } = req.body;
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const pool = await poolPromise;
+    // Check ownership
+    const check = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT user_id FROM UserTasks WHERE id = @id');
+
+    if (check.recordset.length === 0) return res.status(404).json({ error: 'Task not found' });
+    if (check.recordset[0].user_id !== userId) return res.status(403).json({ error: 'Forbidden: You do not own this task' });
+
+    await pool.request()
+      .input('id', sql.Int, id)
+      .input('title', sql.NVarChar, title)
+      .input('desc', sql.NVarChar, description)
+      .input('start', sql.DateTime, start_date || null)
+      .input('target', sql.DateTime, target_date || null)
+      .input('actual', sql.DateTime, actual_completion_date || null)
+      .input('status', sql.NVarChar, status)
+      .input('duration', sql.NVarChar, duration)
+      .input('reason', sql.NVarChar, reason)
+      .input('notes', sql.NVarChar, solving_notes)
+      .input('category', sql.NVarChar, req.body.category || 'General')
+      .input('now', sql.DateTime, new Date())
+      .query(`
+        UPDATE UserTasks 
+        SET title = @title, description = @desc, start_date = ISNULL(@start, start_date), target_date = @target, 
+            actual_completion_date = @actual, status = @status, 
+            duration = @duration, reason = @reason, solving_notes = @notes,
+            category = @category,
+            updated_at = @now
+        WHERE id = @id
+      `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/tasks/:id', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  const isAdmin = req.headers['x-user-admin'] === 'true';
+  const { id } = req.params;
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const pool = await poolPromise;
+    const check = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT user_id FROM UserTasks WHERE id = @id');
+
+    if (check.recordset.length === 0) return res.status(404).json({ error: 'Task not found' });
+    
+    if (!isAdmin && check.recordset[0].user_id !== userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM UserTasks WHERE id = @id');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/tasks/export', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  const isAdmin = req.headers['x-user-admin'] === 'true';
+  const { startDate, endDate, status, userFilter } = req.query;
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const pool = await poolPromise;
+    let query = `SELECT * FROM UserTasks WHERE 1=1`;
+    const request = pool.request();
+
+    if (!isAdmin) {
+      query += ` AND user_id = @uid`;
+      request.input('uid', sql.NVarChar, userId);
+    } else if (userFilter && userFilter !== 'All') {
+      query += ` AND username = @uname`;
+      request.input('uname', sql.NVarChar, userFilter);
+    }
+
+    if (status && status !== 'All') {
+      query += ` AND status = @status`;
+      request.input('status', sql.NVarChar, status);
+    }
+
+    if (startDate) {
+      query += ` AND created_at >= @start`;
+      request.input('start', sql.DateTime, startDate);
+    }
+
+    if (endDate) {
+      query += ` AND created_at <= @end`;
+      request.input('end', sql.DateTime, endDate);
+    }
+
+    query += ` ORDER BY created_at DESC`;
+    
+    const result = await request.query(query);
+    const tasks = result.recordset;
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('User Tasks');
+
+    worksheet.columns = [
+      { header: 'ID', key: 'id', width: 10 },
+      { header: 'Owner', key: 'username', width: 20 },
+      { header: 'Title', key: 'title', width: 30 },
+      { header: 'Description', key: 'description', width: 50 },
+      { header: 'Target Date', key: 'target_date', width: 20 },
+      { header: 'Status', key: 'status', width: 15 },
+      { header: 'Duration', key: 'duration', width: 15 },
+      { header: 'Reason', key: 'reason', width: 30 },
+      { header: 'Solving Notes', key: 'solving_notes', width: 50 },
+      { header: 'Created At', key: 'created_at', width: 20 }
+    ];
+
+    tasks.forEach(task => {
+      worksheet.addRow({
+        ...task,
+        target_date: task.target_date ? new Date(task.target_date).toLocaleString() : '',
+        created_at: new Date(task.created_at).toLocaleString()
+      });
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=tasks_report.xlsx');
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

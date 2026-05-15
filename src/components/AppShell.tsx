@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard, Monitor, Package, Rocket, Download,
+  LayoutDashboard, Monitor, Package, Rocket, Download, ClipboardList,
   Terminal, History, Settings, ChevronLeft, ChevronRight,
   Server, Shield, Bell, User, Activity, Users, Database,
   UserCog, ShieldCheck, LogOut, Bot, BookMarked, Globe, Menu, X, Search,
@@ -11,20 +11,22 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { SmartAssistantWidget } from "./SmartAssistantWidget";
 import { ReportTroubleModal } from "./ReportTroubleModal";
+import ChatWidget from "./chat/ChatWidget";
 import { Ticket, LifeBuoy } from "lucide-react";
 import { toast } from "sonner";
 
 export const navItems = [
   { id: "overview", to: "/", icon: LayoutDashboard, label: "Overview", group: "main" },
+  { id: "activities", to: "/activities", icon: ClipboardList, label: "User Task", group: "main" },
   { id: "tickets", to: "/tickets", icon: Ticket, label: "Helpdesk Tickets", group: "main" },
-  { 
-    id: "crm_center", 
-    label: "CRM Center", 
-    icon: Database, 
+  {
+    id: "crm_center",
+    label: "CRM Center",
+    icon: Database,
     group: "main",
     children: [
       { id: "crm_lookup", to: "/crm/lookup", icon: Search, label: "Customer Lookup" },
-      { id: "crm_sync", to: "/crm/sync", icon: RefreshCw, label: "Manual Sync" },
+      { id: "crm_sync", to: "/crm/sync", icon: RefreshCw, label: "Manual Re-Sync CRM Items" },
       { id: "crm_report_txn", to: "/crm/reports/txn-analysis", icon: Activity, label: "Transaction Analysis" },
       { id: "crm_report_shopper", to: "/crm/reports/frequent-shopper", icon: Users, label: "Frequent Shopper" },
       { id: "crm_report_enrollment", to: "/crm/reports/member-enrollment", icon: UserPlus, label: "Member Enrollment" },
@@ -193,7 +195,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const toggleGroup = (groupId: string) => {
-    setExpandedGroups(prev => 
+    setExpandedGroups(prev =>
       prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
     );
   };
@@ -395,16 +397,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   {items.map(item => {
                     const hasChildren = item.children && item.children.length > 0;
                     const isExpanded = expandedGroups.includes(item.id);
-                    
+
                     // Active check for parent (including if any child is active)
                     const isParentActive = item.to && (item.to === "/"
                       ? location.pathname === "/"
                       : location.pathname === item.to || location.pathname.startsWith(item.to + "/"));
-                    
-                    const isChildActive = hasChildren && item.children?.some(child => 
+
+                    const isChildActive = hasChildren && item.children?.some(child =>
                       location.pathname === child.to || location.pathname.startsWith(child.to + "/")
                     );
-                    
+
                     const active = isParentActive || isChildActive;
 
                     if (hasChildren) {
@@ -427,7 +429,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                               </>
                             )}
                           </button>
-                          
+
                           {isExpanded && !collapsed && (
                             <ul className="ml-4 pl-3 border-l border-sidebar-border/50 space-y-0.5 mt-0.5 animate-in slide-in-from-top-1 duration-200">
                               {item.children?.map(child => {
@@ -539,14 +541,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             {/* Desktop Branding info (hidden on mobile) */}
             <div className="hidden md:flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-success animate-pulse-dot" />
-              <span className="text-xs text-foreground-muted font-mono">v2.7.2</span>
+              <span className="text-xs text-foreground-muted font-mono">v2.7.4</span>
             </div>
             <span className="hidden md:inline text-foreground-subtle text-xs">|</span>
             <span className="hidden md:inline text-xs text-foreground-muted font-medium">
               Logged in as <span className="text-foreground">{user?.full_name || user?.username}</span>
             </span>
           </div>
-          
+
           <div className="flex items-center gap-1 md:gap-2">
             <button
               onClick={() => setIsReportModalOpen(true)}
@@ -593,8 +595,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </NavLink>
           );
         })}
-        <button 
-          onClick={() => setMobileMenuOpen(true)} 
+        <button
+          onClick={() => setMobileMenuOpen(true)}
           className={cn("flex flex-col items-center justify-center flex-1 h-full transition-colors", mobileMenuOpen ? "text-primary" : "text-foreground-muted hover:text-foreground")}
         >
           <Menu className="w-6 h-6" />
@@ -610,97 +612,97 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center justify-between p-4 border-b border-sidebar-border/50 bg-sidebar-primary/5">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl overflow-hidden bg-sidebar-primary flex items-center justify-center shadow-lg">
-                   {customLogo ? <img src={customLogo} alt="Logo" className="w-full h-full object-contain" /> : <Server className="w-6 h-6 text-sidebar-primary-foreground" />}
+                  {customLogo ? <img src={customLogo} alt="Logo" className="w-full h-full object-contain" /> : <Server className="w-6 h-6 text-sidebar-primary-foreground" />}
                 </div>
                 <div>
                   <span className="font-extrabold text-sidebar-foreground text-lg tracking-tight leading-none">{appName}</span>
-                  <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">v2.7.2 - Logged in as {user?.username}</p>
+                  <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">v2.7.4 - Logged in as {user?.username}</p>
                 </div>
               </div>
               <button onClick={() => setMobileMenuOpen(false)} className="p-2 -mr-2 text-sidebar-foreground/50 hover:text-sidebar-foreground rounded-full hover:bg-sidebar-accent transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
               {groups.map(group => {
-                  const items = navItems.filter(item => {
-                    if (item.hidden) return false;
-                    if (item.group !== group.key) return false;
-                    if (item.adminOnly && !user?.is_admin) return false;
-                    if (item.id && !hasPermission(item.id)) return false;
-                    return true;
-                  });
-                  if (items.length === 0) return null;
-                  return (
-                    <div key={group.key}>
-                      <p className="px-2 mb-2 text-[11px] font-bold uppercase tracking-widest text-sidebar-foreground/40">{group.label}</p>
-                      <ul className="space-y-1">
-                        {items.map(item => {
-                          const hasChildren = item.children && item.children.length > 0;
-                          const active = item.to === "/" ? location.pathname === "/" : (item.to && location.pathname.startsWith(item.to)) || (hasChildren && item.children?.some(c => location.pathname.startsWith(c.to)));
-                          
-                          return (
-                            <li key={item.id || item.to} className="space-y-1">
-                              {hasChildren ? (
-                                <>
-                                  <div className={cn("flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold text-sidebar-foreground/60")}>
-                                    <item.icon className="w-5 h-5 text-sidebar-foreground/30" />
-                                    <span>{item.label}</span>
-                                  </div>
-                                  <ul className="ml-6 border-l border-sidebar-border/30 space-y-1">
-                                    {item.children?.map(child => {
-                                      if (child.id && !hasPermission(child.id)) return null;
-                                      const childActive = location.pathname.startsWith(child.to);
-                                      return (
-                                        <li key={child.to}>
+                const items = navItems.filter(item => {
+                  if (item.hidden) return false;
+                  if (item.group !== group.key) return false;
+                  if (item.adminOnly && !user?.is_admin) return false;
+                  if (item.id && !hasPermission(item.id)) return false;
+                  return true;
+                });
+                if (items.length === 0) return null;
+                return (
+                  <div key={group.key}>
+                    <p className="px-2 mb-2 text-[11px] font-bold uppercase tracking-widest text-sidebar-foreground/40">{group.label}</p>
+                    <ul className="space-y-1">
+                      {items.map(item => {
+                        const hasChildren = item.children && item.children.length > 0;
+                        const active = item.to === "/" ? location.pathname === "/" : (item.to && location.pathname.startsWith(item.to)) || (hasChildren && item.children?.some(c => location.pathname.startsWith(c.to)));
 
-                                          <NavLink 
-                                            onClick={() => setMobileMenuOpen(false)} 
-                                            to={child.to} 
-                                            className={cn(
-                                              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors", 
-                                              childActive ? "text-sidebar-primary bg-sidebar-primary/10" : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                                            )}
-                                          >
-                                            <child.icon className={cn("w-4 h-4", childActive ? "text-sidebar-primary" : "text-sidebar-foreground/40")} />
-                                            <span>{child.label}</span>
-                                          </NavLink>
-                                        </li>
-                                      );
-                                    })}
-                                  </ul>
-                                </>
-                              ) : (
-                                <NavLink 
-                                  onClick={() => setMobileMenuOpen(false)} 
-                                  to={item.to} 
-                                  className={cn(
-                                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors", 
-                                    active ? "text-sidebar-primary bg-sidebar-primary/10" : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                                  )}
-                                >
-                                  <item.icon className={cn("w-5 h-5", active ? "text-sidebar-primary" : "text-sidebar-foreground/50")} />
+                        return (
+                          <li key={item.id || item.to} className="space-y-1">
+                            {hasChildren ? (
+                              <>
+                                <div className={cn("flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold text-sidebar-foreground/60")}>
+                                  <item.icon className="w-5 h-5 text-sidebar-foreground/30" />
                                   <span>{item.label}</span>
-                                </NavLink>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
+                                </div>
+                                <ul className="ml-6 border-l border-sidebar-border/30 space-y-1">
+                                  {item.children?.map(child => {
+                                    if (child.id && !hasPermission(child.id)) return null;
+                                    const childActive = location.pathname.startsWith(child.to);
+                                    return (
+                                      <li key={child.to}>
 
-                    </div>
-                  )
+                                        <NavLink
+                                          onClick={() => setMobileMenuOpen(false)}
+                                          to={child.to}
+                                          className={cn(
+                                            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                                            childActive ? "text-sidebar-primary bg-sidebar-primary/10" : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                                          )}
+                                        >
+                                          <child.icon className={cn("w-4 h-4", childActive ? "text-sidebar-primary" : "text-sidebar-foreground/40")} />
+                                          <span>{child.label}</span>
+                                        </NavLink>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </>
+                            ) : (
+                              <NavLink
+                                onClick={() => setMobileMenuOpen(false)}
+                                to={item.to}
+                                className={cn(
+                                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                                  active ? "text-sidebar-primary bg-sidebar-primary/10" : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                                )}
+                              >
+                                <item.icon className={cn("w-5 h-5", active ? "text-sidebar-primary" : "text-sidebar-foreground/50")} />
+                                <span>{item.label}</span>
+                              </NavLink>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+
+                  </div>
+                )
               })}
             </nav>
-            
+
             <div className="p-4 border-t border-sidebar-border bg-sidebar-accent/30 space-y-2">
-               <button onClick={() => { setMobileMenuOpen(false); setIsChangePasswordOpen(true); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sidebar-foreground font-semibold rounded-lg bg-sidebar-accent hover:bg-sidebar-accent/90 transition-colors shadow-lg">
-                 <KeyRound className="w-5 h-5" /> <span>Change Password</span>
-               </button>
-               <button onClick={() => { setMobileMenuOpen(false); handleLogout(); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-danger-foreground font-semibold rounded-lg bg-danger hover:bg-danger/90 transition-colors shadow-lg">
-                 <LogOut className="w-5 h-5" /> <span>Sign Out</span>
-               </button>
+              <button onClick={() => { setMobileMenuOpen(false); setIsChangePasswordOpen(true); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sidebar-foreground font-semibold rounded-lg bg-sidebar-accent hover:bg-sidebar-accent/90 transition-colors shadow-lg">
+                <KeyRound className="w-5 h-5" /> <span>Change Password</span>
+              </button>
+              <button onClick={() => { setMobileMenuOpen(false); handleLogout(); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-danger-foreground font-semibold rounded-lg bg-danger hover:bg-danger/90 transition-colors shadow-lg">
+                <LogOut className="w-5 h-5" /> <span>Sign Out</span>
+              </button>
             </div>
           </div>
         </div>
@@ -708,6 +710,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       <ReportTroubleModal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} />
       <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
+
+      {/* Chat Widget - always visible for logged in users */}
+      <ChatWidget />
 
       {/* Smart AI Assistant (Only renders if user has permission) */}
       {hasPermission("assistant") && <SmartAssistantWidget />}

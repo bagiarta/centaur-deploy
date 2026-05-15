@@ -23,6 +23,7 @@ import TicketsPage from "./pages/TicketsPage";
 import CrmLookupPage from "./pages/CrmLookupPage";
 import CrmReportsPage from "./pages/CrmReportsPage";
 import CrmSyncPage from "./pages/CrmSyncPage";
+import ActivitiesPage from "./pages/ActivitiesPage";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/LoginPage";
@@ -72,6 +73,13 @@ const App = () => (
               <ProtectedRoute>
                 <AppShell>
                   <ReportsPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/activities" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <ActivitiesPage />
                 </AppShell>
               </ProtectedRoute>
             } />

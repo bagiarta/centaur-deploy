@@ -23,6 +23,10 @@ export const dbConfig = {
 export let poolPromise;
 
 export async function initDb() {
+  if (poolPromise) {
+    const pool = await poolPromise;
+    return pool;
+  }
   try {
     poolPromise = sql.connect(dbConfig);
     const pool = await poolPromise;
@@ -140,101 +144,118 @@ export async function initDb() {
            updated_at DATETIME DEFAULT GETDATE()
        )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Roles' AND xtype='U')
-        CREATE TABLE Roles (
-            id NVARCHAR(50) PRIMARY KEY,
-            name NVARCHAR(100) NOT NULL,
-            menu_permissions NVARCHAR(MAX),
-            is_admin BIT DEFAULT 0
-        )`,
+         CREATE TABLE Roles (
+             id NVARCHAR(50) PRIMARY KEY,
+             name NVARCHAR(100) NOT NULL,
+             menu_permissions NVARCHAR(MAX),
+             is_admin BIT DEFAULT 0
+         )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Users' AND xtype='U')
-        CREATE TABLE Users (
-            id NVARCHAR(50) PRIMARY KEY,
-            username NVARCHAR(100) UNIQUE NOT NULL,
-            password_hash NVARCHAR(MAX) NOT NULL,
-            full_name NVARCHAR(200),
-            role_id NVARCHAR(50),
-            created_at DATETIME DEFAULT GETDATE()
-        )`,
+         CREATE TABLE Users (
+             id NVARCHAR(50) PRIMARY KEY,
+             username NVARCHAR(100) UNIQUE NOT NULL,
+             password_hash NVARCHAR(MAX) NOT NULL,
+             full_name NVARCHAR(200),
+             role_id NVARCHAR(50),
+             created_at DATETIME DEFAULT GETDATE()
+         )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='NotificationSettings' AND xtype='U')
-      CREATE TABLE NotificationSettings (
-        id NVARCHAR(50) PRIMARY KEY,
-        webhook_url NVARCHAR(500),
-        whatsapp_token NVARCHAR(500),
-        whatsapp_target NVARCHAR(200),
-        whatsapp_group NVARCHAR(200),
-        alert_offline BIT DEFAULT 1,
-        alert_deployment_success BIT DEFAULT 1,
-        alert_deployment_failed BIT DEFAULT 1,
-        offline_timeout_mins INT DEFAULT 10
-      )`,
+       CREATE TABLE NotificationSettings (
+         id NVARCHAR(50) PRIMARY KEY,
+         webhook_url NVARCHAR(500),
+         whatsapp_token NVARCHAR(500),
+         whatsapp_target NVARCHAR(200),
+         whatsapp_group NVARCHAR(200),
+         alert_offline BIT DEFAULT 1,
+         alert_deployment_success BIT DEFAULT 1,
+         alert_deployment_failed BIT DEFAULT 1,
+         offline_timeout_mins INT DEFAULT 10
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='NotificationSchedules' AND xtype='U')
+       CREATE TABLE NotificationSchedules (
+         id NVARCHAR(50) PRIMARY KEY,
+         name NVARCHAR(200) NOT NULL,
+         notif_type NVARCHAR(50) NOT NULL,
+         schedule_time NVARCHAR(10) NOT NULL,
+         whatsapp_target NVARCHAR(200),
+         whatsapp_group NVARCHAR(200),
+         is_enabled BIT DEFAULT 1,
+         created_at DATETIME DEFAULT GETDATE(),
+         updated_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='NotificationTypes' AND xtype='U')
+       CREATE TABLE NotificationTypes (
+         id NVARCHAR(50) PRIMARY KEY,
+         label NVARCHAR(200) NOT NULL
+       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ThemeSettings' AND xtype='U')
-      CREATE TABLE ThemeSettings (
-        id NVARCHAR(50) PRIMARY KEY,
-        sidebarBg NVARCHAR(20),
-        sidebarText NVARCHAR(20),
-        sidebarAccent NVARCHAR(20),
-        mainBg NVARCHAR(20),
-        contentText NVARCHAR(20),
-        cardBg NVARCHAR(20),
-        primaryBrand NVARCHAR(20),
-        appLogo NVARCHAR(MAX),
-        logoSize INT,
-        appName NVARCHAR(200),
-        updated_at DATETIME DEFAULT GETDATE()
-      )`,
+       CREATE TABLE ThemeSettings (
+         id NVARCHAR(50) PRIMARY KEY,
+         sidebarBg NVARCHAR(20),
+         sidebarText NVARCHAR(20),
+         sidebarAccent NVARCHAR(20),
+         mainBg NVARCHAR(20),
+         contentText NVARCHAR(20),
+         cardBg NVARCHAR(20),
+         primaryBrand NVARCHAR(20),
+         appLogo NVARCHAR(MAX),
+         logoSize INT,
+         appName NVARCHAR(200),
+         updated_at DATETIME DEFAULT GETDATE()
+       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='AssistantKeywords' AND xtype='U')
-      CREATE TABLE AssistantKeywords (
-        id NVARCHAR(50) PRIMARY KEY,
-        keyword NVARCHAR(200) NOT NULL,
-        description NVARCHAR(500),
-        action_type NVARCHAR(50) NOT NULL,
-        target_host NVARCHAR(100),
-        script_text NVARCHAR(MAX) NOT NULL,
-        parameter_keys NVARCHAR(MAX),
-        requires_admin BIT DEFAULT 0,
-        requires_confirmation BIT DEFAULT 0,
-        is_enabled BIT DEFAULT 1,
-        created_at DATETIME DEFAULT GETDATE(),
-        updated_at DATETIME DEFAULT GETDATE()
-      )`,
+       CREATE TABLE AssistantKeywords (
+         id NVARCHAR(50) PRIMARY KEY,
+         keyword NVARCHAR(200) NOT NULL,
+         description NVARCHAR(500),
+         action_type NVARCHAR(50) NOT NULL,
+         target_host NVARCHAR(100),
+         script_text NVARCHAR(MAX) NOT NULL,
+         parameter_keys NVARCHAR(MAX),
+         requires_admin BIT DEFAULT 0,
+         requires_confirmation BIT DEFAULT 0,
+         is_enabled BIT DEFAULT 1,
+         created_at DATETIME DEFAULT GETDATE(),
+         updated_at DATETIME DEFAULT GETDATE()
+       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='SqlTemplates' AND xtype='U')
-      CREATE TABLE SqlTemplates (
-        id NVARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(200) NOT NULL,
-        description NVARCHAR(500),
-        script NVARCHAR(MAX),
-        created_by NVARCHAR(100),
-        created_at DATETIME DEFAULT GETDATE()
-      )`,
+       CREATE TABLE SqlTemplates (
+         id NVARCHAR(50) PRIMARY KEY,
+         name NVARCHAR(200) NOT NULL,
+         description NVARCHAR(500),
+         script NVARCHAR(MAX),
+         created_by NVARCHAR(100),
+         created_at DATETIME DEFAULT GETDATE()
+       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RemoteCommandScripts' AND xtype='U')
-      CREATE TABLE RemoteCommandScripts (
-        id NVARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(200) NOT NULL,
-        description NVARCHAR(500),
-        script NVARCHAR(MAX),
-        created_by NVARCHAR(100),
-        created_at DATETIME DEFAULT GETDATE()
-      )`,
+       CREATE TABLE RemoteCommandScripts (
+         id NVARCHAR(50) PRIMARY KEY,
+         name NVARCHAR(200) NOT NULL,
+         description NVARCHAR(500),
+         script NVARCHAR(MAX),
+         created_by NVARCHAR(100),
+         created_at DATETIME DEFAULT GETDATE()
+       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RemoteSqlSchedules' AND xtype='U')
-      CREATE TABLE RemoteSqlSchedules (
-        id NVARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(200) NOT NULL,
-        script NVARCHAR(MAX),
-        target_device_ids NVARCHAR(MAX),
-        next_run_at DATETIME,
-        status NVARCHAR(50) DEFAULT 'pending',
-        created_at DATETIME DEFAULT GETDATE()
-      )`,
+       CREATE TABLE RemoteSqlSchedules (
+         id NVARCHAR(50) PRIMARY KEY,
+         name NVARCHAR(200) NOT NULL,
+         script NVARCHAR(MAX),
+         target_device_ids NVARCHAR(MAX),
+         next_run_at DATETIME,
+         status NVARCHAR(50) DEFAULT 'pending',
+         created_at DATETIME DEFAULT GETDATE()
+       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RemoteCommandSchedules' AND xtype='U')
-      CREATE TABLE RemoteCommandSchedules (
-        id NVARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(200) NOT NULL,
-        script NVARCHAR(MAX),
-        target_device_ids NVARCHAR(MAX),
-        next_run_at DATETIME,
-        status NVARCHAR(50) DEFAULT 'pending',
-        created_at DATETIME DEFAULT GETDATE()
-      )`,
+       CREATE TABLE RemoteCommandSchedules (
+         id NVARCHAR(50) PRIMARY KEY,
+         name NVARCHAR(200) NOT NULL,
+         script NVARCHAR(MAX),
+         target_device_ids NVARCHAR(MAX),
+         next_run_at DATETIME,
+         status NVARCHAR(50) DEFAULT 'pending',
+         created_at DATETIME DEFAULT GETDATE()
+       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Workflows' AND xtype='U')
        CREATE TABLE Workflows (
          id NVARCHAR(50) PRIMARY KEY,
@@ -311,6 +332,45 @@ export async function initDb() {
          status NVARCHAR(50) DEFAULT 'Pending',
          remark NVARCHAR(MAX),
          updated_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='UserTasks' AND xtype='U')
+       CREATE TABLE UserTasks (
+           id INT IDENTITY(1,1) PRIMARY KEY,
+           user_id NVARCHAR(50) NOT NULL,
+           username NVARCHAR(100),
+           title NVARCHAR(255) NOT NULL,
+           description NVARCHAR(MAX),
+           target_date DATETIME,
+           actual_completion_date DATETIME,
+           duration NVARCHAR(100),
+           status NVARCHAR(50) DEFAULT 'Pending',
+           reason NVARCHAR(MAX),
+           solving_notes NVARCHAR(MAX),
+           created_at DATETIME DEFAULT GETDATE(),
+           updated_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ChatConversations' AND xtype='U')
+       CREATE TABLE ChatConversations (
+           id NVARCHAR(50) PRIMARY KEY,
+           type NVARCHAR(20) NOT NULL DEFAULT 'direct',
+           name NVARCHAR(100) NULL,
+           created_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ChatParticipants' AND xtype='U')
+       CREATE TABLE ChatParticipants (
+           conversation_id NVARCHAR(50) NOT NULL,
+           user_id NVARCHAR(50) NOT NULL,
+           joined_at DATETIME DEFAULT GETDATE(),
+           PRIMARY KEY (conversation_id, user_id)
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ChatMessages' AND xtype='U')
+       CREATE TABLE ChatMessages (
+           id NVARCHAR(50) PRIMARY KEY,
+           conversation_id NVARCHAR(50) NOT NULL,
+           sender_id NVARCHAR(50) NOT NULL,
+           content NVARCHAR(MAX) NOT NULL,
+           is_read BIT DEFAULT 0,
+           created_at DATETIME DEFAULT GETDATE()
        )`
     ];
 
@@ -388,13 +448,21 @@ export async function initDb() {
 
     await pool.request().query('ALTER TABLE AgentJobs ALTER COLUMN ip_range NVARCHAR(MAX)').catch(() => { });
 
-    // Add sql_safe_mode to NotificationSettings if it doesn't exist
     const checkSqlModeCol = await pool.request().query(`
       SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
       WHERE TABLE_NAME = 'NotificationSettings' AND COLUMN_NAME = 'sql_safe_mode'
     `);
-    if (checkSqlModeCol.recordset.length === 0) {
+    if (!checkSqlModeCol.recordset.find(c => c.COLUMN_NAME === 'sql_safe_mode')) {
       await pool.request().query('ALTER TABLE NotificationSettings ADD sql_safe_mode BIT DEFAULT 1');
+    }
+
+    // NotificationSchedules expansion for Day of Week
+    const checkSchCols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'NotificationSchedules' AND COLUMN_NAME = 'schedule_day'
+    `);
+    if (checkSchCols.recordset.length === 0) {
+      await pool.request().query("ALTER TABLE NotificationSchedules ADD schedule_day NVARCHAR(20) DEFAULT 'Daily'");
     }
 
     // Seed initial mock data if tables are empty
@@ -407,6 +475,34 @@ export async function initDb() {
     `);
     if (checkTargetCols.recordset.length === 0) {
       await pool.request().query('ALTER TABLE TicketTargets ADD solved_by NVARCHAR(100)');
+    }
+
+    // ChatMessages attachment columns
+    const checkChatAttach = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'ChatMessages' AND COLUMN_NAME IN ('attachment_url', 'attachment_name', 'attachment_type')
+    `);
+    const chatCols = checkChatAttach.recordset.map(c => c.COLUMN_NAME);
+    if (!chatCols.includes('attachment_url'))  await pool.request().query('ALTER TABLE ChatMessages ADD attachment_url  NVARCHAR(500) NULL');
+    if (!chatCols.includes('attachment_name')) await pool.request().query('ALTER TABLE ChatMessages ADD attachment_name NVARCHAR(255) NULL');
+    if (!chatCols.includes('attachment_type')) await pool.request().query('ALTER TABLE ChatMessages ADD attachment_type NVARCHAR(50)  NULL');
+
+    // UserTasks start_date column
+    const checkStartDate = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'UserTasks' AND COLUMN_NAME = 'start_date'
+    `);
+    if (checkStartDate.recordset.length === 0) {
+      await pool.request().query('ALTER TABLE UserTasks ADD start_date DATETIME NULL');
+    }
+
+    // UserTasks category column
+    const checkCategory = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'UserTasks' AND COLUMN_NAME = 'category'
+    `);
+    if (checkCategory.recordset.length === 0) {
+      await pool.request().query("ALTER TABLE UserTasks ADD category NVARCHAR(100) DEFAULT 'General'");
     }
 
     console.log('✅ Database fully initialized (DBWH_8529)');
@@ -510,6 +606,24 @@ async function seedData(pool) {
       ('aj1', '192.168.1.11', 'WORKSTATION-01', 'success', 'Connected via WMI. MSI pushed.', '08:34'),
       ('aj1', '192.168.1.14', 'WORKSTATION-04', 'failed', 'ERROR: WMI access denied.', '08:36')
     `);
+  }
+
+  // Notification Types
+  const notifTypesRes = await pool.request().query('SELECT COUNT(*) as count FROM NotificationTypes');
+  if (notifTypesRes.recordset[0].count === 0) {
+    console.log('Seeding NotificationTypes...');
+    await pool.request().query(`
+      INSERT INTO NotificationTypes (id, label) VALUES 
+      ('daily_report', 'Daily Ticket & CRM Summary'),
+      ('weekly_report', 'Weekly Performance Report'),
+      ('fraud_alert', 'CRM Fraud Analysis Alert')
+    `);
+  } else {
+    // Migration for existing databases
+    const checkFraud = await pool.request().query("SELECT COUNT(*) as count FROM NotificationTypes WHERE id = 'fraud_alert'");
+    if (checkFraud.recordset[0].count === 0) {
+      await pool.request().query("INSERT INTO NotificationTypes (id, label) VALUES ('fraud_alert', 'CRM Fraud Analysis Alert')");
+    }
   }
 
   // ActivityLog

@@ -12,17 +12,24 @@ const statusConfig: Record<string, { label: string; dot: string; bg: string; tex
   error:      { label: "Error",      dot: "bg-danger",   bg: "bg-danger-dim",   text: "text-danger" },
   idle:       { label: "Idle",       dot: "bg-foreground-subtle", bg: "bg-surface-raised", text: "text-foreground-muted" },
   // deploy
-  pending:    { label: "Pending",    dot: "bg-foreground-subtle", bg: "bg-surface-raised", text: "text-foreground-muted" },
+  pending:    { label: "Pending",    dot: "bg-warning",  bg: "bg-warning-dim",  text: "text-warning" },
   running:    { label: "Running",    dot: "bg-primary",  bg: "bg-primary-dim",  text: "text-primary" },
   success:    { label: "Success",    dot: "bg-success",  bg: "bg-success-dim",  text: "text-success" },
   failed:     { label: "Failed",     dot: "bg-danger",   bg: "bg-danger-dim",   text: "text-danger" },
   scheduled:  { label: "Scheduled",  dot: "bg-info",     bg: "bg-info-dim",     text: "text-info" },
-  cancelled:  { label: "Cancelled",  dot: "bg-muted-foreground", bg: "bg-muted", text: "text-foreground-muted" },
+  cancelled:  { label: "Cancelled",  dot: "bg-danger",   bg: "bg-danger-dim",   text: "text-danger" },
   // agent
   queued:     { label: "Queued",     dot: "bg-foreground-subtle", bg: "bg-surface-raised", text: "text-foreground-muted" },
   connecting: { label: "Connecting", dot: "bg-warning",  bg: "bg-warning-dim",  text: "text-warning" },
   installing: { label: "Installing", dot: "bg-primary",  bg: "bg-primary-dim",  text: "text-primary" },
   skipped:    { label: "Skipped",    dot: "bg-foreground-subtle", bg: "bg-muted", text: "text-foreground-muted" },
+  // SQL Jobs
+  'Succeeded': { label: "Succeeded",   dot: "bg-success",  bg: "bg-success-dim",  text: "text-success" },
+  'Failed':    { label: "Failed",      dot: "bg-danger",   bg: "bg-danger-dim",   text: "text-danger" },
+  'Retry':     { label: "Retry",       dot: "bg-warning",  bg: "bg-warning-dim",  text: "text-warning" },
+  'Canceled':  { label: "Canceled",    dot: "bg-muted-foreground", bg: "bg-muted", text: "text-foreground-muted" },
+  'inprogress':  { label: "In Progress", dot: "bg-primary",  bg: "bg-primary-dim",  text: "text-primary" },
+  'completed':   { label: "Completed",   dot: "bg-success",  bg: "bg-success-dim",  text: "text-success" },
 };
 
 export function StatusBadge({ status, size = "sm" }: { status: AnyStatus; size?: "xs" | "sm" }) {
@@ -48,10 +55,11 @@ interface StatCardProps {
   icon?: React.ReactNode;
   variant?: "default" | "primary" | "success" | "danger" | "warning";
   className?: string;
+  onClick?: () => void;
 }
 
 
-export function StatCard({ label, value, sub, icon, variant = "default", className }: StatCardProps) {
+export function StatCard({ label, value, sub, icon, variant = "default", className, onClick }: StatCardProps) {
   const variantStyles = {
     default: "border-border",
     primary: "border-primary/30",
@@ -67,7 +75,10 @@ export function StatCard({ label, value, sub, icon, variant = "default", classNa
     warning: "bg-warning-dim text-warning",
   };
   return (
-    <div className={cn("card-enterprise p-5", variantStyles[variant], className)}>
+    <div 
+      className={cn("card-enterprise p-5", variantStyles[variant], className)}
+      onClick={onClick}
+    >
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="text-xs text-foreground-muted font-medium uppercase tracking-wider mb-1">{label}</p>
@@ -112,11 +123,11 @@ export function PageHeader({ title, subtitle, actions }: {
 }
 
 // ── Section Card ─────────────────────────────────────────
-export function SectionCard({ title, subtitle, children, actions, className }: {
-  title?: string; subtitle?: string; children: React.ReactNode; actions?: React.ReactNode; className?: string;
+export function SectionCard({ title, subtitle, children, actions, className, id }: {
+  title?: string; subtitle?: string; children: React.ReactNode; actions?: React.ReactNode; className?: string; id?: string;
 }) {
   return (
-    <div className={cn("card-enterprise overflow-hidden", className)}>
+    <div id={id} className={cn("card-enterprise overflow-hidden", className)}>
       {(title || actions) && (
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div>

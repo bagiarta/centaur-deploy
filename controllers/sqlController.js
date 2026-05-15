@@ -1,8 +1,82 @@
-
 import sql from 'mssql';
 import { poolPromise } from '../config/db.js';
 import { isValidSafeSQL } from '../utils/sqlUtils.js';
 import { getCurrentTimeHHMM } from '../utils/timeUtils.js';
+
+export const getDatabases = async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const pool = await poolPromise;
+    
+    const devRes = await pool.request().input('id', sql.NVarChar, deviceId).query('SELECT ip FROM Devices WHERE id = @id');
+    const connRes = await pool.request().input('id', sql.NVarChar, deviceId).query('SELECT * FROM DeviceDbConnections WHERE device_id = @id');
+    
+    if (!devRes.recordset.length || !connRes.recordset.length) {
+      return res.status(404).json({ error: 'Device or connection not found' });
+    }
+    
+    const dev = devRes.recordset[0];
+    const conn = connRes.recordset[0];
+    
+    const config = {
+      user: conn.db_user,
+      password: conn.db_password,
+      server: dev.ip,
+      database: 'master',
+      options: { encrypt: false, trustServerCertificate: true, connectTimeout: 5000 },
+      pool: { max: 1, min: 0 }
+    };
+    
+    const remotePool = new sql.ConnectionPool(config);
+    await remotePool.connect();
+    const result = await remotePool.request().query('SELECT name FROM sys.databases WHERE state = 0 ORDER BY name');
+    await remotePool.close();
+    
+    res.json(result.recordset.map(r => r.name));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const getTables = async (req, res) => {
+  try {
+    const { deviceId, databaseName } = req.params;
+    const pool = await poolPromise;
+    
+    const devRes = await pool.request().input('id', sql.NVarChar, deviceId).query('SELECT ip FROM Devices WHERE id = @id');
+    const connRes = await pool.request().input('id', sql.NVarChar, deviceId).query('SELECT * FROM DeviceDbConnections WHERE device_id = @id');
+    
+    if (!devRes.recordset.length || !connRes.recordset.length) {
+      return res.status(404).json({ error: 'Device or connection not found' });
+    }
+    
+    const dev = devRes.recordset[0];
+    const conn = connRes.recordset[0];
+    
+    const config = {
+      user: conn.db_user,
+      password: conn.db_password,
+      server: dev.ip,
+      database: databaseName,
+      options: { encrypt: false, trustServerCertificate: true, connectTimeout: 5000 },
+      pool: { max: 1, min: 0 }
+    };
+    
+    const remotePool = new sql.ConnectionPool(config);
+    await remotePool.connect();
+    const result = await remotePool.request().query(`
+      SELECT TABLE_SCHEMA, TABLE_NAME 
+      FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_TYPE = 'BASE TABLE'
+      ORDER BY TABLE_NAME
+    `);
+    await remotePool.close();
+    
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
 
 export const testConnection = async (req, res) => {
   const { server, database, user, password } = req.body;
@@ -12,7 +86,7 @@ export const testConnection = async (req, res) => {
     server,
     database,
     options: {
-      encrypt: false, // Usually false for local/internal MS SQL
+      encrypt: false,
       trustServerCertificate: true,
       connectTimeout: 5000
     },
@@ -28,8 +102,9 @@ export const testConnection = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 export const executeCommand = async (req, res) => {
-  const { script, target_device_ids, force } = req.body;
+  const { script, target_device_ids, force, database_override } = req.body;
   const userId = req.headers['x-user-id'] || 'anonymous';
 
   try {
@@ -39,12 +114,7 @@ export const executeCommand = async (req, res) => {
     const settingsRes = await pool.request().query("SELECT sql_safe_mode FROM NotificationSettings WHERE id = 'global'");
     const rawMode = settingsRes.recordset[0]?.sql_safe_mode;
 
-    // Robust Evaluation: Default to true if null/undefined.
-    // handles BIT (boolean true/false) or numeric 0/1.
     const isGlobalSafeMode = (rawMode === null || rawMode === undefined) ? true : !!rawMode;
-
-    console.log(`[SQL_DEBUG_V3] raw: ${rawMode} (${typeof rawMode}), isSafe: ${isGlobalSafeMode}`);
-    console.log(`[SQL_EXEC] user: ${userId}, globalSafe: ${isGlobalSafeMode}`);
 
     // 0.5 Fetch User Role to check Admin status
     const userRes = await pool.request().input('uid', sql.NVarChar, userId).query(`
@@ -53,13 +123,7 @@ export const executeCommand = async (req, res) => {
     const isAdmin = userRes.recordset[0]?.is_admin || false;
 
     // 1. SECURITY ENFORCEMENT
-    // Simple rule: Global Safe Mode from DB is the single source of truth.
-    // - Global ON  → only SELECT allowed (no bypass)
-    // - Global OFF → all queries allowed
-
-
     if (isGlobalSafeMode && !isValidSafeSQL(script)) {
-      // Allow Admin to bypass if they explicitly use the "force" flag
       if (isAdmin && force === true) {
         console.log(`[SQL_BYPASS] Admin ${userId} bypassed Safe Mode.`);
       } else {
@@ -96,7 +160,7 @@ export const executeCommand = async (req, res) => {
         user: conn.db_user,
         password: conn.db_password,
         server: dev.ip,
-        database: conn.db_name,
+        database: database_override || conn.db_name,
         options: { encrypt: false, trustServerCertificate: true, connectTimeout: 10000 },
         pool: { max: 1, min: 0, idleTimeoutMillis: 10000 }
       };
@@ -138,6 +202,7 @@ export const executeCommand = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 export const executeRemoteCommands = async (req, res) => {
   try {
     const { devices, command } = req.body;
@@ -147,8 +212,7 @@ export const executeRemoteCommands = async (req, res) => {
       return res.status(400).json({ error: 'Missing devices or command' });
     }
 
-    // Log the execution in ActivityLog
-    const timestamp = getCurrentTimeHHMM(); // HH:mm in configured timezone
+    const timestamp = getCurrentTimeHHMM();
     const actionDesc = `Command executed on ${devices.length} device(s): ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`;
 
     await pool.request()
@@ -160,10 +224,8 @@ export const executeRemoteCommands = async (req, res) => {
         VALUES (@time, @user, @action)
       `);
 
-    // Simulate Output
     const output = [];
     devices.forEach((hostname, i) => {
-      // Small simulated delay time strings
       const timeStr = new Date(Date.now() + i * 1000).toISOString().slice(11, 19);
       output.push(`[${timeStr}] ${hostname.padEnd(15)} → OK`);
     });

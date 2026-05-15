@@ -1,20 +1,21 @@
 import React, { useState, useEffect } from "react";
-import { Server, Shield, Download, Package, Bell, Send, CheckCircle, AlertCircle, RefreshCw, Palette, Layout, Sidebar as SidebarIcon, Chrome, RotateCcw, Bot, Save, Trash2, PencilLine, Eye } from "lucide-react";
+import { Server, Shield, Download, Package, Bell, Send, CheckCircle, AlertCircle, RefreshCw, Palette, Layout, Sidebar as SidebarIcon, Chrome, RotateCcw, Bot, Save, Trash2, PencilLine, Eye, Calendar, Edit2, Phone, Users } from "lucide-react";
 import { PageHeader, SectionCard } from "@/components/ui-enterprise";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 
 const DOWNLOADS = [
   {
     name: "CentralDeployServer",
-    version: "2.7.2",
+    version: "2.7.4",
     description: "Full web dashboard server with REST API, package repository, deployment engine, monitoring, and scheduler.",
     icon: <Server className="w-6 h-6" />,
     color: "text-primary",
     bg: "bg-primary-dim",
     border: "border-primary/20",
     size: "~145 MB",
-    file: "CentralDeployServer-Setup-2.7.2.exe",
+    file: "CentralDeployServer-Setup-2.7.4.exe",
     reqs: ["Windows Server 2016+ or Windows 10+", "4 GB RAM min (8 GB recommended)", ".NET 8.0 Runtime", "Port 8080 (configurable)"],
   },
   {
@@ -252,6 +253,142 @@ export default function SettingsPage() {
   const [keywordTestInput, setKeywordTestInput] = useState("");
   const [keywordTesting, setKeywordTesting] = useState(false);
   const [keywordTestResult, setKeywordTestResult] = useState("");
+
+  // --- NOTIFICATION SCHEDULER ---
+  interface NotifSchedule {
+    id: string;
+    name: string;
+    notif_type: string;
+    schedule_time: string;
+    schedule_day: string;
+    whatsapp_target: string;
+    whatsapp_group: string;
+    is_enabled: boolean | number;
+  }
+
+  const [schedules, setSchedules] = useState<NotifSchedule[]>([]);
+  const [notifTypes, setNotifTypes] = useState<{id: string, label: string}[]>([]);
+  const [schLoading, setSchLoading] = useState(false);
+  const [schSaving, setSchSaving] = useState(false);
+  const [schForm, setSchForm] = useState<Partial<NotifSchedule>>({
+    name: "",
+    notif_type: "daily_report",
+    schedule_time: "08:00",
+    schedule_day: "Daily",
+    whatsapp_target: "",
+    whatsapp_group: "",
+    is_enabled: true
+  });
+  const [editingSchId, setEditingSchId] = useState<string | null>(null);
+
+  const DAYS = ["Daily", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+  const fetchSchedules = async () => {
+    setSchLoading(true);
+    try {
+      const res = await fetch('/api/notification-schedules');
+      if (res.ok) {
+        const data = await res.json();
+        setSchedules(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch schedules", err);
+    } finally {
+      setSchLoading(false);
+    }
+  };
+
+  const handleToggleSchStatus = async (sch: NotifSchedule) => {
+    const newStatus = !(sch.is_enabled === 1 || sch.is_enabled === true);
+    try {
+      const res = await fetch(`/api/notification-schedules/${sch.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...sch, is_enabled: newStatus })
+      });
+      if (res.ok) {
+        toast.success(`Schedule ${newStatus ? 'activated' : 'disabled'}`);
+        fetchSchedules();
+      }
+    } catch (err) {
+      toast.error("Failed to toggle status.");
+    }
+  };
+
+  const fetchNotifTypes = async () => {
+    try {
+      const res = await fetch('/api/notification-types');
+      if (res.ok) {
+        const data = await res.json();
+        setNotifTypes(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch notification types", err);
+    }
+  };
+
+  const handleSaveSchedule = async () => {
+    if (!schForm.name || !schForm.schedule_time) {
+      toast.error("Name and Schedule Time are required.");
+      return;
+    }
+    setSchSaving(true);
+    try {
+      const url = editingSchId ? `/api/notification-schedules/${editingSchId}` : '/api/notification-schedules';
+      const method = editingSchId ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(schForm)
+      });
+      if (res.ok) {
+        toast.success(editingSchId ? "Schedule updated!" : "Schedule created!");
+        setSchForm({ 
+          name: "", 
+          notif_type: "daily_report", 
+          schedule_time: "08:00", 
+          schedule_day: "Daily",
+          whatsapp_target: "", 
+          whatsapp_group: "", 
+          is_enabled: true 
+        });
+        setEditingSchId(null);
+        fetchSchedules();
+      } else {
+        const errData = await res.json();
+        toast.error(`Error: ${errData.error || "Failed to save schedule"}`);
+      }
+    } catch (err) {
+      toast.error("Failed to save schedule.");
+    } finally {
+      setSchSaving(false);
+    }
+  };
+
+  const handleDeleteSch = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this schedule?")) return;
+    try {
+      const res = await fetch(`/api/notification-schedules/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success("Schedule deleted.");
+        fetchSchedules();
+      }
+    } catch (err) {
+      toast.error("Failed to delete schedule.");
+    }
+  };
+
+  const handleEditSch = (sch: NotifSchedule) => {
+    setEditingSchId(sch.id);
+    setSchForm({ ...sch, is_enabled: sch.is_enabled === 1 || sch.is_enabled === true });
+  };
+
+  useEffect(() => {
+    fetchSchedules();
+    fetchNotifTypes();
+  }, []);
+
+  // Remove hardcoded NOTIF_TYPES array
 
   // --- THEME CUSTOMIZATION ---
   const [theme, setTheme] = useState<ThemeSettings>(() => {
@@ -780,6 +917,190 @@ export default function SettingsPage() {
                     <AlertCircle className="w-3 h-3" /> Fonnte API will send notifications to this number and/or group.
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Notification Schedule Manager */}
+            <div className="md:col-span-2 mt-6 p-5 bg-surface-raised border border-border rounded-2xl space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">📅 Notification Schedule Manager</h3>
+                    <p className="text-[11px] text-foreground-muted mt-0.5">Manage automated reports and their delivery schedules to specific WhatsApp groups.</p>
+                  </div>
+                </div>
+                {schLoading && <RefreshCw className="w-4 h-4 text-primary animate-spin" />}
+              </div>
+
+              {/* Schedule Form */}
+              <div className="p-4 bg-background/50 border border-border rounded-xl space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Plan Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Daily CRM Group Finance"
+                      value={schForm.name}
+                      onChange={(e) => setSchForm({...schForm, name: e.target.value})}
+                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Report Type</label>
+                    <select
+                      value={schForm.notif_type}
+                      onChange={(e) => setSchForm({...schForm, notif_type: e.target.value})}
+                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground outline-none"
+                    >
+                      <option value="">-- Select Report Type --</option>
+                      {notifTypes.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Schedule Time (HH:MM)</label>
+                    <input
+                      type="time"
+                      value={schForm.schedule_time}
+                      onChange={(e) => setSchForm({...schForm, schedule_time: e.target.value})}
+                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Schedule Day</label>
+                    <select
+                      value={schForm.schedule_day}
+                      onChange={(e) => setSchForm({...schForm, schedule_day: e.target.value})}
+                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground outline-none"
+                    >
+                      {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 pt-5">
+                    <input
+                      type="checkbox"
+                      id="sch_enabled"
+                      checked={schForm.is_enabled === true || schForm.is_enabled === 1}
+                      onChange={(e) => setSchForm({...schForm, is_enabled: e.target.checked})}
+                      className="w-4 h-4 accent-primary"
+                    />
+                    <label htmlFor="sch_enabled" className="text-[10px] font-bold text-foreground uppercase cursor-pointer">Enabled</label>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">WhatsApp Target (Phone)</label>
+                    <input
+                      type="text"
+                      placeholder="081..."
+                      value={schForm.whatsapp_target}
+                      onChange={(e) => setSchForm({...schForm, whatsapp_target: e.target.value})}
+                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">WhatsApp Group (ID/Name)</label>
+                    <input
+                      type="text"
+                      placeholder="IT Alerts Group"
+                      value={schForm.whatsapp_group}
+                      onChange={(e) => setSchForm({...schForm, whatsapp_group: e.target.value})}
+                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground"
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <button
+                      onClick={handleSaveSchedule}
+                      disabled={schSaving}
+                      className="flex-1 px-4 py-2 text-xs font-bold bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-glow"
+                    >
+                      {schSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      {editingSchId ? "Update Plan" : "Add New Plan"}
+                    </button>
+                    {editingSchId && (
+                      <button
+                        onClick={() => { 
+                          setEditingSchId(null); 
+                          setSchForm({ 
+                            name: "", 
+                            notif_type: "daily_report", 
+                            schedule_time: "08:00", 
+                            schedule_day: "Daily",
+                            whatsapp_target: "", 
+                            whatsapp_group: "", 
+                            is_enabled: true 
+                          }); 
+                        }}
+                        className="px-4 py-2 text-xs font-bold bg-surface-raised border border-border rounded-md hover:bg-surface-overlay"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Schedule List Table */}
+              <div className="overflow-hidden border border-border rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-background/50 border-b border-border">
+                    <tr>
+                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted">Plan Name</th>
+                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-center">Day</th>
+                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-center">Time</th>
+                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted">Destination</th>
+                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-center">Status</th>
+                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {schedules.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-foreground-subtle italic">No schedules defined. Add your first plan above.</td>
+                      </tr>
+                    ) : (
+                      schedules.map(sch => (
+                        <tr key={sch.id} className="hover:bg-primary/5 transition-colors group">
+                          <td className="px-4 py-3 font-bold text-foreground">
+                            {sch.name}
+                            <p className="text-[10px] text-foreground-muted font-normal mt-0.5">{notifTypes.find(t => t.id === sch.notif_type)?.label || sch.notif_type}</p>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-bold text-[10px]">{sch.schedule_day || 'Daily'}</span>
+                          </td>
+                          <td className="px-4 py-3 text-center font-mono font-bold text-primary">{sch.schedule_time}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-col gap-0.5">
+                              {sch.whatsapp_target && <span className="text-foreground font-medium flex items-center gap-1.5"><Phone className="w-3 h-3 text-foreground-muted" /> {sch.whatsapp_target}</span>}
+                              {sch.whatsapp_group && <span className="text-foreground font-medium flex items-center gap-1.5"><Users className="w-3 h-3 text-foreground-muted" /> {sch.whatsapp_group}</span>}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button 
+                              onClick={() => handleToggleSchStatus(sch)}
+                              className={cn(
+                                "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all hover:scale-105 active:scale-95",
+                                (sch.is_enabled === 1 || sch.is_enabled === true) ? "bg-success/10 text-success" : "bg-foreground-subtle/10 text-foreground-subtle"
+                              )}
+                            >
+                              {(sch.is_enabled === 1 || sch.is_enabled === true) ? "Active" : "Disabled"}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button onClick={() => handleEditSch(sch)} className="p-1.5 rounded-md text-foreground-muted hover:bg-primary/10 hover:text-primary transition-colors">
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => handleDeleteSch(sch.id)} className="p-1.5 rounded-md text-foreground-muted hover:bg-danger/10 hover:text-danger transition-colors">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

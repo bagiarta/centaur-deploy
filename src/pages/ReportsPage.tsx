@@ -1,11 +1,12 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LabelList
 } from 'recharts';
 import {
   Activity, ShieldAlert, Package, CheckCircle, XCircle,
-  Monitor, HardDrive, Cpu, AlertTriangle, ArrowUpRight, RefreshCw
+  Monitor, HardDrive, Cpu, AlertTriangle, ArrowUpRight, RefreshCw,
+  Database, Clock, ClipboardList
 } from "lucide-react";
 import {
   StatCard, SectionCard, PageHeader, StatusBadge
@@ -21,6 +22,10 @@ export default function ReportsPage() {
   const [crmSyncData, setCrmSyncData] = useState<any[]>([]);
   const [crmLoading, setCrmLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [dbwhJobs, setDbwhJobs] = useState<any[]>([]);
+  const [dbwhLoading, setDbwhLoading] = useState(true);
+  const [dbwhFilter, setDbwhFilter] = useState<string | null>(null);
+  const [expandedJobIndex, setExpandedJobIndex] = useState<number | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<any>(null);
   const [drawerPosition, setDrawerPosition] = useState<{ top: number; right: number; show: boolean }>({ top: 0, right: 0, show: false });
 
@@ -50,6 +55,24 @@ export default function ReportsPage() {
     }
   };
 
+  const fetchDbwhJobs = async () => {
+    setDbwhLoading(true);
+    try {
+      const res = await fetch('/api/reports/dbwh-jobs');
+      if (res.ok) {
+        const data = await res.json();
+        setDbwhJobs(data);
+        if (data.some((j: any) => j.StatusJob === 'Failed')) {
+          setDbwhFilter('Failed');
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch DBWH jobs:", err);
+    } finally {
+      setDbwhLoading(false);
+    }
+  };
+
   useEffect(() => {
     async function fetchData() {
       try {
@@ -72,6 +95,7 @@ export default function ReportsPage() {
     }
     fetchData();
     fetchCrmSync();
+    fetchDbwhJobs();
   }, []);
 
   if (loading) {
@@ -108,6 +132,18 @@ export default function ReportsPage() {
   const crmSuccessRate = crmTodayTotal > 0
     ? Math.round((crmTodaySynced / crmTodayTotal) * 100)
     : null;
+
+  // DBWH derived stats
+  const dbwhSummary = dbwhJobs.reduce((acc: any, job: any) => {
+    acc[job.StatusJob] = (acc[job.StatusJob] || 0) + 1;
+    return acc;
+  }, {});
+
+  const failedDbwhCount = dbwhSummary['Failed'] || 0;
+
+  const filteredDbwhJobs = dbwhFilter 
+    ? dbwhJobs.filter(j => j.StatusJob === dbwhFilter)
+    : dbwhJobs;
 
   const handleShowDetails = (e: React.MouseEvent, device: any) => {
     e.stopPropagation();
@@ -189,6 +225,19 @@ export default function ReportsPage() {
           sub={crmLoading ? "Loading..." : `${crmTodaySynced} success · ${crmTodayPending} pending`}
           icon={<RefreshCw className={cn("w-5 h-5", crmLoading && "animate-spin")} />}
           variant={crmTodayPending > 5 ? "warning" : "success"}
+        />
+        <StatCard
+          label="Failed DBWH Jobs"
+          value={dbwhLoading ? "..." : failedDbwhCount}
+          sub="Today's SQL Agent failures"
+          icon={<ShieldAlert className="w-5 h-5" />}
+          variant={failedDbwhCount > 0 ? "danger" : "success"}
+          onClick={() => {
+            setDbwhFilter('Failed');
+            const el = document.getElementById('dbwh-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className="cursor-pointer hover:border-danger/50 transition-all"
         />
       </div>
 
@@ -369,6 +418,182 @@ export default function ReportsPage() {
                 );
               })}
             </div>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* DBWH Job Monitoring Section */}
+      <SectionCard
+        id="dbwh-section"
+        title="DBWH SQL AGENT JOBS"
+        subtitle="Monitoring Daily Jobs on DBWH SERVER (192.168.85.55)"
+      >
+        <div className="flex items-center justify-between mb-4 px-5 pt-4">
+          <div className="flex gap-4 text-xs text-foreground-muted">
+            <span className="flex items-center gap-1.5"><Database className="w-3.5 h-3.5" /> msdb.dbo.sysjobs</span>
+          </div>
+          <button
+            onClick={() => {
+              setDbwhFilter(null);
+              setExpandedJobIndex(null);
+              fetchDbwhJobs();
+            }}
+            disabled={dbwhLoading}
+            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary-hover transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", dbwhLoading && "animate-spin")} />
+            Refresh
+          </button>
+        </div>
+
+        {/* DBWH Status Summary */}
+        {!dbwhLoading && dbwhJobs.length > 0 && (
+          <div className="px-5 pb-4 flex flex-wrap gap-3">
+            <button
+              onClick={() => {
+                setDbwhFilter(null);
+                setExpandedJobIndex(null);
+              }}
+              className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                dbwhFilter === null 
+                  ? "bg-primary/10 text-primary border-primary/30" 
+                  : "bg-surface text-foreground-muted border-border hover:border-primary/30"
+              )}
+            >
+              <span>All Jobs</span>
+              <span className="bg-primary/20 px-1.5 py-0.5 rounded text-[10px]">{dbwhJobs.length}</span>
+            </button>
+            {Object.entries(dbwhSummary).map(([status, count]: [string, any]) => (
+              <button
+                key={status}
+                onClick={() => {
+                  setDbwhFilter(status === dbwhFilter ? null : status);
+                  setExpandedJobIndex(null);
+                }}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                  dbwhFilter === status 
+                    ? (
+                      status === 'Succeeded' ? "bg-success/10 text-success border-success/30" :
+                      status === 'In Progress' ? "bg-primary/10 text-primary border-primary/30" :
+                      status === 'Failed' ? "bg-danger/10 text-danger border-danger/30" :
+                      status === 'Retry' ? "bg-warning/10 text-warning border-warning/30" :
+                      "bg-foreground/10 text-foreground border-foreground/30"
+                    )
+                    : "bg-surface text-foreground-muted border-border hover:bg-surface-raised"
+                )}
+              >
+                <div className={cn(
+                  "w-1.5 h-1.5 rounded-full",
+                  status === 'Succeeded' ? "bg-success" :
+                  status === 'In Progress' ? "bg-primary animate-pulse" :
+                  status === 'Failed' ? "bg-danger" :
+                  status === 'Retry' ? "bg-warning" :
+                  "bg-foreground-muted"
+                )} />
+                <span>{status}</span>
+                <span className="bg-black/10 px-1.5 py-0.5 rounded text-[10px]">{count}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {dbwhLoading ? (
+          <div className="h-[200px] flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3 text-foreground-muted">
+              <RefreshCw className="w-8 h-8 animate-spin text-primary" />
+              <span className="text-sm">Querying DBWH Server...</span>
+            </div>
+          </div>
+        ) : dbwhJobs.length === 0 ? (
+          <div className="h-[200px] flex items-center justify-center text-foreground-muted text-sm border-t border-border mx-5 mb-5 border-dashed rounded-xl mt-2">
+            No jobs found for today.
+          </div>
+        ) : (
+          <div className="overflow-x-auto border-t border-border mt-2">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-surface-raised/30 border-b border-border">
+                  <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Job Name</th>
+                  <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Step</th>
+                  <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Start Time</th>
+                  <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Duration</th>
+                  <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Status</th>
+                  <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Message</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filteredDbwhJobs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-10 text-center text-foreground-muted text-xs italic">
+                      No jobs found with status "{dbwhFilter}"
+                    </td>
+                  </tr>
+                ) : (
+                  filteredDbwhJobs.map((job, idx) => (
+                    <React.Fragment key={idx}>
+                      <tr 
+                        className={cn(
+                          "hover:bg-surface/40 transition-colors group cursor-pointer",
+                          expandedJobIndex === idx ? "bg-surface-raised" : ""
+                        )}
+                        onClick={() => setExpandedJobIndex(expandedJobIndex === idx ? null : idx)}
+                      >
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                              <ClipboardList className="w-3.5 h-3.5" />
+                            </div>
+                            <span className="text-sm font-semibold text-foreground truncate max-w-[150px]" title={job.JobName}>
+                              {job.JobName}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-xs text-foreground-muted font-mono">{job.StepName}</td>
+                        <td className="px-5 py-3">
+                          <div className="flex flex-col">
+                            <span className="text-xs text-foreground font-medium">
+                              {new Date(job.StartDateTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </span>
+                            <span className="text-[10px] text-foreground-muted">
+                              {new Date(job.StartDateTime).toLocaleDateString('id-ID')}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-xs font-mono text-foreground-muted">{job.Duration_HHMMSS}</td>
+                        <td className="px-5 py-3">
+                          <StatusBadge status={job.StatusJob} size="xs" />
+                        </td>
+                        <td className="px-5 py-3">
+                          <div className={cn(
+                            "text-[10px] text-foreground-muted transition-all",
+                            expandedJobIndex === idx ? "opacity-0" : "truncate max-w-[180px]"
+                          )}>
+                            {job.LogMessage}
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedJobIndex === idx && (
+                        <tr className="bg-surface/20 border-b border-border animate-fade-down">
+                          <td colSpan={6} className="px-5 py-4">
+                            <div className="bg-background/50 border border-border rounded-xl p-4 text-xs text-foreground-muted font-mono leading-relaxed whitespace-pre-wrap shadow-inner">
+                              <div className="flex items-center gap-2 mb-3 text-primary font-bold uppercase tracking-widest text-[9px]">
+                                <Activity className="w-3 h-3" />
+                                FULL LOG MESSAGE DETAILS
+                              </div>
+                              <div className="bg-black/20 p-3 rounded border border-border/50 text-foreground">
+                                {job.LogMessage}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         )}
       </SectionCard>

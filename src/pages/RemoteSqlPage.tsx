@@ -41,6 +41,65 @@ export default function RemoteSqlPage() {
   const [editorView, setEditorView] = useState<any>(null);
   const [devicesCollapsed, setDevicesCollapsed] = useState(false);
 
+  // Database & Table Explorer State
+  const [availableDatabases, setAvailableDatabases] = useState<string[]>([]);
+  const [selectedDatabase, setSelectedDatabase] = useState<string>("");
+  const [availableTables, setAvailableTables] = useState<any[]>([]);
+
+  // Fetch Databases when primary device changes
+  useEffect(() => {
+    async function fetchDatabases() {
+      if (selectedDeviceIds.length === 0) {
+        setAvailableDatabases([]);
+        setSelectedDatabase("");
+        setAvailableTables([]);
+        return;
+      }
+      try {
+        const primaryDeviceId = selectedDeviceIds[0];
+        const res = await fetch(`/api/sql/databases/${primaryDeviceId}`);
+        if (res.ok) {
+          const dbs = await res.json();
+          setAvailableDatabases(dbs);
+          if (dbs.length > 0) {
+            setSelectedDatabase(""); // Let it be empty to use default connection DB, or let user pick
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch databases", err);
+      }
+    }
+    fetchDatabases();
+  }, [selectedDeviceIds[0]]);
+
+  // Fetch Tables when database is selected
+  useEffect(() => {
+    async function fetchTables() {
+      if (selectedDeviceIds.length === 0 || !selectedDatabase) {
+        setAvailableTables([]);
+        return;
+      }
+      try {
+        const primaryDeviceId = selectedDeviceIds[0];
+        const res = await fetch(`/api/sql/tables/${primaryDeviceId}/${selectedDatabase}`);
+        if (res.ok) {
+          const tables = await res.json();
+          setAvailableTables(tables);
+        }
+      } catch (err) {
+        console.error("Failed to fetch tables", err);
+      }
+    }
+    fetchTables();
+  }, [selectedDatabase, selectedDeviceIds[0]]);
+
+  // Format tables for CodeMirror SQL schema
+  const schemaForAutocompletion = availableTables.reduce((acc, table) => {
+    // Map table names to empty columns array for basic autocompletion
+    acc[table.TABLE_NAME] = [];
+    return acc;
+  }, {} as Record<string, string[]>);
+
   useEffect(() => {
     async function loadData() {
       console.log("RemoteSqlPage: Starting loadData...");
@@ -150,7 +209,8 @@ export default function RemoteSqlPage() {
 
       const payload = {
         script: queryToRun,
-        target_device_ids: selectedDeviceIds
+        target_device_ids: selectedDeviceIds,
+        database_override: selectedDatabase || undefined
       };
       console.log("RemoteSqlPage: Execution payload:", payload);
 
@@ -366,7 +426,7 @@ export default function RemoteSqlPage() {
       <div className="flex-1 lg:min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-6 pb-20 lg:pb-0 relative">
         {/* Sidebar: Target Selection */}
         <div className={cn(
-          "transition-all duration-300 ease-in-out flex flex-col gap-4 overflow-hidden",
+          "transition-all duration-300 ease-in-out flex flex-col gap-4 overflow-hidden flex-shrink-0",
           devicesCollapsed ? "lg:w-0 lg:opacity-0 lg:pointer-events-none" : "lg:w-80 w-full opacity-100"
         )}>
           <SectionCard title="Target Devices" className="flex-none lg:flex-1 h-[350px] lg:h-auto flex flex-col min-h-0 overflow-hidden">
@@ -490,7 +550,7 @@ export default function RemoteSqlPage() {
           )}
         </button>
 
-        <div className="flex-1 min-h-0 flex flex-col gap-4 lg:gap-6">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-4 lg:gap-6">
           {/* SQL Editor */}
           <SectionCard className="h-[300px] lg:h-[40%] flex-none lg:flex-auto flex flex-col overflow-visible relative z-20">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-border pb-2">
@@ -499,7 +559,25 @@ export default function RemoteSqlPage() {
                 <h3 className="font-bold text-sm">Editor</h3>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
-                <button 
+                {selectedDeviceIds.length > 0 && availableDatabases.length > 0 && (
+                  <div className="flex items-center gap-2 mr-2">
+                    <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider hidden md:inline" title={selectedDeviceIds.length > 1 ? "Schema and autocomplete are based on the first selected device. Queries run on all selected devices." : ""}>
+                      {selectedDeviceIds.length > 1 ? "DB Reference:" : "Database:"}
+                    </span>
+                    <select
+                      className="bg-surface-raised border border-border rounded text-[10px] font-bold px-2 py-1 outline-none focus:border-primary focus:ring-1 focus:ring-primary max-w-[150px]"
+                      value={selectedDatabase}
+                      onChange={(e) => setSelectedDatabase(e.target.value)}
+                    >
+                      <option value="">-- Default --</option>
+                      {availableDatabases.map(db => (
+                        <option key={db} value={db}>{db}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="h-4 w-px bg-border mx-1" />
+                <button  
                   onClick={() => setShowTemplates(!showTemplates)}
                   className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold bg-surface-raised border border-border rounded hover:bg-surface-overlay transition-all"
                 >
@@ -555,7 +633,7 @@ export default function RemoteSqlPage() {
                 value={script}
                 height="100%"
                 theme={vscodeDark}
-                extensions={[sql()]}
+                extensions={[sql({ schema: schemaForAutocompletion })]}
                 onChange={(value) => setScript(value)}
                 onUpdate={(v) => {
                   if (v.view !== editorView) {
@@ -656,7 +734,7 @@ export default function RemoteSqlPage() {
                           )}
                           
                           {/* Table view */}
-                          <div className="overflow-x-auto max-h-48 custom-scrollbar border rounded">
+                          <div className="overflow-x-auto max-w-full max-h-64 custom-scrollbar border rounded bg-background/50">
                             <table className="w-full text-left font-mono border-collapse">
                               <thead className="bg-surface-raised sticky top-0 border-b border-border">
                                 <tr>
