@@ -582,6 +582,16 @@ async function initDb() {
       )
     `);
 
+    // Ensure start_date column exists in UserTasks
+    const checkTasksCols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'UserTasks' AND COLUMN_NAME = 'start_date'
+    `);
+    if (checkTasksCols.recordset.length === 0) {
+      await pool.request().query('ALTER TABLE UserTasks ADD start_date DATETIME');
+    }
+
+
 
     // Add retry_count and last_error to DeploymentTargets if they don't exist
     const checkColumns = await pool.request().query(`
@@ -1478,6 +1488,83 @@ app.post('/api/sql/test-connection', async (req, res) => {
   }
 });
 
+// ── GET /api/sql/databases/:deviceId ─────────────────────
+app.get('/api/sql/databases/:deviceId', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const pool = await poolPromise;
+    
+    const devRes = await pool.request().input('id', sql.NVarChar, deviceId).query('SELECT ip FROM Devices WHERE id = @id');
+    const connRes = await pool.request().input('id', sql.NVarChar, deviceId).query('SELECT * FROM DeviceDbConnections WHERE device_id = @id');
+    
+    if (!devRes.recordset.length || !connRes.recordset.length) {
+      return res.status(404).json({ error: 'Device or connection not found' });
+    }
+    
+    const dev = devRes.recordset[0];
+    const conn = connRes.recordset[0];
+    
+    const config = {
+      user: conn.db_user,
+      password: conn.db_password,
+      server: dev.ip,
+      database: 'master',
+      options: { encrypt: false, trustServerCertificate: true, connectTimeout: 5000 },
+      pool: { max: 1, min: 0 }
+    };
+    
+    const remotePool = new sql.ConnectionPool(config);
+    await remotePool.connect();
+    const result = await remotePool.request().query('SELECT name FROM sys.databases WHERE state = 0 ORDER BY name');
+    await remotePool.close();
+    
+    res.json(result.recordset.map(r => r.name));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/sql/tables/:deviceId/:databaseName ──────────
+app.get('/api/sql/tables/:deviceId/:databaseName', async (req, res) => {
+  try {
+    const { deviceId, databaseName } = req.params;
+    const pool = await poolPromise;
+    
+    const devRes = await pool.request().input('id', sql.NVarChar, deviceId).query('SELECT ip FROM Devices WHERE id = @id');
+    const connRes = await pool.request().input('id', sql.NVarChar, deviceId).query('SELECT * FROM DeviceDbConnections WHERE device_id = @id');
+    
+    if (!devRes.recordset.length || !connRes.recordset.length) {
+      return res.status(404).json({ error: 'Device or connection not found' });
+    }
+    
+    const dev = devRes.recordset[0];
+    const conn = connRes.recordset[0];
+    
+    const config = {
+      user: conn.db_user,
+      password: conn.db_password,
+      server: dev.ip,
+      database: databaseName,
+      options: { encrypt: false, trustServerCertificate: true, connectTimeout: 5000 },
+      pool: { max: 1, min: 0 }
+    };
+    
+    const remotePool = new sql.ConnectionPool(config);
+    await remotePool.connect();
+    const result = await remotePool.request().query(`
+      SELECT TABLE_SCHEMA, TABLE_NAME 
+      FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_TYPE = 'BASE TABLE'
+      ORDER BY TABLE_NAME
+    `);
+    await remotePool.close();
+    
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/sql/execute ──────────────────────────────
 app.post('/api/sql/execute', async (req, res) => {
   const { script, target_device_ids, force } = req.body;
@@ -1547,7 +1634,7 @@ app.post('/api/sql/execute', async (req, res) => {
         user: conn.db_user,
         password: conn.db_password,
         server: dev.ip,
-        database: conn.db_name,
+        database: req.body.database_override || conn.db_name,
         options: { encrypt: false, trustServerCertificate: true, connectTimeout: 10000 },
         pool: { max: 1, min: 0, idleTimeoutMillis: 10000 }
       };
@@ -4087,62 +4174,62 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
     try {
       const crmPool = await getCrmPool();
       const fraudRes = await crmPool.request().query(`
-        WITH trx AS (
-          SELECT
-            q.RLITQ_ORG_CD AS org_cd,
-            q.RLITQ_CARD_NO AS card_no,
-            m.RLICM_NAME AS cust_name,
-            d.ORG_NAME AS store_name,
-            h.SESSION_NO,
-            h.NET_VALUE,
-            CAST(h.BILL_DT AS DATE) AS trx_date,
-            CAST(h.BILL_TIME AS TIME) AS bill_time,
-            LAG(CAST(h.BILL_TIME AS TIME)) OVER (
-              PARTITION BY q.RLITQ_CARD_NO, q.RLITQ_ORG_CD, h.SESSION_NO, CAST(h.BILL_DT AS DATE)
-              ORDER BY CAST(h.BILL_TIME AS TIME)
-            ) AS prev_bill_time
-          FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
-          LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-          LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
-          LEFT JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO
-          WHERE CAST(h.BILL_DT AS DATE) = CAST(DATEADD(day, -1, GETDATE()) AS DATE)
+        WITH DailyCounts AS (
+            SELECT 
+                q.RLITQ_CARD_NO as card_no,
+                MAX(m.RLICM_NAME) as cust_name,
+                CAST(h.BILL_DT AS DATE) as trx_date,
+                COUNT(q.RLITQ_BILL_NO) as daily_trx_count,
+                MAX(q.RLITQ_ORG_CD) as org_cd,
+                MAX(d.ORG_NAME) as store_name,
+                MAX(h.COUNTER_NO) as counter_no,
+                MAX(h.SESSION_NO) as session_no,
+                MAX(h.SALESMAN_ID_SEC) as salesman_id
+            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
+            JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
+            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+            WHERE CAST(h.BILL_DT AS DATE) >= CAST(DATEADD(day, -7, GETDATE()) AS DATE)
+            GROUP BY q.RLITQ_CARD_NO, CAST(h.BILL_DT AS DATE)
+            HAVING COUNT(q.RLITQ_BILL_NO) > 3
+               AND COUNT(DISTINCT h.COUNTER_NO) = 1
+               AND COUNT(DISTINCT h.SESSION_NO) = 1
         ),
-        trx_interval AS (
-          SELECT
-            *,
-            CASE
-              WHEN DATEDIFF(SECOND, prev_bill_time, bill_time) < 0 THEN NULL
-              ELSE DATEDIFF(SECOND, prev_bill_time, bill_time)
-            END AS interval_sec
-          FROM trx
+        ConsecutiveLag AS (
+            SELECT 
+                card_no, cust_name, org_cd, store_name,
+                trx_date as latest_date,
+                LAG(trx_date) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_date,
+                daily_trx_count as latest_count, 
+                LAG(daily_trx_count) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_count,
+                salesman_id as latest_salesman,
+                LAG(salesman_id) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_salesman
+            FROM DailyCounts
+        ),
+        ConsecutiveCheck AS (
+            SELECT *
+            FROM ConsecutiveLag 
+            WHERE DATEDIFF(day, prev_date, latest_date) = 1
+              AND prev_salesman = latest_salesman
+              AND latest_date = CAST(DATEADD(day, -1, GETDATE()) AS DATE)
         )
-        SELECT
-          trx_date AS trans_date,
-          card_no,
-          cust_name,
-          org_cd,
-          store_name,
-          SESSION_NO,
-          COUNT(*) AS frequently,
-          ROUND(AVG(CAST(ISNULL(NET_VALUE, 0) AS FLOAT)), 0) AS avg_value
-        FROM trx_interval
-        GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
-        HAVING COUNT(*) > 5
-        ORDER BY frequently DESC
+        SELECT * FROM ConsecutiveCheck
+        ORDER BY latest_count DESC
       `);
 
       if (fraudRes.recordset.length > 0) {
         summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
         summary += `🚨 *CRM FRAUD ANALYSIS: Suspicious Activity Detected*\n`;
-        summary += `_Harap segera melakukan review pada report CRM Fraud Analysis!_\n\n`;
+        summary += `_Kriteria: >3 trx/hari selama 2 hari berturut-turut (Sesi & Salesman sama)_\n\n`;
 
         for (const row of fraudRes.recordset) {
-          summary += `📅 Date: ${new Date(row.trans_date).toLocaleDateString('id-ID')}\n`;
-          summary += `🏪 Store: ${row.org_cd} - ${row.store_name}\n`;
-          summary += `💳 Card No: ${row.card_no}\n`;
-          summary += `👤 Customer: ${row.cust_name || 'N/A'}\n`;
-          summary += `⚠️ Frequency: *${row.frequently}* transactions\n`;
-          summary += `💰 Avg Value: *Rp ${new Intl.NumberFormat('id-ID').format(row.avg_value || 0)}*\n\n`;
+          summary += `👤 *${row.cust_name || 'Unknown Member'}*\n`;
+          summary += `💳 No Kartu: ${row.card_no}\n`;
+          summary += `🏪 Store: (${row.org_cd}) ${row.store_name}\n`;
+          const prevD = new Date(row.prev_date).toLocaleDateString('id-ID');
+          const lateD = new Date(row.latest_date).toLocaleDateString('id-ID');
+          summary += `📅 Periode: ${prevD} s/d ${lateD}\n`;
+          summary += `📊 Trx: *${row.prev_count} trx* & *${row.latest_count} trx*\n\n`;
         }
       }
     } catch (fraudErr) {
@@ -5510,67 +5597,50 @@ app.get('/api/crm/reports/:type', async (req, res) => {
       }
 
       const cte = `
-        WITH trx AS (
-          SELECT
-            q.RLITQ_ORG_CD AS org_cd,
-            q.RLITQ_CARD_NO AS card_no,
-            m.RLICM_NAME AS cust_name,
-            m.RLICM_MOBILE_NO,
-            d.ORG_NAME AS store_name,
-            h.SESSION_NO,
-            h.NET_VALUE,
-            CAST(h.BILL_DT AS DATE) AS trx_date,
-            CAST(h.BILL_TIME AS TIME) AS bill_time,
-            LAG(CAST(h.BILL_TIME AS TIME)) OVER (
-              PARTITION BY q.RLITQ_CARD_NO, q.RLITQ_ORG_CD, h.SESSION_NO, CAST(h.BILL_DT AS DATE)
-              ORDER BY CAST(h.BILL_TIME AS TIME)
-            ) AS prev_bill_time
-          FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
-          LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-          LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
-          LEFT JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO
-          ${where}
+        WITH DailyCounts AS (
+            SELECT 
+                q.RLITQ_CARD_NO as card_no,
+                MAX(m.RLICM_NAME) as cust_name,
+                CAST(h.BILL_DT AS DATE) as trx_date,
+                COUNT(q.RLITQ_BILL_NO) as daily_trx_count,
+                MAX(q.RLITQ_ORG_CD) as org_cd,
+                MAX(d.ORG_NAME) as store_name
+            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK)
+            JOIN POS_SALES_HDR h (NOLOCK) ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
+            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+            ${where}
+            GROUP BY q.RLITQ_CARD_NO, CAST(h.BILL_DT AS DATE)
+            HAVING COUNT(q.RLITQ_BILL_NO) > 3
         ),
-        trx_interval AS (
-          SELECT
-            *,
-            CASE
-              WHEN DATEDIFF(SECOND, prev_bill_time, bill_time) < 0 THEN NULL
-              ELSE DATEDIFF(SECOND, prev_bill_time, bill_time)
-            END AS interval_sec
-          FROM trx
+        ConsecutiveLag AS (
+            SELECT 
+                card_no, 
+                cust_name, 
+                org_cd,
+                store_name,
+                trx_date as latest_date,
+                LAG(trx_date) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_date,
+                daily_trx_count as latest_count, 
+                LAG(daily_trx_count) OVER (PARTITION BY card_no ORDER BY trx_date) as prev_count,
+                'Suspicious Activity' as fraud_warning
+            FROM DailyCounts
+        ),
+        ConsecutiveCheck AS (
+            SELECT * FROM ConsecutiveLag WHERE DATEDIFF(day, prev_date, latest_date) = 1
         )
       `;
 
       query = `
         ${cte}
-        SELECT
-          trx_date AS trans_date,
-          card_no,
-          cust_name,
-          org_cd,
-          store_name,
-          SESSION_NO,
-          COUNT(*) AS frequently,
-          ROUND(AVG(CAST(interval_sec AS FLOAT)), 0) AS avg_interval_sec,
-          MIN(interval_sec) AS min_interval_sec,
-          ROUND(AVG(CAST(ISNULL(NET_VALUE, 0) AS FLOAT)), 0) AS avg_value,
-          'Suspicious Activity' AS fraud_warning
-        FROM trx_interval
-        GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
-        HAVING COUNT(*) > 5
-        ORDER BY trans_date DESC, frequently DESC
+        SELECT * FROM ConsecutiveCheck
+        ORDER BY latest_date DESC, latest_count DESC
         OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
       `;
 
       countQuery = `
         ${cte}
-        SELECT COUNT(*) as total FROM (
-          SELECT trx_date
-          FROM trx_interval
-          GROUP BY trx_date, card_no, cust_name, org_cd, store_name, SESSION_NO
-          HAVING COUNT(*) > 5
-        ) sub
+        SELECT COUNT(*) as total FROM ConsecutiveCheck
       `;
     }
     else {

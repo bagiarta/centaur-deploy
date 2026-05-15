@@ -16,9 +16,9 @@ async function updateVersion() {
     try {
         const pool = await sql.connect(config);
         await pool.request()
-            .input('v', sql.NVarChar, '2.7.2')
+            .input('v', sql.NVarChar, '2.7.4')
             .query("UPDATE SystemConfigs SET [value] = @v WHERE [key] = 'LATEST_AGENT_VERSION'");
-        console.log("LATEST_AGENT_VERSION successfully updated to 2.7.2");
+        console.log("LATEST_AGENT_VERSION successfully updated to 2.7.4");
         process.exit(0);
     } catch (err) {
         console.error("Update Error:", err.message);

@@ -1,2 +1,0 @@
-[20/04/2026, 13.27.11] TRIAL WEBHOOK RECEIVED: {}
-[20/04/2026, 13.30.48] TRIAL WEBHOOK RECEIVED: {"hostname":"MikroTik-Tested","ports":[{"name":"ISP-Primary","status":"up"},{"name":"ISP-Backup","status":"down"}]}

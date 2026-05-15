@@ -46,6 +46,23 @@ export default defineConfig(({ mode }) => ({
       }
     })
   ].filter(Boolean),
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('lucide-react')) return 'lucide';
+            if (id.includes('recharts')) return 'recharts';
+            if (id.includes('@codemirror') || id.includes('@lezer') || id.includes('@uiw')) return 'codemirror';
+            if (id.includes('exceljs')) return 'exceljs';
+            if (id.includes('radix-ui')) return 'radix';
+            return 'vendor';
+          }
+        }
+      }
+    }
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

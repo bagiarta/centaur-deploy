@@ -15,6 +15,7 @@ interface ReportConfig {
   icon: any;
   endpoint: string;
   columns: { key: string; label: string; type: 'string' | 'number' | 'currency' | 'date' }[];
+  description?: string;
 }
 
 const REPORT_CONFIGS: Record<string, ReportConfig> = {
@@ -83,18 +84,17 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
     icon: Activity,
     endpoint: "fraud-analysis",
     columns: [
-      { key: 'trans_date', label: 'Date', type: 'date' },
+      { key: 'latest_date', label: 'Latest Date', type: 'date' },
+      { key: 'prev_date', label: 'Previous Date', type: 'date' },
       { key: 'org_cd', label: 'Store Code', type: 'string' },
       { key: 'store_name', label: 'Store Name', type: 'string' },
       { key: 'card_no', label: 'Card No', type: 'string' },
       { key: 'cust_name', label: 'Customer', type: 'string' },
-      { key: 'SESSION_NO', label: 'Session No', type: 'string' },
-      { key: 'frequently', label: 'Frequency', type: 'number' },
-      { key: 'avg_interval_sec', label: 'Avg Interval (s)', type: 'number' },
-      { key: 'min_interval_sec', label: 'Min Interval (s)', type: 'number' },
-      { key: 'avg_value', label: 'Avg Value', type: 'currency' },
+      { key: 'latest_count', label: 'Latest Trx Count', type: 'number' },
+      { key: 'prev_count', label: 'Previous Trx Count', type: 'number' },
       { key: 'fraud_warning', label: 'Suspicious Activity', type: 'string' },
-    ]
+    ],
+    description: "Kriteria Fraud: (1) Transaksi > 3x/hari selama 2 hari berturut-turut, (2) Dilakukan di Counter & Sesi yang sama per harinya, (3) Dilayani oleh Salesman yang sama di kedua hari tersebut."
   }
 };
 
@@ -235,6 +235,16 @@ export default function CrmReportsPage() {
           </div>
         }
       />
+      
+      {config.description && (
+        <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg text-xs text-primary flex items-start gap-2">
+          <Activity className="w-4 h-4 mt-0.5" />
+          <div>
+            <span className="font-semibold">Info Perhitungan: </span>
+            {config.description}
+          </div>
+        </div>
+      )}
 
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
