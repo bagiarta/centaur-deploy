@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Shield, Download, Package, Bell, Send, CheckCircle, AlertCircle, RefreshCw, Palette, Layout, Sidebar as SidebarIcon, Chrome, RotateCcw, Bot, Save, Trash2, PencilLine, Eye, Calendar, Edit2, Phone, Users } from "lucide-react";
+import { Server, Shield, Download, Package, Bell, Send, CheckCircle, AlertCircle, RefreshCw, Palette, Layout, Sidebar as SidebarIcon, Chrome, RotateCcw, Bot, Save, Trash2, PencilLine, Eye, Calendar, Edit2, Phone, Users, ShieldCheck } from "lucide-react";
 import { PageHeader, SectionCard } from "@/components/ui-enterprise";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -41,6 +41,18 @@ const DOWNLOADS = [
     size: "~22 MB",
     file: "Manual-Agent-Installer-v25.ps1",
     reqs: ["Windows 10+ / Server 2016+", "Admin network access (SMB/WMI)", ".NET 8.0 Runtime", "Firewall: ports 135, 445 open on targets"],
+  },
+  {
+    name: "SSL Certificate (Local CA)",
+    version: "1.0",
+    description: "Install Local Root CA on client machines to remove 'Not Secure' browser warnings.",
+    icon: <ShieldCheck className="w-6 h-6" />,
+    color: "text-amber-500",
+    bg: "bg-amber-500/10",
+    border: "border-amber-500/20",
+    size: "~2 KB",
+    file: "api/ssl/installer",
+    reqs: ["Windows OS", "Run as Administrator"],
   },
 ];
 

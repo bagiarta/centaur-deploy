@@ -182,6 +182,17 @@ const applyThemeVariables = (theme: ThemeSettings) => {
   root.style.setProperty('--sidebar-primary', hexToHslStr(theme.sidebarAccent || DEFAULT_THEME.sidebarAccent));
 };
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
@@ -328,6 +339,45 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       clearInterval(intervalId);
     };
   }, [user, canManageTickets]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      navigator.serviceWorker.ready.then(registration => {
+        registration.pushManager.getSubscription().then(subscription => {
+          const sendSubscriptionToServer = (sub: PushSubscription) => {
+            fetch('/api/push/subscribe', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-user-id': user.id || ""
+              },
+              body: JSON.stringify(sub)
+            }).catch(e => console.error('[PUSH] Sync failed:', e));
+          };
+
+          if (subscription) {
+            sendSubscriptionToServer(subscription);
+          } else {
+            Notification.requestPermission().then(permission => {
+              if (permission === 'granted') {
+                const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+                if (!vapidKey) return;
+                
+                registration.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey: urlBase64ToUint8Array(vapidKey)
+                })
+                .then(newSub => sendSubscriptionToServer(newSub))
+                .catch(e => console.error('[PUSH] Subscribe failed:', e));
+              }
+            });
+          }
+        });
+      });
+    }
+  }, [user]);
 
   const handleLogout = () => {
     if (confirm("Are you sure you want to log out?")) {

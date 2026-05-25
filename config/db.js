@@ -370,6 +370,18 @@ export async function initDb() {
            sender_id NVARCHAR(50) NOT NULL,
            content NVARCHAR(MAX) NOT NULL,
            is_read BIT DEFAULT 0,
+           created_at DATETIME DEFAULT GETDATE(),
+           attachment_url NVARCHAR(500) NULL,
+           attachment_name NVARCHAR(255) NULL,
+           attachment_type NVARCHAR(50) NULL
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='PushSubscriptions' AND xtype='U')
+       CREATE TABLE PushSubscriptions (
+           id NVARCHAR(50) PRIMARY KEY,
+           user_id NVARCHAR(50) NOT NULL,
+           endpoint NVARCHAR(MAX) NOT NULL,
+           p256dh NVARCHAR(MAX) NOT NULL,
+           auth NVARCHAR(MAX) NOT NULL,
            created_at DATETIME DEFAULT GETDATE()
        )`
     ];
@@ -503,6 +515,15 @@ export async function initDb() {
     `);
     if (checkCategory.recordset.length === 0) {
       await pool.request().query("ALTER TABLE UserTasks ADD category NVARCHAR(100) DEFAULT 'General'");
+    }
+
+    // SqlTemplates template_group column
+    const checkTemplateGroup = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'SqlTemplates' AND COLUMN_NAME = 'template_group'
+    `);
+    if (checkTemplateGroup.recordset.length === 0) {
+      await pool.request().query("ALTER TABLE SqlTemplates ADD template_group NVARCHAR(100) DEFAULT 'General'");
     }
 
     console.log('✅ Database fully initialized (DBWH_8529)');
