@@ -1832,7 +1832,7 @@ router.get('/api/sql/templates', async (req, res) => {
 });
 
 router.post('/api/sql/templates', async (req, res) => {
-  const { id, name, description, script, created_by } = req.body;
+  const { id, name, description, script, created_by, template_group } = req.body;
   try {
     const pool = await poolPromise;
     if (id) {
@@ -1842,7 +1842,8 @@ router.post('/api/sql/templates', async (req, res) => {
         .input('name', sql.NVarChar, name)
         .input('description', sql.NVarChar, description || '')
         .input('script', sql.NVarChar, script)
-        .query(`UPDATE SqlTemplates SET name=@name, description=@description, script=@script WHERE id=@id`);
+        .input('template_group', sql.NVarChar, template_group || 'General')
+        .query(`UPDATE SqlTemplates SET name=@name, description=@description, script=@script, template_group=@template_group WHERE id=@id`);
       res.json({ success: true, message: 'Template updated' });
     } else {
       // Create
@@ -1852,7 +1853,8 @@ router.post('/api/sql/templates', async (req, res) => {
         .input('description', sql.NVarChar, description || '')
         .input('script', sql.NVarChar, script)
         .input('created_by', sql.NVarChar, created_by || 'admin')
-        .query(`INSERT INTO SqlTemplates (id, name, description, script, created_by) VALUES (@id, @name, @description, @script, @created_by)`);
+        .input('template_group', sql.NVarChar, template_group || 'General')
+        .query(`INSERT INTO SqlTemplates (id, name, description, script, created_by, template_group) VALUES (@id, @name, @description, @script, @created_by, @template_group)`);
       res.json({ success: true, message: 'Template created' });
     }
   } catch (err) {
@@ -1862,7 +1864,7 @@ router.post('/api/sql/templates', async (req, res) => {
 
 router.put('/api/sql/templates/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, description, script } = req.body;
+  const { name, description, script, template_group } = req.body;
   try {
     const pool = await poolPromise;
     await pool.request()
@@ -1870,7 +1872,8 @@ router.put('/api/sql/templates/:id', async (req, res) => {
       .input('name', sql.NVarChar, name)
       .input('description', sql.NVarChar, description || '')
       .input('script', sql.NVarChar, script)
-      .query(`UPDATE SqlTemplates SET name=@name, description=@description, script=@script WHERE id=@id`);
+      .input('template_group', sql.NVarChar, template_group || 'General')
+      .query(`UPDATE SqlTemplates SET name=@name, description=@description, script=@script, template_group=@template_group WHERE id=@id`);
     res.json({ success: true, message: 'Template updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2316,7 +2319,7 @@ async function runOfflineDetector() {
     // 4. Recovery Detection: Find devices that were offline but are now responding
     // Fetch and filter in JS to avoid SQL conversion issues with different locale settings
     const allRecoverable = await pool.request().query(`
-      SELECT id, hostname, ip, last_seen, status, last_offline_alert_at 
+      SELECT id, hostname, ip, last_seen, status, last_offline_alert_at, group_ids 
       FROM Devices 
       WHERE (status = 'offline' OR last_offline_alert_at IS NOT NULL)
         AND last_seen IS NOT NULL
@@ -2358,8 +2361,18 @@ async function runOfflineDetector() {
           .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
           .catch(() => { });
 
-        // Add to list of devices that were actually recovered by THIS process
-        actualRecovered.push(dev);
+        // Calculate Priority (Server/Network/Router groups) to decide if we send notification
+        const gids = (dev.group_ids || "").split(',').map((s) => s.trim());
+        const isPriority = gids.some((gid) => {
+          if (gid === 'g2') return true; // Default Servers ID
+          const gName = groupsMap[gid] || "";
+          return gName.includes('server') || gName.includes('network') || gName.includes('router');
+        });
+
+        // Add to list of devices that were actually recovered by THIS process for notification
+        if (isPriority) {
+          actualRecovered.push(dev);
+        }
       }
 
       if (actualRecovered.length > 0) {
@@ -2797,7 +2810,7 @@ async function sendDailyOutstandingTicketsNotification(options = {}) {
       console.error('[REPORT] CRM Fraud Analysis error (non-fatal):', fraudErr.message);
     }
 
-    summary += `_Pantau detail di http://192.168.85.30:3001/tickets_`;
+    summary += `_Pantau lebih lanjut di https://192.168.85.30:3001_`;
 
     // 4. Send Notifications
     await sendWebhook(`🎟️ Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
@@ -5509,7 +5522,7 @@ router.get('/api/tasks', async (req, res) => {
       query += ` WHERE user_id = @uid`;
       request.input('uid', sql.NVarChar, userId);
     }
-    
+
     query += ` ORDER BY created_at DESC`;
     const result = await request.query(query);
     res.json(result.recordset);
@@ -5610,7 +5623,7 @@ router.delete('/api/tasks/:id', async (req, res) => {
       .query('SELECT user_id FROM UserTasks WHERE id = @id');
 
     if (check.recordset.length === 0) return res.status(404).json({ error: 'Task not found' });
-    
+
     if (!isAdmin && check.recordset[0].user_id !== userId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -5658,7 +5671,7 @@ router.get('/api/tasks/export', async (req, res) => {
     }
 
     query += ` ORDER BY created_at DESC`;
-    
+
     const result = await request.query(query);
     const tasks = result.recordset;
 

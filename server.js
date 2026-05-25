@@ -5,7 +5,8 @@ import multer from 'multer';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { createServer } from 'http';
+import { createServer as createHttpServer } from 'http';
+import { createServer as createHttpsServer } from 'https';
 import { Server as SocketIOServer } from 'socket.io';
 import { initDb, poolPromise } from './config/db.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -17,7 +18,9 @@ import groupRoutes from './routes/groupRoutes.js';
 import sqlRoutes from './routes/sqlRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
+import pushRoutes from './routes/pushRoutes.js';
 import legacyRoutes, { startBackgroundTasks } from './routes/legacyRoutes.js';
+import { sendWebPush } from './controllers/pushController.js';
 
 dotenv.config();
 
@@ -25,7 +28,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const httpServer = createServer(app);
+
+let httpServer;
+const sslDir = path.resolve(__dirname, 'config', 'ssl');
+const keyPath = path.join(sslDir, 'server.key');
+const certPath = path.join(sslDir, 'centaur-ca.crt');
+
+if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+  const credentials = {
+    key: fs.readFileSync(keyPath, 'utf8'),
+    cert: fs.readFileSync(certPath, 'utf8')
+  };
+  httpServer = createHttpsServer(credentials, app);
+  console.log('🔒 HTTPS Enabled (using certificates from config/ssl/)');
+} else {
+  httpServer = createHttpServer(app);
+  console.log('🔓 HTTPS Disabled (no certificates found)');
+}
+
 const io = new SocketIOServer(httpServer, {
   cors: { origin: '*' }
 });
@@ -61,6 +81,7 @@ app.use('/api/groups', groupRoutes);
 app.use('/api/sql', sqlRoutes);
 app.use('/api/webhook', webhookRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/push', pushRoutes);
 
 // Mount all remaining (unmigrated) routes at root to preserve exact paths
 app.use('/', legacyRoutes);
@@ -68,6 +89,59 @@ app.use('/', legacyRoutes);
 // Serve static files from dist
 app.use(express.static(path.join(__dirname, 'dist')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// SSL Downloads
+app.get('/api/ssl/cert', (req, res) => {
+  const caPath = path.join(sslDir, 'centaur-ca.crt');
+  if (fs.existsSync(caPath)) {
+    res.download(caPath, 'centaur-ca.crt');
+  } else {
+    res.status(404).send('Certificate not found on server.');
+  }
+});
+
+app.get('/api/ssl/installer', (req, res) => {
+  const host = req.headers.host || '192.168.85.55:3001';
+  const batContent = `@echo off
+setlocal
+echo ===================================================
+echo Memasang Sertifikat SSL Centaur Deploy ke Windows
+echo ===================================================
+echo Meminta akses Administrator...
+net session >nul 2>&1
+if %errorLevel% == 0 (
+    echo Akses Administrator dikonfirmasi.
+) else (
+    echo GAGAL: Skrip ini harus dijalankan sebagai Administrator!
+    echo Silakan tutup jendela ini, lalu Klik Kanan file Install-Cert.bat 
+    echo dan pilih "Run as Administrator".
+    pause
+    exit /b 1
+)
+
+cd /d "%~dp0"
+echo Mengunduh sertifikat dari server...
+powershell -Command "[Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (New-Object Net.WebClient).DownloadFile('https://${host}/api/ssl/cert', 'centaur-ca.crt')"
+
+if exist "centaur-ca.crt" (
+    echo Sertifikat ditemukan, memasang ke Trusted Root...
+    certutil -addstore -f "Root" centaur-ca.crt
+    echo.
+    echo ===================================================
+    echo SUKSES! Sertifikat berhasil dipasang.
+    echo Silakan tutup semua jendela browser (Chrome/Edge),
+    echo lalu buka kembali halaman Centaur Deploy.
+    echo ===================================================
+    pause
+) else (
+    echo GAGAL: Sertifikat tidak ditemukan atau gagal diunduh.
+    pause
+)
+`;
+  res.setHeader('Content-disposition', 'attachment; filename=Install-Cert.bat');
+  res.setHeader('Content-type', 'application/x-bat');
+  res.send(batContent);
+});
 
 // Fallback error handler
 app.use((err, req, res, next) => {
@@ -157,10 +231,52 @@ io.on('connection', (socket) => {
             senderName: sender.full_name,
             preview
           });
+
+          // If user is offline (no active socket), send Web Push
+          const room = io.sockets.adapter.rooms.get(`user:${user_id}`);
+          if (!room || room.size === 0) {
+             sendWebPush(user_id, {
+               title: sender.full_name,
+               body: preview,
+               url: `/`
+             });
+          }
         }
       }
     } catch (err) {
       console.error('[Chat] send_message error:', err.message);
+    }
+  });
+
+  // Delete a message (soft delete)
+  socket.on('delete_message', async ({ messageId, conversationId, senderId }) => {
+    if (!messageId || !conversationId || !senderId) return;
+
+    try {
+      const pool = await poolPromise;
+      
+      const updateRes = await pool.request()
+        .input('msgId', sql.NVarChar, messageId)
+        .input('sid', sql.NVarChar, senderId)
+        .query(`
+          UPDATE ChatMessages 
+          SET content = '🚫 Pesan ini telah dihapus', 
+              attachment_url = NULL, 
+              attachment_name = NULL, 
+              attachment_type = NULL 
+          WHERE id = @msgId AND sender_id = @sid
+        `);
+
+      if (updateRes.rowsAffected[0] > 0) {
+        // Broadcast to room that the message was deleted
+        io.to(`room:${conversationId}`).emit('message_deleted', {
+          messageId,
+          conversationId,
+          content: '🚫 Pesan ini telah dihapus'
+        });
+      }
+    } catch (err) {
+      console.error('[Chat] delete_message error:', err.message);
     }
   });
 

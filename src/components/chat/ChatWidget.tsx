@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageCircle, X, Send, Plus, Users, ChevronLeft, Volume2, VolumeX, Search, Paperclip, FileText, Download, Image as ImageIcon } from 'lucide-react';
+import { MessageCircle, X, Send, Plus, Users, ChevronLeft, Volume2, VolumeX, Search, Paperclip, FileText, Download, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
@@ -143,7 +143,12 @@ export default function ChatWidget() {
       if (soundEnabled) playNotifSound();
       loadConversations();
     });
-    return () => { offMsg?.(); offNotif?.(); };
+    const offDel = on('message_deleted', (data: any) => {
+      if (activeConvo && data.conversationId === activeConvo.id) {
+        setMessages(prev => prev.map(m => m.id === data.messageId ? { ...m, content: data.content, attachment_url: null, attachment_name: null, attachment_type: null } : m));
+      }
+    });
+    return () => { offMsg?.(); offNotif?.(); offDel?.(); };
   }, [user, activeConvo, soundEnabled, on, loadConversations]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -176,6 +181,20 @@ export default function ChatWidget() {
   };
 
   const clearAttach = () => { setAttachFile(null); setAttachPreview(null); };
+
+  // ── Delete message ──────────────────────────────────────────────────
+  const handleDeleteMessage = (msg: Message) => {
+    if (msg.content === '🚫 Pesan ini telah dihapus') return;
+    if (confirm("Hapus pesan ini?")) {
+      emit('delete_message', {
+        messageId: msg.id,
+        conversationId: msg.conversation_id,
+        senderId: user?.id
+      });
+      // Optimistic update
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, content: '🚫 Pesan ini telah dihapus', attachment_url: null, attachment_name: null, attachment_type: null } : m));
+    }
+  };
 
   // ── Send message ──────────────────────────────────────────────────
   const sendMessage = async () => {
@@ -397,22 +416,31 @@ export default function ChatWidget() {
                   const showName = !isMine && (i === 0 || messages[i - 1].sender_id !== msg.sender_id);
                   const hasContent = msg.content?.trim();
                   const hasAttach = msg.attachment_url;
+                  const isDeleted = msg.content === '🚫 Pesan ini telah dihapus';
                   return (
-                    <div key={msg.id} className={cn("flex flex-col", isMine ? "items-end" : "items-start")}>
+                    <div key={msg.id} className={cn("flex flex-col relative group/msg", isMine ? "items-end" : "items-start")}>
                       {showName && <span className="text-[9px] text-foreground-muted font-medium mb-0.5 ml-2">{msg.full_name}</span>}
-                      <div className={cn(
-                        "max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed break-words shadow-sm",
-                        isMine ? "bg-primary text-white rounded-br-sm" : "bg-surface-raised text-foreground rounded-bl-sm border border-border"
-                      )}>
-                        {hasContent && <p>{msg.content}</p>}
-                        {hasAttach && (
-                          <AttachmentBubble
-                            url={msg.attachment_url!}
-                            name={msg.attachment_name}
-                            type={msg.attachment_type}
-                            isMine={isMine}
-                          />
+                      <div className="flex items-center gap-1 w-full" style={{ justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
+                        {isMine && !isDeleted && (
+                          <button onClick={() => handleDeleteMessage(msg)} className="opacity-0 group-hover/msg:opacity-100 p-1.5 text-danger hover:bg-danger/10 rounded-full transition-all shrink-0" title="Hapus pesan">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         )}
+                        <div className={cn(
+                          "max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed break-words shadow-sm",
+                          isMine ? "bg-primary text-white rounded-br-sm" : "bg-surface-raised text-foreground rounded-bl-sm border border-border",
+                          isDeleted && "italic opacity-70"
+                        )}>
+                          {hasContent && <p>{msg.content}</p>}
+                          {hasAttach && !isDeleted && (
+                            <AttachmentBubble
+                              url={msg.attachment_url!}
+                              name={msg.attachment_name}
+                              type={msg.attachment_type}
+                              isMine={isMine}
+                            />
+                          )}
+                        </div>
                       </div>
                       <span className="text-[9px] text-foreground-muted mt-0.5 mx-2">{format(new Date(msg.created_at), 'HH:mm')}</span>
                     </div>

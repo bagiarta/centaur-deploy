@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { 
   Database, Play, CheckCircle, XCircle, ChevronDown, ChevronRight, ChevronLeft, Server, 
   Activity, Search, Trash2, Filter, Info, Save, Clock, Download, ShieldAlert,
-  BarChart, LineChart, PieChart, LayoutDashboard
+  BarChart, LineChart, PieChart, LayoutDashboard, Edit2
 } from "lucide-react";
 import { PageHeader, SectionCard } from "@/components/ui-enterprise";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,10 @@ export default function RemoteSqlPage() {
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   const [editorView, setEditorView] = useState<any>(null);
   const [devicesCollapsed, setDevicesCollapsed] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateSortBy, setTemplateSortBy] = useState<"name_asc" | "name_desc" | "newest" | "oldest">("newest");
+  const [selectedGroupFilter, setSelectedGroupFilter] = useState("All");
+  const [customGroups, setCustomGroups] = useState<string[]>([]);
 
   // Database & Table Explorer State
   const [availableDatabases, setAvailableDatabases] = useState<string[]>([]);
@@ -264,6 +268,7 @@ export default function RemoteSqlPage() {
   const saveTemplate = async () => {
     let name = "";
     let desc = "";
+    let templateGroup = "General";
     let method = 'POST';
     let url = '/api/sql/templates';
 
@@ -274,22 +279,27 @@ export default function RemoteSqlPage() {
         url = `/api/sql/templates/${activeTemplateId}`;
         name = existing?.name || "";
         desc = existing?.description || "";
+        templateGroup = existing?.template_group || "General";
       } else {
         const newName = prompt("Enter new template name:");
         if (!newName) return;
         name = newName;
+        const newGroup = prompt("Enter template group:", "General");
+        templateGroup = newGroup || "General";
       }
     } else {
       const newName = prompt("Enter template name:");
       if (!newName) return;
       name = newName;
+      const newGroup = prompt("Enter template group:", "General");
+      templateGroup = newGroup || "General";
     }
 
     try {
       await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description: desc, script })
+        body: JSON.stringify({ name, description: desc, script, template_group: templateGroup })
       });
       // Refresh templates
       const res = await fetch('/api/sql/templates');
@@ -317,6 +327,52 @@ export default function RemoteSqlPage() {
       alert("Failed to delete template.");
     }
   };
+
+  const renameTemplate = async (t: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newName = prompt("Rename template to:", t.name);
+    if (newName === null) return;
+    const newGroup = prompt("Enter template group / category:", t.template_group || "General");
+    if (newGroup === null) return;
+
+    try {
+      await fetch(`/api/sql/templates/${t.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          name: newName || t.name, 
+          description: t.description, 
+          script: t.script,
+          template_group: newGroup || "General"
+        })
+      });
+      toast.success("Template updated successfully!");
+      const res = await fetch('/api/sql/templates');
+      setTemplates(await res.json());
+    } catch (err) {
+      toast.error("Failed to update template.");
+    }
+  };
+
+  const uniqueGroups = Array.from(new Set(["General", ...templates.map(t => t.template_group || "General"), ...customGroups]));
+
+  const filteredTemplates = templates
+    .filter(t => {
+      const matchesSearch = t.name.toLowerCase().includes(templateSearch.toLowerCase()) || 
+        (t.description || "").toLowerCase().includes(templateSearch.toLowerCase()) ||
+        (t.template_group || "General").toLowerCase().includes(templateSearch.toLowerCase());
+      
+      if (selectedGroupFilter === "All") return matchesSearch;
+      return matchesSearch && (t.template_group || "General") === selectedGroupFilter;
+    })
+    .sort((a, b) => {
+      if (templateSortBy === "name_asc") return a.name.localeCompare(b.name);
+      if (templateSortBy === "name_desc") return b.name.localeCompare(a.name);
+      if (templateSortBy === "oldest") return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    });
+
+  const activeTemplate = templates.find(t => t.id === activeTemplateId);
 
   const handleSchedule = async () => {
     if (!scheduleName || !scheduleTime) return alert("Fill all schedule fields.");
@@ -576,6 +632,19 @@ export default function RemoteSqlPage() {
                     </select>
                   </div>
                 )}
+                {activeTemplate && (
+                  <div className="flex items-center gap-1.5 bg-info/10 text-info border border-info/20 px-2.5 py-1 rounded-md text-[10px] font-bold shadow-sm">
+                    <span className="opacity-70">Active:</span>
+                    <span className="underline decoration-dotted truncate max-w-[100px] md:max-w-[150px]">{activeTemplate.name}</span>
+                    <button 
+                      onClick={() => setActiveTemplateId(null)}
+                      className="ml-1 text-foreground-subtle hover:text-danger text-xs font-black transition-colors leading-none"
+                      title="Clear Active Template"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
                 <div className="h-4 w-px bg-border mx-1" />
                 <button  
                   onClick={() => setShowTemplates(!showTemplates)}
@@ -601,29 +670,109 @@ export default function RemoteSqlPage() {
             </div>
             
             {showTemplates && (
-              <div className="absolute top-14 right-2 md:right-6 z-[100] w-64 bg-surface-overlay border border-border rounded-xl shadow-2xl p-2 animate-in fade-in slide-in-from-top-2">
-                <p className="text-[10px] font-bold text-foreground-muted uppercase p-2 border-b border-border mb-1">Templates</p>
-                <div className="max-h-48 overflow-y-auto">
-                  {templates.map(t => (
-                    <div key={t.id} className="group relative">
-                      <button 
-                        onClick={() => { setScript(t.script); setActiveTemplateId(t.id); setShowTemplates(false); }}
-                        className={cn(
-                          "w-full text-left p-2 hover:bg-primary/10 rounded-lg transition-colors group flex flex-col",
-                          activeTemplateId === t.id && "bg-primary/10"
-                        )}
-                      >
-                        <p className="text-xs font-bold truncate group-hover:text-primary">{t.name}</p>
-                        <p className="text-[10px] text-foreground-muted truncate line-clamp-1">{t.description}</p>
-                      </button>
-                      <button 
-                        onClick={(e) => deleteTemplate(t.id, e)}
-                        className="absolute right-2 top-2 p-1 text-foreground-muted hover:text-danger opacity-0 group-hover:opacity-100 transition-all"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
+              <div className="absolute top-14 right-2 md:right-6 z-[100] w-72 bg-surface-overlay border border-border rounded-xl shadow-2xl p-3 animate-in fade-in slide-in-from-top-2 flex flex-col gap-2">
+                <div className="flex items-center justify-between border-b border-border pb-1">
+                  <p className="text-[10px] font-bold text-foreground-muted uppercase">Templates ({filteredTemplates.length})</p>
+                </div>
+                
+                {/* Search and Sort controls */}
+                <div className="space-y-1.5 py-1">
+                  <input 
+                    placeholder="Search templates..."
+                    className="w-full px-2 py-1 text-[11px] bg-background border border-border rounded focus:ring-1 focus:ring-primary outline-none"
+                    value={templateSearch}
+                    onChange={e => setTemplateSearch(e.target.value)}
+                  />
+                  <select 
+                    className="w-full text-[10px] bg-background border border-border rounded py-1 px-1 focus:ring-1 focus:ring-primary outline-none font-medium"
+                    value={templateSortBy}
+                    onChange={e => setTemplateSortBy(e.target.value as any)}
+                  >
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="name_asc">Name (A-Z)</option>
+                    <option value="name_desc">Name (Z-A)</option>
+                  </select>
+                </div>
+
+                {/* Group tabs with horizontal scroll */}
+                <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-border/50 max-w-full custom-scrollbar scrollbar-thin">
+                  <button 
+                    onClick={() => setSelectedGroupFilter("All")}
+                    className={cn(
+                      "px-2 py-0.5 text-[10px] font-bold rounded-md border shrink-0 transition-all",
+                      selectedGroupFilter === "All" 
+                        ? "bg-primary text-primary-foreground border-primary" 
+                        : "bg-surface border-border hover:bg-surface-raised"
+                    )}
+                  >
+                    All
+                  </button>
+                  {uniqueGroups.map(g => (
+                    <button 
+                      key={g}
+                      onClick={() => setSelectedGroupFilter(g)}
+                      className={cn(
+                        "px-2 py-0.5 text-[10px] font-bold rounded-md border shrink-0 transition-all",
+                        selectedGroupFilter === g 
+                          ? "bg-primary text-primary-foreground border-primary" 
+                          : "bg-surface border-border hover:bg-surface-raised"
+                      )}
+                    >
+                      {g}
+                    </button>
                   ))}
+                  <button 
+                    onClick={() => {
+                      const newG = prompt("Enter new group name:");
+                      if (newG && !uniqueGroups.includes(newG)) {
+                        setCustomGroups(prev => [...prev, newG]);
+                        setSelectedGroupFilter(newG);
+                        toast.success(`Group "${newG}" added! You can now assign templates to it.`);
+                      }
+                    }}
+                    className="px-2 py-0.5 text-[10px] font-bold rounded-md border border-dashed border-primary text-primary shrink-0 hover:bg-primary/5 transition-all flex items-center gap-0.5"
+                  >
+                    + Add Group
+                  </button>
+                </div>
+
+                <div className="max-h-48 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                  {filteredTemplates.length === 0 ? (
+                    <p className="text-[10px] text-center text-foreground-muted py-4">No templates found.</p>
+                  ) : (
+                    filteredTemplates.map(t => (
+                      <div key={t.id} className="group relative rounded hover:bg-primary/5 p-1 transition-all">
+                        <button 
+                          onClick={() => { setScript(t.script); setActiveTemplateId(t.id); setShowTemplates(false); }}
+                          className={cn(
+                            "w-full text-left p-1.5 rounded transition-colors flex flex-col pr-14",
+                            activeTemplateId === t.id && "bg-primary/10"
+                          )}
+                        >
+                          <p className="text-xs font-bold truncate group-hover:text-primary leading-tight">{t.name}</p>
+                          <p className="text-[9px] text-foreground-muted truncate line-clamp-1 mt-0.5">{t.description || "No description"}</p>
+                          <span className="text-[8px] bg-primary/10 text-primary font-mono px-1 py-0.5 rounded uppercase mt-1 self-start">{t.template_group || "General"}</span>
+                        </button>
+                        <div className="absolute right-1 top-2.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={(e) => renameTemplate(t, e)}
+                            className="p-1 text-foreground-muted hover:text-primary transition-all"
+                            title="Rename & Move Group"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                          <button 
+                            onClick={(e) => deleteTemplate(t.id, e)}
+                            className="p-1 text-foreground-muted hover:text-danger transition-all"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
