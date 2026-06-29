@@ -1,6 +1,9 @@
 param(
-    [string]$ServerUrl = "http://192.168.85.30:3001"
+    [string]$ServerUrl = "https://192.168.85.30:3001"
 )
+
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
 # Elevate privileges if not running as admin
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -67,7 +70,9 @@ try {
     # Try multiple times in case of locks
     for ($i=1; $i -le 3; $i++) {
         try {
-            Invoke-WebRequest -Uri $agentUrl -OutFile $agentPath -ErrorAction Stop
+            $wc = New-Object System.Net.WebClient
+            $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+            $wc.DownloadFile($agentUrl, $agentPath)
             break
         } catch {
             if ($i -eq 3) { throw $_ }

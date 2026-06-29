@@ -1,7 +1,10 @@
 param(
-    [string]$ServerUrl = "http://192.168.85.30:3001",
+    [string]$ServerUrl = "https://192.168.85.30:3001",
     [string]$InstallPath = "C:\Program Files\PepiUpdaterAgent"
 )
+
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
 $Hostname = $env:COMPUTERNAME
 
@@ -49,7 +52,10 @@ try {
 # 2. Check for Deployments
 try {
     $PendingUrl = "$ServerUrl/api/agent/pending?hostname=$Hostname"
-    $tasks = Invoke-RestMethod -Uri $PendingUrl -Method Get -ErrorAction Stop
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+    $json = $wc.DownloadString($PendingUrl)
+    $tasks = $json | ConvertFrom-Json
 
     foreach ($task in $tasks) {
         Write-AgentLog "Processing deployment task: $($task.deployment_id) - Package: $($task.pkg_name)"
@@ -59,7 +65,9 @@ try {
         
         # Download Package
         Write-AgentLog "Downloading package from $downloadUrl to $tempZip"
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -ErrorAction Stop
+        $wcDownload = New-Object System.Net.WebClient
+        $wcDownload.Headers.Add("User-Agent", "Mozilla/5.0")
+        $wcDownload.DownloadFile($downloadUrl, $tempZip)
 
         $TargetFolder = $task.target_path
         
@@ -123,7 +131,10 @@ try {
 # 3. Check for PowerShell Commands
 try {
     $CommandUrl = "$ServerUrl/api/agent/commands?hostname=$Hostname"
-    $psTasks = Invoke-RestMethod -Uri $CommandUrl -Method Get -ErrorAction Stop
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+    $json = $wc.DownloadString($CommandUrl)
+    $psTasks = $json | ConvertFrom-Json
 
     foreach ($psTask in $psTasks) {
         Write-AgentLog "Processing PS command task: $($psTask.id)"

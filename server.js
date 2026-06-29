@@ -29,28 +29,34 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-let httpServer;
 const sslDir = path.resolve(__dirname, 'config', 'ssl');
 const keyPath = path.join(sslDir, 'server.key');
 const certPath = path.join(sslDir, 'centaur-ca.crt');
+
+const httpServer = createHttpServer(app);
+let httpsServer;
 
 if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
   const credentials = {
     key: fs.readFileSync(keyPath, 'utf8'),
     cert: fs.readFileSync(certPath, 'utf8')
   };
-  httpServer = createHttpsServer(credentials, app);
+  httpsServer = createHttpsServer(credentials, app);
   console.log('🔒 HTTPS Enabled (using certificates from config/ssl/)');
 } else {
-  httpServer = createHttpServer(app);
   console.log('🔓 HTTPS Disabled (no certificates found)');
 }
 
-const io = new SocketIOServer(httpServer, {
+const io = new SocketIOServer({
   cors: { origin: '*' }
 });
+io.attach(httpServer);
+if (httpsServer) {
+  io.attach(httpsServer);
+}
 
 const port = process.env.PORT || 3001;
+const httpsPort = process.env.HTTPS_PORT || 3002;
 const REPO_PATH = path.resolve('F:\\PepiUpdater\\Repo');
 
 // Ensure Repo path exists
@@ -286,5 +292,11 @@ io.on('connection', (socket) => {
 });
 
 httpServer.listen(port, () => {
-  console.log(`🚀 Modular Server running on port ${port} (ES Modules + Socket.io)`);
+  console.log(`🚀 HTTP Server running on port ${port} (ES Modules + Socket.io)`);
 });
+
+if (httpsServer) {
+  httpsServer.listen(httpsPort, () => {
+    console.log(`🔒 HTTPS Server running on port ${httpsPort} (ES Modules + Socket.io)`);
+  });
+}

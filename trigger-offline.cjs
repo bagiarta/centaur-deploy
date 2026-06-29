@@ -131,6 +131,22 @@ async function runDetector() {
       options: { encrypt: false, trustServerCertificate: true }
     });
 
+    // Keep behavior consistent with in-app settings (same table used by server background detector)
+    let heartbeatTimeoutMins = 5;
+    try {
+      const settingsRes = await pool.request().query("SELECT TOP 1 alert_offline, offline_timeout_mins FROM NotificationSettings WHERE id = 'global'");
+      const settings = settingsRes.recordset?.[0];
+      if (settings && settings.alert_offline === false) {
+        console.log("[SKIP] Offline alerting disabled (NotificationSettings.alert_offline = false).");
+        process.exit(0);
+      }
+      if (settings && Number.isFinite(Number(settings.offline_timeout_mins))) {
+        heartbeatTimeoutMins = Number(settings.offline_timeout_mins);
+      }
+    } catch (e) {
+      // If settings table isn't ready, fall back to safe defaults.
+    }
+
     console.log("1. Fetching all devices for analysis...");
     const res = await pool.request().query("SELECT * FROM Devices");
     const allDevices = res.recordset;
@@ -148,8 +164,10 @@ async function runDetector() {
       if (!lastSeenDate) continue;
 
       // Calculate heartbeat diff
-      const diffMins = Math.abs(now - lastSeenDate) / (1000 * 60);
-      const isHeartbeatStale = diffMins > 5;
+      // Avoid false positives when `last_seen` parses into a future timestamp (timezone/format issues)
+      const diffMs = now.getTime() - lastSeenDate.getTime();
+      const diffMins = Math.max(0, diffMs / (1000 * 60));
+      const isHeartbeatStale = diffMins > heartbeatTimeoutMins;
       
       const lastWebhookAlert = d.last_offline_alert_at ? new Date(d.last_offline_alert_at) : null;
       const lastWhatsappAlert = d.last_whatsapp_alert_at ? new Date(d.last_whatsapp_alert_at) : null;
