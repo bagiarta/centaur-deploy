@@ -1,27 +1,27 @@
-# --- Centaur Deploy Agent v2.7.4 ---
+# --- Centaur Deploy Agent v2.7.5 ---
 # Capabilities:
 #   1. Send hardware/resource heartbeat
 #   2. Self-update check (download new version if server has newer)
 #   3. Poll and execute pending remote commands, report results
 #   4. Poll and execute pending file deployments
 param(
-    [string]$ServerUrl = "https://192.168.85.30:3001"
+    [string]$ServerUrl = "http://192.168.85.30:3001"
 )
 
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
-$Version    = "2.7.4"
-$Hostname   = $env:COMPUTERNAME
+$Version = "2.7.5"
+$Hostname = $env:COMPUTERNAME
 # --- IP Selection Logic (Prioritize Internal IPv4) ---
 $allIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" }
 
 # 1. Try RFC 1918 Private Ranges (Highest Priority)
 $IPAddress = ($allIPs | Where-Object { 
-    $_.IPAddress -match "^10\." -or 
-    $_.IPAddress -match "^172\.(1[6-9]|2[0-9]|3[01])\." -or 
-    $_.IPAddress -match "^192\.168\."
-} | Select-Object -First 1).IPAddress
+        $_.IPAddress -match "^10\." -or 
+        $_.IPAddress -match "^172\.(1[6-9]|2[0-9]|3[01])\." -or 
+        $_.IPAddress -match "^192\.168\."
+    } | Select-Object -First 1).IPAddress
 
 # 2. Try APIPA / Link-Local (Second Priority)
 if (!$IPAddress) {
@@ -32,21 +32,22 @@ if (!$IPAddress) {
 if (!$IPAddress) {
     $IPAddress = ($allIPs | Select-Object -First 1).IPAddress
 }
-$AgentDir   = "C:\Program Files\PepiUpdaterAgent"
-$AgentFile  = "CentaurAgent_v25.ps1"
-$AgentPath  = "$AgentDir\$AgentFile"
-$LogPath    = "C:\Windows\Temp\centaur_agent.log"
+$AgentDir = "C:\Program Files\PepiUpdaterAgent"
+$AgentFile = "CentaurAgent_v25.ps1"
+$AgentPath = "$AgentDir\$AgentFile"
+$LogPath = "C:\Windows\Temp\centaur_agent.log"
 
 # Force correct server URL (never localhost)
 if (!$ServerUrl -or $ServerUrl -like "*localhost*" -or $ServerUrl -like "*127.0.0.1*") {
-    $ServerUrl = "https://192.168.85.30:3001"
+    $ServerUrl = "http://192.168.85.30:3001"
 }
 
 function Write-Log($msg) {
     try {
         $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
         "$ts - $msg" | Out-File -FilePath $LogPath -Append -ErrorAction SilentlyContinue
-    } catch { }
+    }
+    catch { }
     Write-Host $msg
 }
 
@@ -80,7 +81,7 @@ try {
     Write-Log "[Update] Local: v$Version | Server: v$serverVersion"
 
     # Compare versions — download if server is newer
-    $localParsed  = [Version]$Version
+    $localParsed = [Version]$Version
     $serverParsed = [Version]$serverVersion
 
     if ($serverParsed -gt $localParsed) {
@@ -92,10 +93,12 @@ try {
         Copy-Item -Path $TempPath -Destination $AgentPath -Force -ErrorAction Stop
         Write-Log "[Update] Agent updated to v$serverVersion. Exiting for next scheduler run to pick up new script."
         exit 0
-    } else {
+    }
+    else {
         Write-Log "[Update] Already up to date."
     }
-} catch {
+}
+catch {
     Write-Log "[Update] Could not check version: $($_.Exception.Message). Continuing with current version."
 }
 
@@ -104,13 +107,13 @@ try {
 # ─────────────────────────────────────────────────────────
 Write-Log "[Metrics] Gathering system metrics..."
 try {
-    $cpu       = (Get-WmiObject win32_processor | Measure-Object -Property LoadPercentage -Average).Average
+    $cpu = (Get-WmiObject win32_processor | Measure-Object -Property LoadPercentage -Average).Average
     if (!$cpu) { $cpu = 0 }
 
-    $os        = Get-WmiObject win32_operatingsystem
-    $totalRam  = [Math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
-    $freeRam   = [Math]::Round($os.FreePhysicalMemory / 1MB, 2)
-    $ramInfo   = "$([Math]::Round(($totalRam - $freeRam), 2))GB / $($totalRam)GB"
+    $os = Get-WmiObject win32_operatingsystem
+    $totalRam = [Math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
+    $freeRam = [Math]::Round($os.FreePhysicalMemory / 1MB, 2)
+    $ramInfo = "$([Math]::Round(($totalRam - $freeRam), 2))GB / $($totalRam)GB"
 
     $disks = Get-WmiObject win32_logicaldisk -Filter "DriveType=3"
     $diskInfoParts = @()
@@ -125,7 +128,8 @@ try {
     $diskInfo = $diskInfoParts -join " | "
 
     $osVersion = $os.Caption
-} catch {
+}
+catch {
     Write-Log "[Metrics] Warning: $($_.Exception.Message)"
     $cpu = 0; $ramInfo = "N/A"; $diskInfo = "N/A"; $osVersion = "Windows"
 }
@@ -144,14 +148,16 @@ try {
         agent_version = $Version
         os_version    = $osVersion
     }
-    $json     = $heartbeatData | ConvertTo-Json
+    $json = $heartbeatData | ConvertTo-Json
     $response = Invoke-RestMethod -Uri "$ServerUrl/api/agent/heartbeat" -Method Post -Body $json -ContentType "application/json" -TimeoutSec 15 -ErrorAction Stop
     if ($response.status -eq "ok") {
         Write-Log "[Heartbeat] OK: Received by server."
-    } else {
+    }
+    else {
         Write-Log "[Heartbeat] WARNING: Server status: $($response.status)"
     }
-} catch {
+}
+catch {
     Write-Log "[Heartbeat] FAILED: $($_.Exception.Message). Check server connectivity or URL ($ServerUrl)."
 }
 
@@ -188,7 +194,8 @@ try {
 
     Invoke-RestMethod -Uri "$ServerUrl/api/agent/software-inventory" -Method Post -Body $invPayload -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop | Out-Null
     Write-Log "[Inventory] Reported $($unique.Count) applications to server."
-} catch {
+}
+catch {
     Write-Log "[Inventory] Error: $($_.Exception.Message)"
 }
 
@@ -197,38 +204,40 @@ try {
 # ─────────────────────────────────────────────────────────
 Write-Log "[Commands] Polling for pending commands..."
 try {
-    $pendingUrl  = "$ServerUrl/api/agent/pending?hostname=$([uri]::EscapeDataString($Hostname))"
+    $pendingUrl = "$ServerUrl/api/agent/pending?hostname=$([uri]::EscapeDataString($Hostname))"
     $wc = New-Object System.Net.WebClient
     $wc.Headers.Add("User-Agent", "Mozilla/5.0")
     $json = $wc.DownloadString($pendingUrl)
     $pendingResp = $json | ConvertFrom-Json
-    $commands    = $pendingResp.commands
+    $commands = $pendingResp.commands
 
     if ($commands -and $commands.Count -gt 0) {
         Write-Log "[Commands] Found $($commands.Count) pending command(s)."
 
         foreach ($cmd in $commands) {
-            $cmdId   = $cmd.id
-            $execId  = $cmd.exec_id
-            $script  = $cmd.command
+            $cmdId = $cmd.id
+            $execId = $cmd.exec_id
+            $script = $cmd.command
 
             Write-Log "[Commands] Executing command ID=$cmdId ..."
 
             $resultStatus = "success"
-            $resultLog    = ""
+            $resultLog = ""
 
             try {
-                # Execute the command in a subprocess and capture output
-                $output = & powershell.exe -ExecutionPolicy Bypass -NonInteractive -Command $script 2>&1
-                $resultLog = ($output | Out-String).Trim()
+                # Execute the queued command in-process so it works reliably even when child PowerShell access is restricted
+                $scriptBlock = [scriptblock]::Create($script)
+                $output = & $scriptBlock 2>&1
+                $resultLog = ($output | ForEach-Object { $_.ToString() } | Out-String).Trim()
                 if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
                     $resultStatus = "failed"
                     if (!$resultLog) { $resultLog = "Command exited with code $LASTEXITCODE" }
                 }
                 Write-Log "[Commands] Done. Status=$resultStatus"
-            } catch {
+            }
+            catch {
                 $resultStatus = "failed"
-                $resultLog    = $_.Exception.Message
+                $resultLog = $_.Exception.Message
                 Write-Log "[Commands] Error: $resultLog"
             }
 
@@ -244,14 +253,17 @@ try {
             try {
                 Invoke-RestMethod -Uri "$ServerUrl/api/agent/command-result" -Method Post -Body $resultPayload -ContentType "application/json" -TimeoutSec 15 -ErrorAction Stop
                 Write-Log "[Commands] Result reported for command ID=$cmdId."
-            } catch {
+            }
+            catch {
                 Write-Log "[Commands] Failed to report result: $($_.Exception.Message)"
             }
         }
-    } else {
+    }
+    else {
         Write-Log "[Commands] No pending commands."
     }
-} catch {
+}
+catch {
     Write-Log "[Commands] Polling error: $($_.Exception.Message)"
 }
 
@@ -260,7 +272,7 @@ try {
 # ─────────────────────────────────────────────────────────
 Write-Log "[Deployments] Polling for pending deployments..."
 try {
-    $depsUrl  = "$ServerUrl/api/agent/pending-deployments?hostname=$([uri]::EscapeDataString($Hostname))"
+    $depsUrl = "$ServerUrl/api/agent/pending-deployments?hostname=$([uri]::EscapeDataString($Hostname))"
     $wc = New-Object System.Net.WebClient
     $wc.Headers.Add("User-Agent", "Mozilla/5.0")
     $json = $wc.DownloadString($depsUrl)
@@ -271,11 +283,11 @@ try {
         Write-Log "[Deployments] Found $($deployments.Count) pending deployment(s)."
 
         foreach ($dep in $deployments) {
-            $depId      = $dep.deployment_id
-            $devId      = $dep.device_id
-            $pkgName    = $dep.package_name
-            $fileName   = $dep.file_name
-            $targetDir  = $dep.target_path
+            $depId = $dep.deployment_id
+            $devId = $dep.device_id
+            $pkgName = $dep.package_name
+            $fileName = $dep.file_name
+            $targetDir = $dep.target_path
 
             Write-Log "[Deployments] Starting deployment: $pkgName ($fileName)"
 
@@ -295,7 +307,7 @@ try {
                 }
 
                 $downloadUrl = "$ServerUrl/api/packages/download/$fileName"
-                $localFile   = Join-Path -Path $targetDir -ChildPath $fileName
+                $localFile = Join-Path -Path $targetDir -ChildPath $fileName
 
                 Write-Log "[Deployments] Downloading from $downloadUrl to $localFile..."
                 $wcDownload = New-Object System.Net.WebClient
@@ -312,13 +324,16 @@ try {
                 if ($localFile -match "\.msi$") {
                     $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$localFile`" /qn /norestart" -Wait -NoNewWindow -PassThru
                     $execLog = "MSI Exit Code: $($process.ExitCode)"
-                } elseif ($localFile -match "\.exe$") {
+                }
+                elseif ($localFile -match "\.exe$") {
                     $process = Start-Process -FilePath $localFile -ArgumentList "/S /silent /quiet" -Wait -NoNewWindow -PassThru
                     $execLog = "EXE Exit Code: $($process.ExitCode)"
-                } elseif ($localFile -match "\.ps1$") {
+                }
+                elseif ($localFile -match "\.ps1$") {
                     $output = & powershell.exe -ExecutionPolicy Bypass -NonInteractive -File $localFile 2>&1
                     $execLog = ($output | Out-String).Trim()
-                } else {
+                }
+                else {
                     $execLog = "Downloaded (Not executed. Unsupported extension)."
                 }
                 
@@ -333,7 +348,8 @@ try {
                 } | ConvertTo-Json
                 try { Invoke-RestMethod -Uri "$ServerUrl/api/agent/deploy-status" -Method Post -Body $statusPayload -ContentType "application/json" -TimeoutSec 15 -ErrorAction SilentlyContinue } catch {}
 
-            } catch {
+            }
+            catch {
                 $err = $_.Exception.Message
                 Write-Log "[Deployments] Error: $err"
                 $statusPayload = @{
@@ -346,10 +362,12 @@ try {
                 try { Invoke-RestMethod -Uri "$ServerUrl/api/agent/deploy-status" -Method Post -Body $statusPayload -ContentType "application/json" -TimeoutSec 15 -ErrorAction SilentlyContinue } catch {}
             }
         }
-    } else {
+    }
+    else {
         Write-Log "[Deployments] No pending deployments."
     }
-} catch {
+}
+catch {
     Write-Log "[Deployments] Polling error: $($_.Exception.Message)"
 }
 

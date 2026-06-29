@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Upload PLU Template</title>
+  <style>
+    body {font-family: 'Inter', sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh;}
+    .card {background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.1); width: 100%; max-width: 400px;}
+    h1 {margin-bottom: 1rem; font-size: 1.5rem; text-align: center;}
+    input[type=file] {width: 100%; margin-bottom: 1rem;}
+    button {background: #0066ff; color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; width: 100%; font-size: 1rem;}
+    button:hover {background: #0052cc;}
+    .msg {margin-top: 1rem; text-align: center;}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Upload PLU Template</h1>
+    <form id="uploadForm" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".csv,.xls,.xlsx" required />
+      <button type="submit">Upload</button>
+    </form>
+    <div class="msg" id="msg"></div>
+  </div>
+  <script>
+    const form = document.getElementById('uploadForm');
+    const msg = document.getElementById('msg');
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const data = new FormData(form);
+      try {
+        const res = await fetch('/api/templates/upload', {method: 'POST', body: data});
+        const json = await res.json();
+        if (res.ok) {
+          msg.textContent = '✅ Uploaded successfully: ' + json.path;
+          msg.style.color = 'green';
+        } else {
+          msg.textContent = '❌ Error: ' + (json.error || 'Upload failed');
+          msg.style.color = 'red';
+        }
+      } catch (err) {
+        msg.textContent = '❌ Network error';
+        msg.style.color = 'red';
+      }
+    });
+  </script>
+</body>
+</html>

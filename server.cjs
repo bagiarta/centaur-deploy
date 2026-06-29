@@ -2207,9 +2207,12 @@ app.post('/api/deployments', async (req, res) => {
 
 // ── POST /api/agent/heartbeat ──────────────────────────
 app.post('/api/agent/heartbeat', async (req, res) => {
+  const hostname = req.body?.hostname || 'unknown';
   try {
-    const { hostname, ip, cpu, ram, disk, agent_version, os_version } = req.body;
-    if (!hostname) return res.status(400).json({ error: "Hostname is required" });
+    const { ip, cpu, ram, disk, agent_version, os_version } = req.body;
+    if (!hostname || hostname === 'unknown') {
+      return res.status(400).json({ error: "Hostname is required" });
+    }
 
     const pool = await poolPromise;
     const now = new Date().toISOString();
@@ -2217,8 +2220,10 @@ app.post('/api/agent/heartbeat', async (req, res) => {
     // Deterministic ID based on hostname to avoid collisions
     const safeId = `dev-${hostname.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 
-    // Atomic MERGE for registration and updates
-    await pool.request()
+    console.log(`[AGENT_HEARTBEAT] Received from ${hostname} | IP: ${ip} | CPU: ${cpu} | RAM: ${ram} | DISK: ${disk}`);
+
+    // Atomic MERGE for registration and updates (removed HOLDLOCK to prevent deadlock)
+    const result = await pool.request()
       .input('id', sql.NVarChar, safeId)
       .input('h', sql.NVarChar, hostname)
       .input('ip', sql.NVarChar, ip || '0.0.0.0')
@@ -2229,7 +2234,7 @@ app.post('/api/agent/heartbeat', async (req, res) => {
       .input('os', sql.NVarChar, os_version || 'Windows')
       .input('seen', sql.NVarChar, now)
       .query(`
-        MERGE INTO Devices WITH (HOLDLOCK) AS target
+        MERGE INTO Devices AS target
         USING (SELECT @h AS hostname) AS source
         ON target.hostname = source.hostname
         WHEN MATCHED THEN
@@ -2241,6 +2246,13 @@ app.post('/api/agent/heartbeat', async (req, res) => {
           INSERT (id, hostname, ip, os_version, status, last_seen, cpu, ram, disk, agent_version)
           VALUES (@id, @h, @ip, @os, 'online', @seen, @cpu, @ram, @disk, @ver);
       `);
+
+    // Verify update was successful
+    if (result.rowsAffected && result.rowsAffected[0] > 0) {
+      console.log(`[AGENT_HEARTBEAT] ✓ Database updated for ${hostname} (${result.rowsAffected[0]} row(s) affected)`);
+    } else {
+      console.warn(`[AGENT_HEARTBEAT] ⚠ No rows affected for ${hostname} - possible DB issue`);
+    }
 
     // Fetch config for auto-update response
     const configRes = await pool.request().query("SELECT [key], [value] FROM SystemConfigs WHERE [key] IN ('LATEST_AGENT_VERSION', 'AGENT_UPDATE_URL')");
@@ -2255,8 +2267,12 @@ app.post('/api/agent/heartbeat', async (req, res) => {
     });
 
   } catch (err) {
-    console.error(`[AGENT] Heartbeat error for ${req.body?.hostname || 'unknown'}:`, err.message);
-    res.status(500).json({ error: err.message });
+    console.error(`[AGENT_HEARTBEAT] ✗ Error for ${hostname}:`);
+    console.error(`  Message: ${err.message}`);
+    console.error(`  Code: ${err.code}`);
+    console.error(`  State: ${err.state}`);
+    console.error(`  Stack: ${err.stack}`);
+    res.status(500).json({ error: err.message, code: err.code });
   }
 });
 
@@ -2380,10 +2396,10 @@ app.get('/api/agent/version', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT [value] FROM SystemConfigs WHERE [key] = 'LATEST_AGENT_VERSION'");
-    const version = result.recordset[0]?.value || '2.5.0';
+    const version = result.recordset[0]?.value || '2.7.5';
     res.json({ version });
   } catch (err) {
-    res.json({ version: '2.5.0' });
+    res.json({ version: '2.7.5' });
   }
 });
 
@@ -4260,6 +4276,20 @@ app.post('/api/reports/trigger-daily-tickets', async (req, res) => {
   res.json({ message: "Daily ticket notification triggered manually." });
 });
 
+// ABC Analysis Sync
+const { runSync: runAbcSync } = require('./scripts/sync_abc_analysis.cjs');
+
+// Schedule Daily ABC Analysis Sync: Every day at 00:00 (midnight)
+cron.schedule('0 0 * * *', () => {
+  runAbcSync();
+});
+
+// Manual trigger for ABC Analysis Sync
+app.post('/api/reports/trigger-abc-sync', async (req, res) => {
+  runAbcSync();
+  res.json({ message: "ABC Analysis sync triggered manually in the background." });
+});
+
 // Serve Weekly Reports Folder
 app.use('/reports/weekly', express.static(path.join(__dirname, 'reports', 'weekly')));
 
@@ -4539,11 +4569,28 @@ function formatKeywordRows(rows) {
 
 async function executeKeywordSql(pool, keyword, args) {
   const parameterKeys = parseKeywordParameterKeys(keyword.parameter_keys);
-  const missingParameters = parameterKeys.filter((key) => args[key] === undefined);
-  if (missingParameters.length > 0) {
+  
+  // Case-insensitive parameter matching
+  const caseInsensitiveMissingParameters = parameterKeys.filter((key) => {
+    // Check exact match first
+    if (args[key] !== undefined) return false;
+    
+    // Check case-insensitive match
+    const lowerKey = key.toLowerCase();
+    const foundKey = Object.keys(args).find(argKey => argKey.toLowerCase() === lowerKey);
+    if (foundKey !== undefined) {
+      // Copy the value to the expected key name for backward compatibility
+      args[key] = args[foundKey];
+      return false;
+    }
+    
+    return true; // Parameter is truly missing
+  });
+  
+  if (caseInsensitiveMissingParameters.length > 0) {
     return {
       handled: true,
-      text: buildMissingParameterPrompt(keyword, missingParameters, args),
+      text: buildMissingParameterPrompt(keyword, caseInsensitiveMissingParameters, args),
       sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Missing required parameters' }]
     };
   }
@@ -4753,14 +4800,6 @@ async function resolveAssistantKeyword(pool, currUser, prompt) {
 
   if (!matchedKeyword) {
     return null;
-  }
-
-  if (matchedKeyword.action_type === 'procedure' && !currUser.is_admin) {
-    return {
-      handled: true,
-      text: `Keyword procedure \`${matchedKeyword.keyword}\` hanya boleh dijalankan oleh administrator.`,
-      sources: [{ type: 'keyword', label: matchedKeyword.keyword, detail: 'Admin only procedure keyword' }]
-    };
   }
 
   if (matchedKeyword.requires_admin && !currUser.is_admin) {
@@ -5142,7 +5181,21 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
     });
   } catch (err) {
     console.error('[AI Chat Error]', err);
-    res.status(500).json({ error: "Assistant failed: " + err.message });
+    
+    // Custom error message untuk user yang lebih informatif
+    let userFriendlyMessage = "Maaf, AI Assistant mengalami kendala teknis. ";
+    
+    if (err.message && err.message.includes('404 No endpoints found')) {
+      userFriendlyMessage = "ℹ️ AI Assistant ini bersifat local-based yang berfungsi sebagai tools bantu khusus untuk sistem Pepinet saja. " +
+                           "Fitur ini dirancang untuk membantu operasional internal dan tidak terhubung dengan layanan AI eksternal.";
+    } else if (err.message && (err.message.includes('openrouter') || err.message.includes('API'))) {
+      userFriendlyMessage = "ℹ️ AI Assistant ini adalah sistem internal Pepinet yang berfungsi sebagai tools bantu operasional. " +
+                           "Sistem ini dirancang khusus untuk kebutuhan internal dan tidak memerlukan koneksi ke layanan AI eksternal.";
+    } else {
+      userFriendlyMessage += "Silakan coba lagi dalam beberapa saat atau hubungi tim IT jika masalah berlanjut.";
+    }
+    
+    res.status(500).json({ error: userFriendlyMessage });
   }
 });
 
@@ -5416,8 +5469,8 @@ app.get('/api/crm/reports/stores', async (req, res) => {
     const result = await crmPool.request().query(`
       SELECT DISTINCT ORG_CD AS org_cd, ORG_NAME AS org_name 
       FROM DimStore 
-      WHERE ORG_STATUS = 'O' AND ORG_LEVEL_NUMBER = 3 
-      ORDER BY ORG_NAME ASC
+      WHERE 1 = 1
+      ORDER BY ORG_CD ASC
     `);
     res.json(result.recordset);
   } catch (err) {

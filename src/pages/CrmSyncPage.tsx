@@ -323,12 +323,12 @@ export default function CrmSyncPage() {
                   onChange={(e) => setDays(Number(e.target.value))}
                   className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all appearance-none cursor-pointer"
                 >
-                  <option value={1}>Last 24 Hours</option>
-                  <option value={2}>Last 48 Hours</option>
-                  <option value={3}>Last 72 Hours</option>
-                  <option value={7}>Last 7 Days</option>
-                  <option value={14}>Last 14 Days</option>
-                  <option value={30}>Last 30 Days</option>
+                  <option value={1}>last 1 day</option>
+                  <option value={2}>last 2 days</option>
+                  <option value={3}>last 3 days</option>
+                  <option value={7}>last 7 days</option>
+                  <option value={14}>last 14 days</option>
+                  <option value={30}>last 30 days</option>
                 </select>
               </div>
 

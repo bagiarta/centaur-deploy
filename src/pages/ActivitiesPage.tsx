@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Tooltip
@@ -42,6 +42,8 @@ interface UserTask {
   id: number;
   user_id: string;
   username: string;
+  store_code?: string;
+  store_name?: string;
   title: string;
   description: string;
   start_date?: string;
@@ -49,6 +51,7 @@ interface UserTask {
   actual_completion_date: string;
   duration: string;
   status: string;
+  priority?: string;
   reason: string;
   solving_notes: string;
   created_at: string;
@@ -56,20 +59,49 @@ interface UserTask {
   category: string;
 }
 
+interface StoreOption {
+  store_code: string;
+  store_name: string;
+}
+
+interface UserOption {
+  id: string;
+  username: string;
+  full_name: string;
+}
+
+const getUserDisplayName = (userRecord?: UserOption | null) => {
+  return userRecord?.full_name || userRecord?.username || "";
+};
+
 export default function ActivitiesPage() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<UserTask[]>([]);
+  const [users, setUsers] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [userFilter, setUserFilter] = useState("All");
   const [categoryFilter, setCategoryFilter] = useState("All");
+  const [priorityFilter, setPriorityFilter] = useState("All");
+  const [storeFilter, setStoreFilter] = useState("All");
+  const [stores, setStores] = useState<StoreOption[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<UserTask | null>(null);
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [manualDateInput, setManualDateInput] = useState(false);
+
+  const getTaskOwnerDisplay = (username: string) => {
+    const matchedUser = users.find(user => user.username === username || user.id === username);
+    return getUserDisplayName(matchedUser) || username;
+  };
+
+  const getTaskOwnerHandle = (username: string) => {
+    const matchedUser = users.find(user => user.username === username || user.id === username);
+    return matchedUser?.username ? `@${matchedUser.username}` : `@${username}`;
+  };
 
   // Form State
   const [formData, setFormData] = useState({
@@ -82,14 +114,44 @@ export default function ActivitiesPage() {
     reason: "",
     solving_notes: "",
     actual_completion_date: "",
-    category: "General"
+    category: "General",
+    priority: "Normal",
+    store_code: "",
+    store_name: ""
   });
 
-  useEffect(() => {
-    fetchTasks();
-  }, [user]);
+  const fetchStores = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks/stores");
+      if (res.ok) {
+        const data = await res.json();
+        setStores(
+          [...data].sort((a, b) =>
+            String(a.store_code || "").localeCompare(String(b.store_code || ""), undefined, {
+              numeric: true,
+              sensitivity: "base"
+            })
+          )
+        );
+      }
+    } catch (err) {
+      toast.error("Failed to fetch store list");
+    }
+  }, []);
 
-  const fetchTasks = async () => {
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/users");
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+      }
+    } catch (err) {
+      toast.error("Failed to fetch users");
+    }
+  }, []);
+
+  const fetchTasks = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
@@ -108,7 +170,19 @@ export default function ActivitiesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  useEffect(() => {
+    fetchStores();
+  }, [fetchStores]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const handleOpenModal = (task: UserTask | null = null) => {
     if (task) {
@@ -123,7 +197,10 @@ export default function ActivitiesPage() {
         reason: task.reason || "",
         solving_notes: task.solving_notes || "",
         actual_completion_date: toLocalInput(task.actual_completion_date),
-        category: task.category || "General"
+        category: task.category || "General",
+        priority: task.priority || "Normal",
+        store_code: task.store_code || "",
+        store_name: task.store_name || ""
       });
     } else {
       setEditingTask(null);
@@ -137,7 +214,10 @@ export default function ActivitiesPage() {
         reason: "",
         solving_notes: "",
         actual_completion_date: "",
-        category: "General"
+        category: "General",
+        priority: "Normal",
+        store_code: "",
+        store_name: ""
       });
     }
     setIsModalOpen(true);
@@ -235,6 +315,8 @@ export default function ActivitiesPage() {
       const params = new URLSearchParams({
         status: statusFilter,
         userFilter: userFilter,
+        priority: priorityFilter,
+        store: storeFilter,
         startDate: startDate,
         endDate: endDate
       });
@@ -265,6 +347,8 @@ export default function ActivitiesPage() {
       t.username.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "All" || t.status === statusFilter;
     const matchesUser = userFilter === "All" || t.username === userFilter;
+    const matchesStore = storeFilter === "All" || t.store_code === storeFilter || t.store_name === storeFilter;
+    const matchesPriority = priorityFilter === "All" || (t.priority || "Normal") === priorityFilter;
 
     // Use local midnight boundaries so date filter matches what the user typed
     const taskDate = new Date(t.created_at).getTime();
@@ -273,10 +357,10 @@ export default function ActivitiesPage() {
 
     const matchesCategory = categoryFilter === "All" || t.category === categoryFilter;
 
-    return matchesSearch && matchesStatus && matchesUser && matchesStart && matchesEnd && matchesCategory;
+    return matchesSearch && matchesStatus && matchesUser && matchesStore && matchesPriority && matchesStart && matchesEnd && matchesCategory;
   });
 
-  const uniqueUsers = Array.from(new Set(tasks.map(t => t.username)));
+  const priorityOptions = ["Critical", "Urgent", "High", "Normal", "Low"];
 
   // Advanced Statistics & Competency Logic — all calculated from filteredTasks
   // so they always reflect the active search/filter/date range.
@@ -349,6 +433,14 @@ export default function ActivitiesPage() {
           cat === "Improvement" ? "#10b981" :
             cat === "Training" ? "#e905b7ff" : "#94a3b8"
   })).filter(d => d.value > 0);
+  const priorityData = priorityOptions.map(priority => ({
+    name: priority,
+    value: filteredTasks.filter(t => (t.priority || "Normal") === priority).length,
+    color: priority === "Critical" ? "#ef4444" :
+      priority === "Urgent" ? "#f97316" :
+        priority === "High" ? "#eab308" :
+          priority === "Normal" ? "#3b82f6" : "#94a3b8"
+  })).filter(d => d.value > 0);
 
   // Trend Data (Last 7 days) — from filteredTasks
   const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -375,109 +467,177 @@ export default function ActivitiesPage() {
   ].filter(d => d.value > 0);
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
-      <PageHeader
-        title="User Task Management"
-        subtitle="Manage your tasks and activities"
-        actions={
-          <div className="flex gap-2">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+      <div className="container mx-auto p-6 space-y-6">
+        {/* Header with Gradient */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 p-8 shadow-2xl">
+          <div className="absolute inset-0 bg-black/10"></div>
+          <div className="relative z-10 flex justify-between items-center text-white">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
+                  <ClipboardList className="w-8 h-8" />
+                </div>
+                <div>
+                  <h1 className="text-4xl font-bold tracking-tight">User Task Management</h1>
+                  <p className="text-teal-100 mt-1 text-lg">Manage your tasks and activities</p>
+                </div>
+              </div>
+            </div>
             <button
               onClick={() => handleOpenModal()}
-              className="relative group overflow-hidden px-6 py-2.5 bg-gradient-to-br from-primary to-primary/80 text-white rounded-xl font-bold text-sm shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/40 transition-all active:scale-95 flex items-center gap-2"
+              className="bg-white text-emerald-600 hover:bg-emerald-50 shadow-lg font-semibold px-6 py-3 rounded-lg flex items-center gap-2 transition-all"
             >
-              <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="absolute -inset-x-20 inset-y-0 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-[-20deg] translate-x-[-150%] group-hover:translate-x-[200%] transition-transform duration-1000" />
-              <Plus className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
+              <Plus className="w-5 h-5" />
               <span>Add New Activity</span>
             </button>
           </div>
-        }
-      />
+        </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard label="Total Task" value={stats.total} icon={<ClipboardList />} variant="primary" />
-        <StatCard label="Completed Task" value={stats.completed} icon={<CheckCircle />} variant="success" />
-        <StatCard label="Pending Task" value={stats.pending} icon={<Activity />} variant="warning" />
-        <StatCard label="Overdue Task" value={stats.overdue} icon={<AlertCircle />} variant="danger" />
+      {/* Summary Stats with Gradient Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {/* Total Tasks Card */}
+        <div className="border-0 shadow-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white overflow-hidden relative rounded-xl p-6">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2 bg-white/20 rounded-lg">
+                <ClipboardList className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="text-3xl font-bold">{stats.total}</div>
+            <p className="text-xs text-emerald-100 uppercase tracking-wider mt-1">Total Tasks</p>
+          </div>
+        </div>
+
+        {/* Completed Tasks Card */}
+        <div className="border-0 shadow-xl bg-gradient-to-br from-teal-500 to-teal-600 text-white overflow-hidden relative rounded-xl p-6">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2 bg-white/20 rounded-lg">
+                <CheckCircle className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="text-3xl font-bold">{stats.completed}</div>
+            <p className="text-xs text-teal-100 uppercase tracking-wider mt-1">Completed Tasks</p>
+          </div>
+        </div>
+
+        {/* Pending Tasks Card */}
+        <div className="border-0 shadow-xl bg-gradient-to-br from-cyan-500 to-cyan-600 text-white overflow-hidden relative rounded-xl p-6">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2 bg-white/20 rounded-lg">
+                <Activity className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="text-3xl font-bold">{stats.pending}</div>
+            <p className="text-xs text-cyan-100 uppercase tracking-wider mt-1">Pending Tasks</p>
+          </div>
+        </div>
+
+        {/* Overdue Tasks Card */}
+        <div className="border-0 shadow-xl bg-gradient-to-br from-orange-500 to-red-600 text-white overflow-hidden relative rounded-xl p-6">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2 bg-white/20 rounded-lg">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="text-3xl font-bold">{stats.overdue}</div>
+            <p className="text-xs text-orange-100 uppercase tracking-wider mt-1">Overdue Tasks</p>
+          </div>
+        </div>
       </div>
 
       {/* Presentation Statistics Section */}
       {/* HEADER: ELITE KPI & PRODUCTIVITY GRADE */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <SectionCard className="border-l-4 border-l-primary shadow-sm bg-surface-raised/20">
+          <div className="border-0 shadow-xl bg-white/80 backdrop-blur-sm rounded-xl p-6 border-l-4 border-l-emerald-500">
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase font-bold text-foreground-muted">Productivity Grade</span>
+              <span className="text-[10px] uppercase font-bold text-gray-600">Productivity Grade</span>
               <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-black text-primary">{productivityGrade}</span>
-                <span className="text-xs font-bold text-foreground-muted uppercase">Rank Tier</span>
+                <span className="text-4xl font-black text-emerald-600">{productivityGrade}</span>
+                <span className="text-xs font-bold text-gray-600 uppercase">Rank Tier</span>
               </div>
-              <div className="mt-2 h-1.5 w-full bg-border rounded-full overflow-hidden">
-                <div className="h-full bg-primary" style={{ width: `${stats.competencyScore}%` }} />
+              <div className="mt-2 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-emerald-500" style={{ width: `${stats.competencyScore}%` }} />
               </div>
             </div>
-          </SectionCard>
+          </div>
 
-          <SectionCard className="border-l-4 border-l-warning shadow-sm bg-surface-raised/20">
+          <div className="border-0 shadow-xl bg-white/80 backdrop-blur-sm rounded-xl p-6 border-l-4 border-l-orange-500">
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase font-bold text-foreground-muted">Burnout Risk</span>
+              <span className="text-[10px] uppercase font-bold text-gray-600">Burnout Risk</span>
               <div className="flex items-baseline gap-2">
                 <span className={cn("text-2xl font-bold",
-                  burnoutLevel === "High" ? "text-danger" :
-                    burnoutLevel === "Moderate" ? "text-warning" : "text-success"
+                  burnoutLevel === "High" ? "text-red-500" :
+                    burnoutLevel === "Moderate" ? "text-orange-500" : "text-green-500"
                 )}>{burnoutLevel}</span>
                 <Flame className={cn("w-5 h-5",
-                  burnoutLevel === "High" ? "text-danger animate-pulse" : "text-foreground-muted"
+                  burnoutLevel === "High" ? "text-red-500 animate-pulse" : "text-gray-400"
                 )} />
               </div>
-              <p className="text-[10px] text-foreground-muted mt-1 leading-tight">
+              <p className="text-[10px] text-gray-600 mt-1 leading-tight">
                 {burnoutLevel === "Low" ? "Optimal workload. Keep it up!" : "Consider prioritizing tasks to avoid stress."}
               </p>
             </div>
-          </SectionCard>
+          </div>
 
-          <SectionCard className="border-l-4 border-l-success shadow-sm bg-surface-raised/20">
+          <div className="border-0 shadow-xl bg-white/80 backdrop-blur-sm rounded-xl p-6 border-l-4 border-l-teal-500">
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase font-bold text-foreground-muted">Achievement Highlights</span>
+              <span className="text-[10px] uppercase font-bold text-gray-600">Achievement Highlights</span>
               <div className="flex flex-col gap-1 mt-1">
-                <div className="flex justify-between items-center bg-success/10 p-1.5 rounded-lg border border-success/20">
-                  <span className="text-[10px] font-bold text-success uppercase">Early Wins</span>
-                  <span className="text-xs font-bold text-success">{earlyTasks.length}</span>
+                <div className="flex justify-between items-center bg-green-50 p-1.5 rounded-lg border border-green-200">
+                  <span className="text-[10px] font-bold text-green-700 uppercase">Early Wins</span>
+                  <span className="text-xs font-bold text-green-700">{earlyTasks.length}</span>
                 </div>
-                <div className="flex justify-between items-center bg-primary/10 p-1.5 rounded-lg border border-primary/20">
-                  <span className="text-[10px] font-bold text-primary uppercase">Automation</span>
-                  <span className="text-xs font-bold text-primary">{filteredTasks.filter(t => t.category === 'Automation').length}</span>
+                <div className="flex justify-between items-center bg-blue-50 p-1.5 rounded-lg border border-blue-200">
+                  <span className="text-[10px] font-bold text-blue-700 uppercase">Automation</span>
+                  <span className="text-xs font-bold text-blue-700">{filteredTasks.filter(t => t.category === 'Automation').length}</span>
                 </div>
+                {priorityData.slice(0, 3).map(priority => (
+                  <div key={priority.name} className="flex justify-between items-center bg-gray-50 p-1.5 rounded-lg border border-gray-200">
+                    <span className="text-[10px] font-bold uppercase" style={{ color: priority.color }}>{priority.name}</span>
+                    <span className="text-xs font-bold" style={{ color: priority.color }}>{priority.value}</span>
+                  </div>
+                ))}
               </div>
             </div>
-          </SectionCard>
+          </div>
         </div>
 
-        <SectionCard title="Impact Focus" className="bg-gradient-to-br from-primary/10 to-transparent border-primary/20">
+        <div className="border-0 shadow-xl bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-6 border border-emerald-200">
+          <h3 className="text-sm font-bold text-emerald-800 mb-4">Impact Focus</h3>
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-primary" />
+              <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4 text-emerald-600" />
               </div>
               <div className="flex flex-col">
-                <span className="text-xs font-bold">Strategic Focus</span>
-                <span className="text-[10px] text-foreground-muted">SLA & Bug Resolution</span>
+                <span className="text-xs font-bold text-gray-800">Strategic Focus</span>
+                <span className="text-[10px] text-gray-600">SLA & Bug Resolution</span>
               </div>
             </div>
             <button
               onClick={() => handleExport()}
-              className="w-full py-2 bg-primary text-white rounded-lg text-xs font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+              className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg text-xs font-bold shadow-lg hover:from-emerald-700 hover:to-teal-700 transition-all flex items-center justify-center gap-2"
             >
               <Download className="w-3.5 h-3.5" />
-              Report
+              Export Report
             </button>
           </div>
-        </SectionCard>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <SectionCard title="Task Category Distribution" subtitle="Workload distribution by impact type" className="h-full flex flex-col">
+        <div className="border-0 shadow-xl bg-white/80 backdrop-blur-sm rounded-xl p-6 h-full flex flex-col">
+          <h3 className="text-lg font-bold text-gray-800 mb-1">Task Category Distribution</h3>
+          <p className="text-sm text-gray-600 mb-4">Workload distribution by impact type</p>
           <div className="flex flex-col sm:flex-row gap-6 flex-1 items-center justify-center p-2">
             <div className="w-full sm:w-1/2 h-[200px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -495,8 +655,8 @@ export default function ActivitiesPage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ backgroundColor: 'hsl(var(--surface-overlay))', borderRadius: '12px', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-                    itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
+                    contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #e5e7eb' }}
+                    itemStyle={{ color: '#1f2937', fontWeight: 'bold' }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -506,24 +666,26 @@ export default function ActivitiesPage() {
                 <div key={index} className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: entry.color }} />
-                    <span className="text-xs font-bold text-foreground uppercase tracking-tight">{entry.name}</span>
+                    <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">{entry.name}</span>
                   </div>
-                  <span className="text-sm font-black text-foreground bg-surface-raised px-2 py-0.5 rounded-md border border-border/50">{entry.value}</span>
+                  <span className="text-sm font-black text-gray-800 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">{entry.value}</span>
                 </div>
               ))}
             </div>
           </div>
-        </SectionCard>
+        </div>
 
-        <SectionCard title="Skills & Learning Track" subtitle="Innovation and R&D effort" className="h-full flex flex-col">
+        <div className="border-0 shadow-xl bg-white/80 backdrop-blur-sm rounded-xl p-6 h-full flex flex-col">
+          <h3 className="text-lg font-bold text-gray-800 mb-1">Skills & Learning Track</h3>
+          <p className="text-sm text-gray-600 mb-4">Innovation and R&D effort</p>
           <div className="flex flex-col flex-1 justify-between p-2">
-            <div className="flex items-center gap-4 p-4 bg-surface-raised/30 rounded-2xl border border-border/50">
-              <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+            <div className="flex items-center gap-4 p-4 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl border border-emerald-200">
+              <div className="w-14 h-14 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600 border border-emerald-300">
                 <BookOpen className="w-7 h-7" />
               </div>
               <div>
-                <span className="text-xs font-bold text-foreground-muted uppercase">Learning Hours</span>
-                <span className="text-2xl font-black text-primary block">
+                <span className="text-xs font-bold text-gray-600 uppercase">Learning Hours</span>
+                <span className="text-2xl font-black text-emerald-600 block">
                   {Math.round(filteredTasks.filter(t => t.category === 'Improvement' || t.category === 'Training').reduce((acc, t) => {
                     if (t.category === 'Training') {
                       if (t.start_date && t.actual_completion_date) {
@@ -531,46 +693,46 @@ export default function ActivitiesPage() {
                       }
                       return acc;
                     }
-                    return acc + 2; // Default 2 hours for Improvement
+                    return acc + 2;
                   }, 0))}h
                 </span>
               </div>
             </div>
 
             <div className="mt-6 space-y-4">
-              <div className="flex justify-between items-center text-xs uppercase font-bold text-foreground">
-                <span>R&D Progress</span>
-                <span className="text-primary bg-primary/10 px-2 py-0.5 rounded-md">Level 4</span>
-              </div>
-              <div className="h-2 w-full bg-border rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-primary to-info" style={{ width: '65%' }} />
-              </div>
-              <p className="text-xs text-foreground-muted italic leading-relaxed mt-2">"Knowledge is the ultimate leverage. Keep investing in your technical growth."</p>
+<div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-500" style={{ width: '65%' }} />
+              </div>      
+              <p className="text-xs text-gray-600 italic leading-relaxed mt-2">"Knowledge is the ultimate leverage. Keep investing in your technical growth."</p>
             </div>
           </div>
-        </SectionCard>
+        </div>
 
-        <SectionCard title="Reflection & Impact" subtitle="Business value and next actions" className="h-full flex flex-col">
+        <SectionCard
+          className="border-0 shadow-xl bg-gradient-to-br from-white to-gray-50 rounded-xl p-6 h-full flex flex-col"
+        >
+          <h3 className="text-lg font-bold text-gray-800 mb-1">Reflection & Impact</h3>
+          <p className="text-sm text-gray-600 mb-4">Business value and next actions</p>
           <div className="flex flex-col gap-4 flex-1 p-2">
-            <div className="p-4 bg-success/5 rounded-xl border border-success/20 flex flex-col flex-1 justify-center shadow-sm">
-              <span className="text-xs font-black text-success uppercase tracking-wider mb-1 flex items-center gap-2">
+            <div className="p-4 bg-green-50 rounded-xl border border-green-200 flex flex-col flex-1 justify-center shadow-sm">
+              <span className="text-xs font-black text-green-700 uppercase tracking-wider mb-1 flex items-center gap-2">
                 <Award className="w-4 h-4" /> Weekly Impact
               </span>
-              <p className="text-sm font-medium text-foreground mt-1 leading-snug">{topAchievement}</p>
+              <p className="text-sm font-medium text-gray-800 mt-1 leading-snug">{topAchievement}</p>
             </div>
-            <div className="p-4 bg-primary/5 rounded-xl border border-primary/20 flex flex-col flex-1 justify-center shadow-sm">
-              <span className="text-xs font-black text-primary uppercase tracking-wider mb-1 flex items-center gap-2">
+            <div className="p-4 bg-blue-50 rounded-xl border border-blue-200 flex flex-col flex-1 justify-center shadow-sm">
+              <span className="text-xs font-black text-blue-700 uppercase tracking-wider mb-1 flex items-center gap-2">
                 <Target className="w-4 h-4" /> Strategic Next Step
               </span>
-              <p className="text-sm font-medium text-foreground mt-1 leading-snug">{nextActionFocus}</p>
+              <p className="text-sm font-medium text-gray-800 mt-1 leading-snug">{nextActionFocus}</p>
             </div>
           </div>
         </SectionCard>
       </div>
 
       <SectionCard
-        title="Task Registry"
-        subtitle="Manage daily execution and SLA compliance"
+        className="border-0 shadow-xl rounded-xl border border-emerald-200"
+        style={{ background: 'linear-gradient(to bottom right, #ecfdf5, #f0fdfa)' }}
         actions={
           <div className="flex flex-col gap-4">
             {/* Top row: Categories and View Toggle */}
@@ -655,6 +817,30 @@ export default function ActivitiesPage() {
                 <option value="Cancelled">Cancelled</option>
               </select>
 
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="bg-surface border border-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-primary flex-1 sm:flex-none min-w-[110px]"
+              >
+                <option value="All">All Priority</option>
+                {priorityOptions.map(priority => (
+                  <option key={priority} value={priority}>{priority}</option>
+                ))}
+              </select>
+
+              <select
+                value={storeFilter}
+                onChange={(e) => setStoreFilter(e.target.value)}
+                className="bg-surface border border-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-primary flex-1 sm:flex-none min-w-[140px]"
+              >
+                <option value="All">All Store</option>
+                {stores.map(store => (
+                  <option key={store.store_code} value={store.store_code}>
+                    ({store.store_code}) - {store.store_name}
+                  </option>
+                ))}
+              </select>
+
               {user?.is_admin && (
                 <select
                   value={userFilter}
@@ -662,13 +848,21 @@ export default function ActivitiesPage() {
                   className="bg-surface border border-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-primary flex-1 sm:flex-none min-w-[100px]"
                 >
                   <option value="All">All Users</option>
-                  {uniqueUsers.map(u => <option key={u} value={u}>{u}</option>)}
+                  {users.map(u => (
+                    <option key={u.id} value={u.username}>
+                      {u.full_name || u.username}
+                    </option>
+                  ))}
                 </select>
               )}
             </div>
           </div>
         }
       >
+        <div className="px-5 py-3 border-b border-emerald-200">
+          <h2 className="text-sm font-semibold text-emerald-900">Task Registry</h2>
+          <p className="text-xs text-emerald-700/70">Manage daily execution and SLA compliance</p>
+        </div>
         <div className="min-h-[400px]">
           {loading ? (
             <div className="h-64 flex items-center justify-center">
@@ -701,6 +895,8 @@ export default function ActivitiesPage() {
                     <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Status</th>
                     <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Task Name</th>
                     <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Task Detail</th>
+                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Store</th>
+                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Priority</th>
                     <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Started</th>
                     <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider text-center">Age</th>
                     <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Target</th>
@@ -741,6 +937,22 @@ export default function ActivitiesPage() {
                             </div>
                           )}
                         </div>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <span className="text-xs text-foreground-muted">
+                          {task.store_name || task.store_code || "-"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <span className={cn(
+                          "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
+                          task.priority === "Critical" ? "bg-danger/15 text-danger" :
+                            task.priority === "Urgent" ? "bg-warning/15 text-warning" :
+                              task.priority === "High" ? "bg-info/15 text-info" :
+                                task.priority === "Low" ? "bg-surface-raised text-foreground-muted" : "bg-primary/10 text-primary"
+                        )}>
+                          {task.priority || "Normal"}
+                        </span>
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 text-xs text-foreground">
@@ -844,6 +1056,23 @@ export default function ActivitiesPage() {
                   <h3 className="text-sm font-bold text-foreground mb-2">{task.title}</h3>
                   <p className="text-xs text-foreground-muted mb-4 line-clamp-2">{task.description || "No description provided."}</p>
 
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface-raised text-foreground-muted border border-border/50">
+                      {task.store_code && task.store_name
+                        ? `(${task.store_code}) - ${task.store_name}`
+                        : task.store_name || task.store_code || "No Store"}
+                    </span>
+                    <span className={cn(
+                      "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
+                      task.priority === "Critical" ? "bg-danger/15 text-danger" :
+                        task.priority === "Urgent" ? "bg-warning/15 text-warning" :
+                          task.priority === "High" ? "bg-info/15 text-info" :
+                            task.priority === "Low" ? "bg-surface-raised text-foreground-muted" : "bg-primary/10 text-primary"
+                    )}>
+                      {task.priority || "Normal"}
+                    </span>
+                  </div>
+
                   <div className="space-y-2 pt-4 border-t border-border/50">
                     <div className="flex items-center justify-between text-[10px] uppercase font-bold text-foreground-muted">
                       <div className="flex items-center gap-1">
@@ -891,7 +1120,10 @@ export default function ActivitiesPage() {
                       <div className="flex items-center gap-1">
                         <UserIcon className="w-3 h-3" /> Owner
                       </div>
-                      <span className="text-foreground">{task.username}</span>
+                      <span className="text-foreground text-right" title={task.username}>
+                        {getTaskOwnerDisplay(task.username)}
+                        <span className="block text-[9px] normal-case text-foreground-muted font-medium">{getTaskOwnerHandle(task.username)}</span>
+                      </span>
                     </div>
                     {task.status !== 'Completed' ? (
                       <div className="flex items-center justify-between text-[10px] uppercase font-bold text-primary">
@@ -973,6 +1205,43 @@ export default function ActivitiesPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-1.5 block">Store</label>
+                  <select
+                    value={formData.store_code}
+                    onChange={(e) => {
+                      const selectedCode = e.target.value;
+                      const selectedStore = stores.find(store => store.store_code === selectedCode);
+                      setFormData({
+                        ...formData,
+                        store_code: selectedCode,
+                        store_name: selectedStore?.store_name || ""
+                      });
+                    }}
+                    className="w-full bg-surface border border-border rounded-xl py-2.5 px-4 text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                  >
+                    <option value="">Select Store</option>
+                    {stores.map(store => (
+                      <option key={store.store_code} value={store.store_code}>
+                        ({store.store_code}) - {store.store_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-1.5 block">Priority</label>
+                  <select
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                    className="w-full bg-surface border border-border rounded-xl py-2.5 px-4 text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                  >
+                    {priorityOptions.map(priority => (
+                      <option key={priority} value={priority}>{priority}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="md:col-span-2">
@@ -1147,6 +1416,7 @@ export default function ActivitiesPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

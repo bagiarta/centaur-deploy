@@ -1,5 +1,5 @@
 param(
-    [string]$ServerUrl = "https://192.168.85.30:3001",
+    [string]$ServerUrl = "http://192.168.85.30:3001",
     [switch]$LocalOnly = $false
 )
 
@@ -21,7 +21,7 @@ $LogPath = "C:\Windows\Temp\centaur_v25_install.log"
 
 # Force Correct IP if local is detected
 if (!$ServerUrl -or $ServerUrl -like "*localhost*" -or $ServerUrl -like "*127.0.0.1*") {
-    $ServerUrl = "https://192.168.85.30:3001"
+    $ServerUrl = "http://192.168.85.30:3001"
 }
 
 # Ensure TLS 1.2

@@ -94,7 +94,7 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
       { key: 'prev_count', label: 'Previous Trx Count', type: 'number' },
       { key: 'fraud_warning', label: 'Suspicious Activity', type: 'string' },
     ],
-    description: "Kriteria Fraud: (1) Transaksi > 3x/hari selama 2 hari berturut-turut, (2) Dilakukan di Counter & Sesi yang sama per harinya, (3) Dilayani oleh Salesman yang sama di kedua hari tersebut."
+    description: "Kriteria Fraud: (1) Transaksi >= 3x/hari selama 2 hari berturut-turut, (2) Dilakukan di Counter & Sesi yang sama per harinya, (3) Dilayani oleh Salesman yang sama di kedua hari tersebut."
   }
 };
 
@@ -311,12 +311,12 @@ export default function CrmReportsPage() {
                     className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 flex-1 cursor-pointer appearance-none"
                   >
                     <option value="All Store" className="bg-surface text-foreground">All Store</option>
-                    {stores.map(s => (
+                  {stores.map(s => (
                       <option key={s.org_cd} value={s.org_name} className="bg-surface text-foreground">
-                        {s.org_name}
+                        ({s.org_cd}) - {s.org_name}
                       </option>
                     ))}
-                  </select>
+                </select>
                 </div>
               </div>
             )}

@@ -338,12 +338,15 @@ export async function initDb() {
            id INT IDENTITY(1,1) PRIMARY KEY,
            user_id NVARCHAR(50) NOT NULL,
            username NVARCHAR(100),
+           store_code NVARCHAR(50),
+           store_name NVARCHAR(255),
            title NVARCHAR(255) NOT NULL,
            description NVARCHAR(MAX),
            target_date DATETIME,
            actual_completion_date DATETIME,
            duration NVARCHAR(100),
            status NVARCHAR(50) DEFAULT 'Pending',
+           priority NVARCHAR(50) DEFAULT 'Normal',
            reason NVARCHAR(MAX),
            solving_notes NVARCHAR(MAX),
            created_at DATETIME DEFAULT GETDATE(),
@@ -383,7 +386,62 @@ export async function initDb() {
            p256dh NVARCHAR(MAX) NOT NULL,
            auth NVARCHAR(MAX) NOT NULL,
            created_at DATETIME DEFAULT GETDATE()
-       )`
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Scales' AND xtype='U')
+        CREATE TABLE Scales (
+            id NVARCHAR(50) PRIMARY KEY,
+            name NVARCHAR(100) NOT NULL,
+            ip NVARCHAR(50) NOT NULL,
+            port INT DEFAULT 3001,
+            model NVARCHAR(50) NOT NULL,
+            status NVARCHAR(50) DEFAULT 'offline',
+            last_seen DATETIME NULL,
+            location NVARCHAR(200),
+            department NVARCHAR(100),
+            device_id NVARCHAR(50) NOT NULL,
+            created_at DATETIME DEFAULT GETDATE(),
+            updated_at DATETIME DEFAULT GETDATE()
+        )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ScalePluTemplates' AND xtype='U')
+        CREATE TABLE ScalePluTemplates (
+            id NVARCHAR(50) PRIMARY KEY,
+            name NVARCHAR(100) NOT NULL,
+            description NVARCHAR(500),
+            file_format NVARCHAR(50) DEFAULT 'CSV',
+            delimiter NVARCHAR(5) DEFAULT ',',
+            header_structure NVARCHAR(MAX),
+            row_template NVARCHAR(MAX) NOT NULL,
+            created_at DATETIME DEFAULT GETDATE()
+        )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ScalePluItems' AND xtype='U')
+        CREATE TABLE ScalePluItems (
+            id NVARCHAR(50) PRIMARY KEY,
+            template_id NVARCHAR(50),
+            plu_number INT NOT NULL,
+            name NVARCHAR(100) NOT NULL,
+            price DECIMAL(10,2) NOT NULL,
+            unit NVARCHAR(20) DEFAULT 'kg',
+            shelf_life INT DEFAULT 3,
+            tare DECIMAL(5,3) DEFAULT 0.000,
+            barcode_prefix NVARCHAR(10) DEFAULT '22',
+            ingredients NVARCHAR(MAX) NULL,
+            created_at DATETIME DEFAULT GETDATE(),
+            updated_at DATETIME DEFAULT GETDATE(),
+            CONSTRAINT UQ_Template_PLU UNIQUE (template_id, plu_number)
+        )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ScaleJobs' AND xtype='U')
+        CREATE TABLE ScaleJobs (
+            id NVARCHAR(50) PRIMARY KEY,
+            scale_id NVARCHAR(50),
+            job_type NVARCHAR(50) NOT NULL,
+            status NVARCHAR(50) DEFAULT 'pending',
+            progress INT DEFAULT 0,
+            log NVARCHAR(MAX) NULL,
+            payload_path NVARCHAR(500) NULL,
+            created_by NVARCHAR(100),
+            created_at DATETIME DEFAULT GETDATE(),
+            completed_at DATETIME NULL
+        )`
     ];
 
     for (let query of tables) {
@@ -515,6 +573,28 @@ export async function initDb() {
     `);
     if (checkCategory.recordset.length === 0) {
       await pool.request().query("ALTER TABLE UserTasks ADD category NVARCHAR(100) DEFAULT 'General'");
+    }
+
+    // UserTasks store columns
+    const checkStoreCols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'UserTasks' AND COLUMN_NAME IN ('store_code', 'store_name') AND 
+      ORDER BY store_code ASC
+    `);
+    if (!checkStoreCols.recordset.find(c => c.COLUMN_NAME === 'store_code')) {
+      await pool.request().query('ALTER TABLE UserTasks ADD store_code NVARCHAR(50)');
+    }
+    if (!checkStoreCols.recordset.find(c => c.COLUMN_NAME === 'store_name')) {
+      await pool.request().query('ALTER TABLE UserTasks ADD store_name NVARCHAR(255)');
+    }
+
+    // UserTasks priority column
+    const checkPriority = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'UserTasks' AND COLUMN_NAME = 'priority'
+    `);
+    if (checkPriority.recordset.length === 0) {
+      await pool.request().query("ALTER TABLE UserTasks ADD priority NVARCHAR(50) DEFAULT 'Normal'");
     }
 
     // SqlTemplates template_group column

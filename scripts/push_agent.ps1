@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$Username,
     [string]$Password,
     [string]$InstallerPath,
-    [string]$ServerUrl = "https://192.168.85.30:3001"
+    [string]$ServerUrl = "http://192.168.85.30:3001"
 )
 
 # Configuration for 5-minute interval
@@ -16,7 +16,7 @@ if (!$InstallerPath) {
     $InstallerPath = Join-Path $PSScriptRoot "..\public\Manual-Agent-Installer-v25.ps1"
 }
 if (!$ServerUrl -or $ServerUrl -like "*localhost*") {
-    $ServerUrl = "https://192.168.85.30:3001"
+    $ServerUrl = "http://192.168.85.30:3001"
 }
 
 # 2. SMB File Transfer

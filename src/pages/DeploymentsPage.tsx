@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, ChevronDown, ChevronRight, Rocket, Clock, CheckCircle, XCircle, Activity, RefreshCw, Search } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, Rocket, Clock, CheckCircle, XCircle, Activity, RefreshCw, Search, Trash2 } from "lucide-react";
 import { StatusBadge, PageHeader, SectionCard, DeployProgressSummary } from "@/components/ui-enterprise";
 import { cn } from "@/lib/utils";
 
@@ -128,6 +128,24 @@ export default function DeploymentsPage() {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleDeleteTarget = async (deploymentId: string, deviceId: string, hostname: string) => {
+    if (!confirm(`Remove target "${hostname}" from this deployment?`)) return;
+    try {
+      const res = await fetch(`/api/deployments/${deploymentId}/targets/${deviceId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setTargets(prev => prev.filter(t => !(t.deployment_id === deploymentId && t.device_id === deviceId)));
+        // Refresh deployments to get updated counts
+        const depRes = await fetch('/api/deployments');
+        setDeployments(await depRes.json());
+      } else {
+        alert('Failed to remove target');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error removing target');
     }
   };
 
@@ -325,6 +343,7 @@ export default function DeploymentsPage() {
                                       <th>Progress</th>
                                       <th>Log</th>
                                       <th>Updated</th>
+                                      <th className="w-16 text-center">Action</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -353,11 +372,20 @@ export default function DeploymentsPage() {
                                           </button>
                                         </td>
                                         <td><span className="text-xs font-mono text-foreground-muted">{t.updated_at}</span></td>
+                                        <td className="text-center">
+                                          <button
+                                            onClick={() => handleDeleteTarget(dep.id, t.device_id, t.hostname)}
+                                            className="p-1 rounded hover:bg-danger/10 text-foreground-muted hover:text-danger transition-colors"
+                                            title="Remove target"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </td>
                                       </tr>
                                     ))}
                                     {searchFilteredTargets.length === 0 && (
                                       <tr>
-                                        <td colSpan={6} className="py-8 text-center text-xs text-foreground-muted italic">
+                                        <td colSpan={7} className="py-8 text-center text-xs text-foreground-muted italic">
                                           No devices found matching your search.
                                         </td>
                                       </tr>

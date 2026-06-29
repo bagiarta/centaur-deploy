@@ -45,6 +45,15 @@ type TicketLog = {
   created_at: string;
 };
 
+const getUserDisplayName = (userRecord: { full_name?: string; username?: string }) => {
+  return userRecord.full_name || userRecord.username || "";
+};
+
+const getUserHandle = (userRecord?: { username?: string }, fallback?: string) => {
+  const username = userRecord?.username || fallback || "";
+  return username ? `@${username}` : "";
+};
+
 export default function TicketsPage() {
   const { user, hasPermission } = useAuth();
   const canManageTickets = user?.is_admin || hasPermission("manage_all_tickets");
@@ -70,6 +79,18 @@ export default function TicketsPage() {
     hostname: "",
     selected_group_ids: [] as string[]
   });
+
+  const resolveUserDisplayName = (value?: string) => {
+    if (!value) return "";
+    const matchedUser = users.find(user => user.id === value || user.username === value);
+    return matchedUser ? getUserDisplayName(matchedUser) : value;
+  };
+
+  const resolveUserHandle = (value?: string) => {
+    if (!value) return "";
+    const matchedUser = users.find(user => user.id === value || user.username === value);
+    return getUserHandle(matchedUser, value);
+  };
 
   const formatServerDate = (dateStr: string) => {
     if (!dateStr) return "";
@@ -167,9 +188,25 @@ export default function TicketsPage() {
     return [
       { name: 'Open', value: counts.Open, color: '#ef4444' }, // danger
       { name: 'In Progress', value: counts['In Progress'], color: '#f59e0b' }, // warning
-      { name: 'Resolved', value: counts.Resolved, color: '#eb0cd8ff' }, // success
-      { name: 'Closed', value: counts.Closed, color: '#02f737ff' }, // muted
+      { name: 'Resolved', value: counts.Resolved, color: '#8b5cf6' }, // purple
+      { name: 'Closed', value: counts.Closed, color: '#0ea5e9' }, // cyan
     ].filter(d => d.value > 0);
+  }, [tickets]);
+
+  const ticketSummary = React.useMemo(() => {
+    const open = tickets.filter(t => t.status === 'Open').length;
+    const inProgress = tickets.filter(t => t.status === 'In Progress').length;
+    const overdue = tickets.filter(t => {
+      if (!['Open', 'In Progress'].includes(t.status)) return false;
+      const created = new Date(t.created_at);
+      return (Date.now() - created.getTime()) > 1000 * 60 * 60 * 4;
+    }).length;
+    return {
+      total: tickets.length,
+      open,
+      inProgress,
+      overdue,
+    };
   }, [tickets]);
 
   const fetchLogs = async (id: string) => {
@@ -328,6 +365,7 @@ export default function TicketsPage() {
   };
 
   const selected_ticket_can_edit = selectedTicket && (user?.username === selectedTicket.created_by || canManageTickets) && selectedTicket.status !== 'Closed' && selectedTicket.status !== 'Resolved';
+  const canAssign = selectedTicket && (canManageTickets || user?.username === selectedTicket.created_by);
 
   const filteredTickets = tickets.filter(t => {
     if (filterStatus !== "All" && t.status !== filterStatus) return false;
@@ -436,9 +474,38 @@ export default function TicketsPage() {
   };
 
   return (
-    <div className="flex h-full overflow-hidden p-4 md:p-6 gap-4 md:gap-6 max-w-[1600px] mx-auto relative">
-      {/* ── Left Sidebar (List) ── */}
-      <div className={cn("flex flex-col w-full md:w-1/3 md:min-w-[350px] bg-card rounded-xl border border-border overflow-hidden shadow-sm", selectedTicket ? "hidden md:flex" : "flex")}>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 p-4 md:p-6">
+      <div className="container mx-auto space-y-6">
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 p-8 shadow-2xl text-white">
+          <div className="absolute inset-0 bg-black/10" />
+          <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.35em] text-blue-100/80">Helpdesk Operations</p>
+              <h1 className="mt-3 text-3xl lg:text-4xl font-extrabold tracking-tight">Tickets Dashboard</h1>
+              <p className="mt-2 max-w-2xl text-sm text-blue-100/80">Monitor and respond to incoming support tickets with an elegant operational view inspired by CCTV monitoring pages.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-3xl bg-white/10 border border-white/15 p-4 shadow-xl backdrop-blur-md">
+                <p className="text-[11px] uppercase tracking-[0.35em] text-blue-100/70">Total Tickets</p>
+                <p className="mt-3 text-3xl font-bold">{ticketSummary.total}</p>
+                <p className="mt-2 text-xs text-blue-100/70">Current queue size</p>
+              </div>
+              <div className="rounded-3xl bg-white/10 border border-white/15 p-4 shadow-xl backdrop-blur-md">
+                <p className="text-[11px] uppercase tracking-[0.35em] text-blue-100/70">Open / In Progress</p>
+                <p className="mt-3 text-3xl font-bold">{ticketSummary.open} / {ticketSummary.inProgress}</p>
+                <p className="mt-2 text-xs text-blue-100/70">Active service tickets</p>
+              </div>
+              <div className="rounded-3xl bg-white/10 border border-white/15 p-4 shadow-xl backdrop-blur-md">
+                <p className="text-[11px] uppercase tracking-[0.35em] text-blue-100/70">Overdue</p>
+                <p className="mt-3 text-3xl font-bold">{ticketSummary.overdue}</p>
+                <p className="mt-2 text-xs text-blue-100/70">Long-running tickets</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
+          <div className={cn("flex flex-col w-full bg-card rounded-3xl border border-border overflow-hidden shadow-xl shadow-slate-900/5", selectedTicket ? "hidden xl:flex" : "flex")}>
         <div className="p-4 border-b border-border bg-surface/50">
           <div className="flex justify-between items-start">
             <div>
@@ -453,7 +520,7 @@ export default function TicketsPage() {
                 onClick={handleTriggerDailySummary}
                 disabled={triggerLoading}
                 title="Send daily summary notification to WhatsApp"
-                className="p-2 text-foreground-muted hover:text-primary transition-colors disabled:opacity-50"
+                className="p-2 bg-white/10 border border-white/10 rounded-2xl text-white/80 hover:bg-white/15 transition-all disabled:opacity-50"
               >
                 <MessageSquare className="w-5 h-5" />
               </button>
@@ -461,7 +528,7 @@ export default function TicketsPage() {
           </div>
 
           <div className="space-y-3">
-            <div className="relative flex gap-2">
+            <div className="relative flex gap-2 items-center bg-surface/80 p-3 rounded-3xl border border-border shadow-sm">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-foreground-muted" />
                 <input
@@ -469,26 +536,26 @@ export default function TicketsPage() {
                   placeholder="Search tickets..."
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:border-primary focus:outline-none transition-all"
+                  className="w-full bg-surface/95 border border-transparent rounded-2xl pl-9 pr-3 py-2 text-sm text-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all"
                 />
               </div>
               <button
                 onClick={handleExportTicketsCSV}
-                className="p-2 bg-background border border-border rounded-lg text-foreground-muted hover:text-primary transition-colors flex items-center justify-center"
+                className="p-2 bg-white/10 border border-white/10 rounded-2xl text-white/80 hover:bg-white/15 transition-all flex items-center justify-center"
                 title="Export list to CSV"
               >
                 <Download className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex bg-background p-1 rounded-lg border border-border">
+            <div className="flex bg-surface/95 p-1 rounded-3xl border border-border shadow-sm">
               {['All', 'Open', 'In Progress', 'Resolved', 'Closed'].map(s => (
                 <button
                   key={s}
                   onClick={() => setFilterStatus(s)}
                   className={cn(
-                    "flex-1 text-[11px] font-semibold py-1.5 rounded-md transition-colors",
-                    filterStatus === s ? "bg-surface-raised shadow-sm text-foreground" : "text-foreground-muted hover:text-foreground"
+                    "flex-1 text-[11px] font-semibold py-1.5 rounded-2xl transition-all",
+                    filterStatus === s ? "bg-white text-slate-950 shadow-sm" : "text-foreground-muted hover:text-foreground"
                   )}
                 >
                   {s}
@@ -496,17 +563,17 @@ export default function TicketsPage() {
               ))}
             </div>
             
-            <div className="flex bg-background p-1 rounded-lg border border-border mt-2 items-center">
+            <div className="flex bg-surface/95 p-1 rounded-3xl border border-border mt-2 items-center shadow-sm">
               <select 
                 value={filterAssignee} 
                 onChange={e => setFilterAssignee(e.target.value)}
-                className="w-full bg-background text-foreground text-[11px] font-semibold py-1 focus:outline-none px-2 rounded cursor-pointer"
+                className="w-full bg-transparent text-foreground text-[11px] font-semibold py-2 focus:outline-none px-3 rounded-2xl cursor-pointer"
               >
-                <option value="All" className="bg-background text-foreground">All Assignees</option>
-                <option value="Me" className="bg-background text-foreground">Assigned to Me</option>
-                <option value="Unassigned" className="bg-background text-foreground">Unassigned</option>
+                <option value="All" className="bg-surface text-foreground">All Assignees</option>
+                <option value="Me" className="bg-surface text-foreground">Assigned to Me</option>
+                <option value="Unassigned" className="bg-surface text-foreground">Unassigned</option>
                 {users.map(u => (
-                  <option key={u.id} value={u.username} className="bg-background text-foreground">{u.full_name || u.username}</option>
+                  <option key={u.id} value={u.username} className="bg-surface text-foreground">{getUserDisplayName(u)}</option>
                 ))}
               </select>
             </div>
@@ -538,10 +605,10 @@ export default function TicketsPage() {
                   key={ticket.id}
                   onClick={() => setSelectedTicket(ticket)}
                   className={cn(
-                    "w-full text-left p-4 rounded-lg border transition-all text-sm group relative",
+                    "w-full text-left p-4 rounded-3xl border transition-all text-sm group relative shadow-sm hover:shadow-2xl",
                     selectedTicket?.id === ticket.id
-                      ? "border-primary bg-primary/5 shadow-[0_0_15px_rgba(59,130,246,0.1)]"
-                      : "border-border bg-background hover:border-foreground-muted/50"
+                      ? "border-primary bg-gradient-to-br from-blue-50 to-slate-50 shadow-[0_0_30px_rgba(59,130,246,0.15)]"
+                      : "border-border bg-white/90 hover:border-primary hover:bg-slate-50"
                   )}
                 >
                   {isSLAWarning && <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-danger animate-ping" title="SLA Overdue Warning" />}
@@ -582,9 +649,8 @@ export default function TicketsPage() {
           )}
         </div>
       </div>
-
       {/* ── Right Detailed View ── */}
-      <div className={cn("flex-1 flex-col bg-card border border-border rounded-xl shadow-sm overflow-y-auto", selectedTicket ? "flex" : "hidden md:flex")}>
+      <div className={cn("flex-1 flex-col bg-card/95 border border-border rounded-3xl shadow-2xl overflow-y-auto", selectedTicket ? "flex" : "hidden md:flex")}>
         {selectedTicket ? (
           <div className="flex flex-col min-h-full">
             <div className="p-4 md:p-6 border-b border-border bg-surface/30 shrink-0">
@@ -622,7 +688,10 @@ export default function TicketsPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
                 <div className="bg-background p-3 rounded-md border border-border">
                   <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Reported By</p>
-                  <p className="text-sm font-medium text-foreground">{selectedTicket.created_by}</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {resolveUserDisplayName(selectedTicket.created_by)}
+                    <span className="ml-1 text-xs text-foreground-muted">{resolveUserHandle(selectedTicket.created_by)}</span>
+                  </p>
                 </div>
                 <div className="bg-background p-3 rounded-md border border-border">
                   <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Outlet / Branch</p>
@@ -636,7 +705,7 @@ export default function TicketsPage() {
                   <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Created At</p>
                   <p className="text-sm font-medium text-foreground">{formatServerDate(selectedTicket.created_at)}</p>
                 </div>
-                {canManageTickets && (
+                {canAssign ? (
                   <div className="bg-surface p-3 rounded-md border border-border col-span-2 md:col-span-1 shadow-sm">
                     <p className="text-[10px] uppercase font-bold text-primary mb-1.5 flex items-center gap-1.5">
                       <span className="w-1 h-1 rounded-full bg-primary animate-pulse" />
@@ -648,19 +717,23 @@ export default function TicketsPage() {
                       onChange={(e) => handleAssignTicket(e.target.value)}
                       disabled={actionLoading}
                     >
-                      <option value="" className="bg-background text-foreground">Unassigned</option>
+                      <option value="" className="bg-surface text-foreground">Unassigned</option>
                       {users.map(u => (
-                        <option key={u.id} value={u.username} className="bg-background text-foreground">
-                          {u.full_name || u.username}
+                        <option key={u.id} value={u.username} className="bg-surface text-foreground">
+                          {getUserDisplayName(u)}
                         </option>
                       ))}
                     </select>
                   </div>
-                )}
-                {!canManageTickets && selectedTicket.assigned_to && (
+                ) : (
                   <div className="bg-background p-3 rounded-md border border-border">
                     <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Assigned To</p>
-                    <p className="text-sm font-medium text-foreground">@{selectedTicket.assigned_to}</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {selectedTicket.assigned_to ? resolveUserDisplayName(selectedTicket.assigned_to) : 'Unassigned'}
+                      {selectedTicket.assigned_to && (
+                        <span className="ml-1 text-xs text-foreground-muted">{resolveUserHandle(selectedTicket.assigned_to)}</span>
+                      )}
+                    </p>
                   </div>
                 )}
               </div>
@@ -750,7 +823,7 @@ export default function TicketsPage() {
                       .filter(t => t.hostname.toLowerCase().includes(targetSearchQuery.toLowerCase()))
                       .filter(t => targetStatusFilter === "All" || t.status === targetStatusFilter)
                       .map(target => (
-                      <div key={target.id} className="bg-background border border-border rounded-lg p-3 flex flex-col gap-3">
+                      <div key={target.id} className="bg-surface/95 border border-border rounded-lg p-3 flex flex-col gap-3">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono text-sm font-bold text-foreground">{target.hostname}</span>
@@ -803,7 +876,7 @@ export default function TicketsPage() {
 
               <div className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted border-b border-border pb-2">Issue Description</h3>
-                <div className="bg-background p-4 rounded-lg border border-border leading-relaxed text-sm text-foreground whitespace-pre-wrap">
+                <div className="bg-surface/95 p-4 rounded-lg border border-border leading-relaxed text-sm text-foreground whitespace-pre-wrap">
                   {selectedTicket.description}
                 </div>
               </div>
@@ -907,7 +980,7 @@ export default function TicketsPage() {
                 {/* Fallbacks */}
                 {canManageTickets && user?.username !== selectedTicket.created_by && selectedTicket.status === 'Resolved' && (
                   <p className="text-sm text-foreground-muted italic text-center py-2">
-                    Waiting for the creator ({selectedTicket.created_by}) to confirm and close the ticket.
+                    Waiting for the creator ({resolveUserDisplayName(selectedTicket.created_by) || selectedTicket.created_by}) to confirm and close the ticket.
                   </p>
                 )}
 
@@ -987,7 +1060,7 @@ export default function TicketsPage() {
                   <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-2">Linked Groups</label>
                   <select 
                     multiple
-                    className="w-full h-32 bg-background border border-border rounded-lg p-2 text-xs focus:outline-none"
+                    className="w-full h-32 bg-surface/95 border border-border rounded-lg p-2 text-xs focus:outline-none"
                     value={manageTargetsData.selected_group_ids}
                     onChange={(e) => {
                       const values = Array.from(e.target.selectedOptions, option => option.value);
@@ -1029,5 +1102,7 @@ export default function TicketsPage() {
         </div>
       )}
     </div>
+  </div>
+</div>
   );
 }

@@ -8,6 +8,10 @@ type ReportTroubleModalProps = {
   onClose: () => void;
 };
 
+const getUserDisplayName = (userRecord: { full_name?: string; username?: string }) => {
+  return userRecord.full_name || userRecord.username || "";
+};
+
 export function ReportTroubleModal({ isOpen, onClose }: ReportTroubleModalProps) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -217,7 +221,7 @@ export function ReportTroubleModal({ isOpen, onClose }: ReportTroubleModalProps)
                 <select name="assigned_to" value={formData.assigned_to} onChange={handleChange} className="w-full bg-surface border border-primary/20 rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
                   <option value="">Auto / Unassigned</option>
                   {users.map(u => (
-                    <option key={u.id} value={u.username}>{u.full_name || u.username}</option>
+                    <option key={u.id} value={u.username}>{getUserDisplayName(u)}</option>
                   ))}
                 </select>
               </div>

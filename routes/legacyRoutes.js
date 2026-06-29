@@ -17,6 +17,8 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
+const { runSync: runAbcSync } = require('../scripts/sync_abc_analysis.cjs');
+const { runSync: runHoServerDimItemSync } = require('../scripts/sync_hoserver_dim_item.cjs');
 
 import { poolPromise, dbConfig, initDb } from '../config/db.js';
 import { h2hConfig, getH2hToken } from '../config/h2h.js';
@@ -715,14 +717,73 @@ router.post('/api/deployments/:id/targets', async (req, res) => {
   }
 });
 
+// ── DELETE /api/deployments/:deploymentId/targets/:deviceId ──
+router.delete('/api/deployments/:deploymentId/targets/:deviceId', async (req, res) => {
+  const { deploymentId, deviceId } = req.params;
+  try {
+    const pool = await poolPromise;
+
+    // 1. Delete the target
+    const delResult = await pool.request()
+      .input('deployment_id', sql.NVarChar, deploymentId)
+      .input('device_id', sql.NVarChar, deviceId)
+      .query('DELETE FROM DeploymentTargets WHERE deployment_id = @deployment_id AND device_id = @device_id');
+
+    if (delResult.rowsAffected[0] === 0) {
+      return res.status(404).json({ error: 'Target not found' });
+    }
+
+    // 2. Recalculate deployment counts
+    const statsResult = await pool.request()
+      .input('dep_id', sql.NVarChar, deploymentId)
+      .query(`
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+          SUM(CASE WHEN status NOT IN ('success', 'failed') THEN 1 ELSE 0 END) as pending
+        FROM DeploymentTargets
+        WHERE deployment_id = @dep_id
+      `);
+
+    const stats = statsResult.recordset[0];
+    const overallStatus = stats.total === 0
+      ? 'success'
+      : stats.pending === 0
+        ? (stats.failed > 0 ? 'failed' : 'success')
+        : 'running';
+
+    await pool.request()
+      .input('dep_id', sql.NVarChar, deploymentId)
+      .input('total', sql.Int, stats.total)
+      .input('success', sql.Int, stats.success)
+      .input('failed', sql.Int, stats.failed)
+      .input('pending', sql.Int, stats.pending)
+      .input('status', sql.NVarChar, overallStatus)
+      .query(`
+        UPDATE Deployments 
+        SET total_targets = @total, success_count = @success, failed_count = @failed, pending_count = @pending, status = @status
+        WHERE id = @dep_id
+      `);
+
+    res.json({ success: true, message: 'Target removed successfully' });
+  } catch (err) {
+    console.error('Delete target error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 
 
 // ── POST /api/agent/heartbeat ──────────────────────────
 router.post('/api/agent/heartbeat', async (req, res) => {
+  const hostname = req.body?.hostname || 'unknown';
   try {
-    const { hostname, ip, cpu, ram, disk, agent_version, os_version } = req.body;
-    if (!hostname) return res.status(400).json({ error: "Hostname is required" });
+    const { ip, cpu, ram, disk, agent_version, os_version } = req.body;
+    if (!hostname || hostname === 'unknown') {
+      return res.status(400).json({ error: "Hostname is required" });
+    }
 
     const pool = await poolPromise;
     const now = new Date().toISOString();
@@ -730,8 +791,10 @@ router.post('/api/agent/heartbeat', async (req, res) => {
     // Deterministic ID based on hostname to avoid collisions
     const safeId = `dev-${hostname.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 
-    // Atomic MERGE for registration and updates
-    await pool.request()
+    console.log(`[AGENT_HEARTBEAT] Received from ${hostname} | IP: ${ip} | CPU: ${cpu} | RAM: ${ram} | DISK: ${disk}`);
+
+    // Atomic MERGE for registration and updates (removed HOLDLOCK to prevent deadlock)
+    const result = await pool.request()
       .input('id', sql.NVarChar, safeId)
       .input('h', sql.NVarChar, hostname)
       .input('ip', sql.NVarChar, ip || '0.0.0.0')
@@ -742,7 +805,7 @@ router.post('/api/agent/heartbeat', async (req, res) => {
       .input('os', sql.NVarChar, os_version || 'Windows')
       .input('seen', sql.NVarChar, now)
       .query(`
-        MERGE INTO Devices WITH (HOLDLOCK) AS target
+        MERGE INTO Devices AS target
         USING (SELECT @h AS hostname) AS source
         ON target.hostname = source.hostname
         WHEN MATCHED THEN
@@ -754,6 +817,13 @@ router.post('/api/agent/heartbeat', async (req, res) => {
           INSERT (id, hostname, ip, os_version, status, last_seen, cpu, ram, disk, agent_version)
           VALUES (@id, @h, @ip, @os, 'online', @seen, @cpu, @ram, @disk, @ver);
       `);
+
+    // Verify update was successful
+    if (result.rowsAffected && result.rowsAffected[0] > 0) {
+      console.log(`[AGENT_HEARTBEAT] ✓ Database updated for ${hostname} (${result.rowsAffected[0]} row(s) affected)`);
+    } else {
+      console.warn(`[AGENT_HEARTBEAT] ⚠ No rows affected for ${hostname} - possible DB issue`);
+    }
 
     // Fetch config for auto-update response
     const configRes = await pool.request().query("SELECT [key], [value] FROM SystemConfigs WHERE [key] IN ('LATEST_AGENT_VERSION', 'AGENT_UPDATE_URL')");
@@ -768,8 +838,12 @@ router.post('/api/agent/heartbeat', async (req, res) => {
     });
 
   } catch (err) {
-    console.error(`[AGENT] Heartbeat error for ${req.body?.hostname || 'unknown'}:`, err.message);
-    res.status(500).json({ error: err.message });
+    console.error(`[AGENT_HEARTBEAT] ✗ Error for ${hostname}:`);
+    console.error(`  Message: ${err.message}`);
+    console.error(`  Code: ${err.code}`);
+    console.error(`  State: ${err.state}`);
+    console.error(`  Stack: ${err.stack}`);
+    res.status(500).json({ error: err.message, code: err.code });
   }
 });
 
@@ -893,10 +967,10 @@ router.get('/api/agent/version', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT [value] FROM SystemConfigs WHERE [key] = 'LATEST_AGENT_VERSION'");
-    const version = result.recordset[0]?.value || '2.5.0';
+    const version = result.recordset[0]?.value || '2.7.5';
     res.json({ version });
   } catch (err) {
-    res.json({ version: '2.5.0' });
+    res.json({ version: '2.7.5' });
   }
 });
 
@@ -2677,6 +2751,12 @@ async function sendDailyOutstandingTicketsNotification(options = {}) {
       SELECT id, title, status, outlet_name, assigned_to, hostname as manual_hostnames
       FROM TroubleTickets
       WHERE status NOT IN ('Closed', 'Resolved')
+      ORDER BY 
+        CASE 
+          WHEN status = 'Open' THEN 1
+          WHEN status = 'In Progress' THEN 2
+          ELSE 3
+        END ASC, created_at DESC
     `);
     const tickets = ticketsRes.recordset;
 
@@ -2832,7 +2912,7 @@ async function sendDailyOutstandingTicketsNotification(options = {}) {
             LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
             WHERE CAST(h.BILL_DT AS DATE) >= CAST(DATEADD(day, -7, GETDATE()) AS DATE)
             GROUP BY q.RLITQ_CARD_NO, CAST(h.BILL_DT AS DATE)
-            HAVING COUNT(q.RLITQ_BILL_NO) > 3
+            HAVING COUNT(q.RLITQ_BILL_NO) >= 3
                AND COUNT(DISTINCT h.COUNTER_NO) = 1
                AND COUNT(DISTINCT h.SESSION_NO) = 1
         ),
@@ -2861,7 +2941,7 @@ async function sendDailyOutstandingTicketsNotification(options = {}) {
       if (fraudRes.recordset.length > 0) {
         summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
         summary += `🚨 *CRM FRAUD ANALYSIS: Suspicious Activity Detected*\n`;
-        summary += `_Kriteria: >3 trx/hari selama 2 hari berturut-turut (Sesi & Salesman sama)_\n\n`;
+        summary += `_Kriteria: >=3 trx/hari selama 2 hari berturut-turut (Sesi & Salesman sama)_\n\n`;
 
         for (const row of fraudRes.recordset) {
           summary += `👤 *${row.cust_name || 'Unknown Member'}*\n`;
@@ -2877,7 +2957,7 @@ async function sendDailyOutstandingTicketsNotification(options = {}) {
       console.error('[REPORT] CRM Fraud Analysis error (non-fatal):', fraudErr.message);
     }
 
-    summary += `_Pantau lebih lanjut di https://192.168.85.30:3001_`;
+    summary += `_Pantau lebih lanjut di https://192.168.85.30:3002_`;
 
     // 4. Send Notifications
     await sendWebhook(`🎟️ Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
@@ -3182,11 +3262,28 @@ function formatKeywordRows(rows) {
 
 async function executeKeywordSql(pool, keyword, args) {
   const parameterKeys = parseKeywordParameterKeys(keyword.parameter_keys);
-  const missingParameters = parameterKeys.filter((key) => args[key] === undefined);
-  if (missingParameters.length > 0) {
+  
+  // Case-insensitive parameter matching
+  const caseInsensitiveMissingParameters = parameterKeys.filter((key) => {
+    // Check exact match first
+    if (args[key] !== undefined) return false;
+    
+    // Check case-insensitive match
+    const lowerKey = key.toLowerCase();
+    const foundKey = Object.keys(args).find(argKey => argKey.toLowerCase() === lowerKey);
+    if (foundKey !== undefined) {
+      // Copy the value to the expected key name for backward compatibility
+      args[key] = args[foundKey];
+      return false;
+    }
+    
+    return true; // Parameter is truly missing
+  });
+  
+  if (caseInsensitiveMissingParameters.length > 0) {
     return {
       handled: true,
-      text: buildMissingParameterPrompt(keyword, missingParameters, args),
+      text: buildMissingParameterPrompt(keyword, caseInsensitiveMissingParameters, args),
       sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Missing required parameters' }]
     };
   }
@@ -3396,14 +3493,6 @@ async function resolveAssistantKeyword(pool, currUser, prompt) {
 
   if (!matchedKeyword) {
     return null;
-  }
-
-  if (matchedKeyword.action_type === 'procedure' && !currUser.is_admin) {
-    return {
-      handled: true,
-      text: `Keyword procedure \`${matchedKeyword.keyword}\` hanya boleh dijalankan oleh administrator.`,
-      sources: [{ type: 'keyword', label: matchedKeyword.keyword, detail: 'Admin only procedure keyword' }]
-    };
   }
 
   if (matchedKeyword.requires_admin && !currUser.is_admin) {
@@ -3785,7 +3874,21 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
     });
   } catch (err) {
     console.error('[AI Chat Error]', err);
-    res.status(500).json({ error: "Assistant failed: " + err.message });
+    
+    // Custom error message untuk user yang lebih informatif
+    let userFriendlyMessage = "Maaf, AI Assistant mengalami kendala teknis. ";
+    
+    if (err.message && err.message.includes('404 No endpoints found')) {
+      userFriendlyMessage = "ℹ️ AI Assistant ini bersifat local-based yang berfungsi sebagai tools bantu khusus untuk sistem Pepinet saja. " +
+                           "Fitur ini dirancang untuk membantu operasional internal dan tidak terhubung dengan layanan AI eksternal.";
+    } else if (err.message && (err.message.includes('openrouter') || err.message.includes('API'))) {
+      userFriendlyMessage = "ℹ️ AI Assistant ini adalah sistem internal Pepinet yang berfungsi sebagai tools bantu operasional. " +
+                           "Sistem ini dirancang khusus untuk kebutuhan internal dan tidak memerlukan koneksi ke layanan AI eksternal.";
+    } else {
+      userFriendlyMessage += "Silakan coba lagi dalam beberapa saat atau hubungi tim IT jika masalah berlanjut.";
+    }
+    
+    res.status(500).json({ error: userFriendlyMessage });
   }
 });
 
@@ -4091,8 +4194,8 @@ router.get('/api/crm/reports/stores', async (req, res) => {
     const result = await crmPool.request().query(`
       SELECT DISTINCT ORG_CD AS org_cd, ORG_NAME AS org_name 
       FROM DimStore 
-      WHERE ORG_STATUS = 'O' AND ORG_LEVEL_NUMBER = 3 
-      ORDER BY ORG_NAME ASC
+      WHERE ORG_STATUS = 'O'
+      ORDER BY ORG_CD ASC
     `);
     res.json(result.recordset);
   } catch (err) {
@@ -4289,7 +4392,7 @@ router.get('/api/crm/reports/:type', async (req, res) => {
             LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
             ${where}
             GROUP BY q.RLITQ_CARD_NO, CAST(h.BILL_DT AS DATE)
-            HAVING COUNT(q.RLITQ_BILL_NO) > 3
+            HAVING COUNT(q.RLITQ_BILL_NO) >= 3
                AND COUNT(DISTINCT h.COUNTER_NO) = 1
                AND COUNT(DISTINCT h.SESSION_NO) = 1
         ),
@@ -4651,10 +4754,25 @@ router.get('/api/tickets', async (req, res) => {
   try {
     const pool = await poolPromise;
     const { username, can_manage } = req.query;
-    let query = 'SELECT * FROM TroubleTickets ORDER BY created_at DESC';
+    let query = `
+      SELECT * FROM TroubleTickets 
+      ORDER BY 
+        CASE 
+          WHEN status = 'Open' THEN 1
+          WHEN status = 'In Progress' THEN 2
+          ELSE 3
+        END ASC, created_at DESC`;
 
     if (can_manage !== 'true' && username) {
-      query = `SELECT * FROM TroubleTickets WHERE created_by = '${username}' ORDER BY created_at DESC`;
+      query = `
+        SELECT * FROM TroubleTickets 
+        WHERE created_by = '${username}' 
+        ORDER BY 
+          CASE 
+            WHEN status = 'Open' THEN 1
+            WHEN status = 'In Progress' THEN 2
+            ELSE 3
+          END ASC, created_at DESC`;
     }
 
     const result = await pool.request().query(query);
@@ -5019,6 +5137,42 @@ router.put('/api/tickets/:id/assign', async (req, res) => {
     const pool = await poolPromise;
     const nowStr = getISOTimestamp();
 
+    // 1. Verify permissions: Only ticket creator or Administrator can assign
+    const ticketCheck = await pool.request()
+      .input('id', sql.NVarChar, id)
+      .query('SELECT created_by FROM TroubleTickets WHERE id = @id');
+
+    if (ticketCheck.recordset.length === 0) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    const creator = ticketCheck.recordset[0].created_by;
+
+    let isAllowed = false;
+    if (performed_by && performed_by === creator) {
+      isAllowed = true;
+    } else if (performed_by) {
+      const userCheck = await pool.request()
+        .input('username', sql.NVarChar, performed_by)
+        .query(`
+          SELECT u.username, ISNULL(r.is_admin, 0) as is_admin 
+          FROM Users u
+          LEFT JOIN Roles r ON u.role_id = r.id
+          WHERE u.username = @username
+        `);
+
+      if (userCheck.recordset.length > 0) {
+        const isUserAdmin = userCheck.recordset[0].is_admin === true || userCheck.recordset[0].is_admin === 1 || userCheck.recordset[0].username === 'admin';
+        if (isUserAdmin) {
+          isAllowed = true;
+        }
+      }
+    }
+
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Hanya pembuat ticket atau Administrator yang diperbolehkan mengubah assign to' });
+    }
+
     await pool.request()
       .input('id', sql.NVarChar, id)
       .input('user', sql.NVarChar, assigned_to || null)
@@ -5256,7 +5410,7 @@ router.post('/api/crm/sync-retry', async (req, res) => {
       .query(`
         SELECT COUNT(*) as failedCount 
         FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
-        WHERE RESPONSE_MSG NOT LIKE 'Success%'
+        WHERE IS_SYNC = '-1'
           AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE())
       `);
 
@@ -5269,7 +5423,7 @@ router.post('/api/crm/sync-retry', async (req, res) => {
         .query(`
           SELECT TOP 1 CAST(CAST(LAST_TIMESTAMP AS DATETIME) AS DATE) as targetDate
           FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
-          WHERE RESPONSE_MSG NOT LIKE 'Success%'
+          WHERE IS_SYNC = '-1'
             AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE())
           ORDER BY CAST(LAST_TIMESTAMP AS DATETIME) ASC
         `);
@@ -5285,24 +5439,24 @@ router.post('/api/crm/sync-retry', async (req, res) => {
         reqQuery.input('days', sql.Int, days);
 
         await reqQuery.query(`
-          UPDATE dbo.LOYAL_CRM_PROCESS_CONFIG
-          SET PROCESS_EXEC_DATE = DATEADD(day, -1, @targetDate);
-        `);
-
-        await reqQuery.query(`
           INSERT INTO dbo.sync_item_crm_job_log (
               log_date, issue_date, item_code, item_name, item_stk_uom, item_vendor_cd, status, message
           )
           SELECT 
               GETDATE(), CAST(LAST_TIMESTAMP AS DATETIME), ITEM_CODE, ITEM_NAME, ITEM_STK_UOM, ITEM_VENDOR_CD, 'FAILED', RESPONSE_MSG
           FROM dbo.LOYAL_CRM_ITEM_MST WITH (NOLOCK)
-          WHERE RESPONSE_MSG NOT LIKE 'Success%'
+          WHERE IS_SYNC = '-1'
             AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE());
         `);
 
         await reqQuery.query(`
-          UPDATE dbo.LOYAL_CRM_ITEM_MST set IS_SYNC='0', RESPONSE_MSG=''
-          WHERE RESPONSE_MSG NOT LIKE 'Success%'
+          UPDATE dbo.LOYAL_CRM_ITEM_MST 
+          SET IS_SYNC='0', 
+              RESPONSE_MSG='',
+              RETRY_COUNT ='0',
+              LAST_TIMESTAMP = FORMAT(GETDATE(), 'yyyy-MM-dd HH:mm:ss')
+          WHERE IS_SYNC = '-1'
+            AND RETRY_COUNT != '0'
             AND CAST(LAST_TIMESTAMP AS DATETIME) >= DATEADD(day, -@days, GETDATE());
         `);
 
@@ -5419,7 +5573,7 @@ async function sendFraudAlertNotification(options = {}) {
 
     let message = "🚨 *CRM FRAUD ALERT DETECTED* 🚨\n\n";
     message += "Terdeteksi " + frauds.length + " aktivitas mencurigakan dengan kriteria:\n";
-    message += "✅ Transaksi > 3x/hari selama 2 hari berturut-turut\n";
+    message += "✅ Transaksi >= 3x/hari selama 2 hari berturut-turut\n";
     message += "✅ Dilakukan di Counter & Sesi yang sama per harinya\n";
     message += "✅ Dilayani oleh Salesman yang sama di kedua hari tersebut\n\n";
 
@@ -5570,10 +5724,39 @@ export async function startBackgroundTasks() {
 
   detectorLoop();
   logCleanupLoop();
-  console.log('✅ Background monitoring loops active (Offline Detector & Log Cleanup)');
+
+  // ── ABC Analysis Daily Sync (Every day at 05:00 AM) ──
+  cron.schedule('0 5 * * *', () => {
+    console.log('[CRON] Running scheduled ABC Analysis sync...');
+    runAbcSync();
+  });
+  console.log('📊 ABC Analysis daily sync scheduled at 05:00');
 }
 
+// ── Manual trigger for ABC Analysis Sync ──────────────────────
+router.post('/api/reports/trigger-abc-sync', async (req, res) => {
+  const { date } = req.body; // optional: { date: '2026-06-03' }
+  runAbcSync(date || undefined);
+  res.json({ message: 'ABC Analysis sync triggered manually in the background.' });
+});
+
 // ── USER TASKS (ACTIVITY LOGGING) ──────────────────────────
+router.get('/api/tasks/stores', async (req, res) => {
+  try {
+    const crmPool = await getCrmPool();
+    const result = await crmPool.request().query(`
+      SELECT DISTINCT ORG_CD AS store_code, ORG_NAME AS store_name
+      FROM DimStore
+      WHERE ORG_STATUS = 'O'
+      ORDER BY ORG_CD ASC
+    `);
+
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/api/tasks', async (req, res) => {
   const userId = req.headers['x-user-id'];
   const isAdmin = req.headers['x-user-admin'] === 'true';
@@ -5601,7 +5784,7 @@ router.get('/api/tasks', async (req, res) => {
 router.post('/api/tasks', async (req, res) => {
   const userId = req.headers['x-user-id'];
   const username = req.headers['x-user-name'];
-  const { title, description, start_date, target_date, status, duration, reason, solving_notes, actual_completion_date } = req.body;
+  const { title, description, start_date, target_date, status, duration, reason, solving_notes, actual_completion_date, priority } = req.body;
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -5617,13 +5800,16 @@ router.post('/api/tasks', async (req, res) => {
       .input('actual', sql.DateTime, actual_completion_date || null)
       .input('status', sql.NVarChar, status || 'Pending')
       .input('duration', sql.NVarChar, duration)
+      .input('priority', sql.NVarChar, priority || 'Normal')
       .input('reason', sql.NVarChar, reason)
       .input('notes', sql.NVarChar, solving_notes)
       .input('category', sql.NVarChar, req.body.category || 'General')
+      .input('storeCode', sql.NVarChar, req.body.store_code || null)
+      .input('storeName', sql.NVarChar, req.body.store_name || null)
       .input('now', sql.DateTime, new Date())
       .query(`
-        INSERT INTO UserTasks (user_id, username, title, description, start_date, target_date, actual_completion_date, status, duration, reason, solving_notes, created_at, updated_at, category)
-        VALUES (@uid, @uname, @title, @desc, @start, @target, @actual, @status, @duration, @reason, @notes, @now, @now, @category)
+        INSERT INTO UserTasks (user_id, username, store_code, store_name, title, description, start_date, target_date, actual_completion_date, status, duration, priority, reason, solving_notes, created_at, updated_at, category)
+        VALUES (@uid, @uname, @storeCode, @storeName, @title, @desc, @start, @target, @actual, @status, @duration, @priority, @reason, @notes, @now, @now, @category)
       `);
     res.json({ success: true });
   } catch (err) {
@@ -5634,7 +5820,7 @@ router.post('/api/tasks', async (req, res) => {
 router.put('/api/tasks/:id', async (req, res) => {
   const userId = req.headers['x-user-id'];
   const { id } = req.params;
-  const { title, description, start_date, target_date, status, duration, reason, solving_notes, actual_completion_date } = req.body;
+  const { title, description, start_date, target_date, status, duration, reason, solving_notes, actual_completion_date, priority } = req.body;
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -5657,15 +5843,20 @@ router.put('/api/tasks/:id', async (req, res) => {
       .input('actual', sql.DateTime, actual_completion_date || null)
       .input('status', sql.NVarChar, status)
       .input('duration', sql.NVarChar, duration)
+      .input('priority', sql.NVarChar, priority || 'Normal')
       .input('reason', sql.NVarChar, reason)
       .input('notes', sql.NVarChar, solving_notes)
       .input('category', sql.NVarChar, req.body.category || 'General')
+      .input('storeCode', sql.NVarChar, req.body.store_code || null)
+      .input('storeName', sql.NVarChar, req.body.store_name || null)
       .input('now', sql.DateTime, new Date())
       .query(`
         UPDATE UserTasks 
         SET title = @title, description = @desc, start_date = ISNULL(@start, start_date), target_date = @target, 
             actual_completion_date = @actual, status = @status, 
-            duration = @duration, reason = @reason, solving_notes = @notes,
+            duration = @duration, priority = @priority, reason = @reason, solving_notes = @notes,
+            store_code = @storeCode,
+            store_name = @storeName,
             category = @category,
             updated_at = @now
         WHERE id = @id
@@ -5705,7 +5896,7 @@ router.delete('/api/tasks/:id', async (req, res) => {
 router.get('/api/tasks/export', async (req, res) => {
   const userId = req.headers['x-user-id'];
   const isAdmin = req.headers['x-user-admin'] === 'true';
-  const { startDate, endDate, status, userFilter } = req.query;
+  const { startDate, endDate, status, userFilter, priority, store } = req.query;
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -5725,6 +5916,16 @@ router.get('/api/tasks/export', async (req, res) => {
     if (status && status !== 'All') {
       query += ` AND status = @status`;
       request.input('status', sql.NVarChar, status);
+    }
+
+    if (priority && priority !== 'All') {
+      query += ` AND priority = @priority`;
+      request.input('priority', sql.NVarChar, priority);
+    }
+
+    if (store && store !== 'All') {
+      query += ` AND (store_name = @store OR store_code = @store)`;
+      request.input('store', sql.NVarChar, store);
     }
 
     if (startDate) {
@@ -5750,6 +5951,8 @@ router.get('/api/tasks/export', async (req, res) => {
       { header: 'Owner', key: 'username', width: 20 },
       { header: 'Title', key: 'title', width: 30 },
       { header: 'Description', key: 'description', width: 50 },
+      { header: 'Store', key: 'store_name', width: 25 },
+      { header: 'Priority', key: 'priority', width: 15 },
       { header: 'Target Date', key: 'target_date', width: 20 },
       { header: 'Status', key: 'status', width: 15 },
       { header: 'Duration', key: 'duration', width: 15 },
@@ -5776,4 +5979,296 @@ router.get('/api/tasks/export', async (req, res) => {
   }
 });
 
+// ── ABC ANALYSIS PERIOD REPORT ────────────────────────────────
+// GET /api/abc-analysis/available-dates
+// Returns list of dates that have synced data
+router.get('/api/abc-analysis/available-dates', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT 
+        TRANSACTION_DATE AS sync_date,
+        COUNT(DISTINCT ORG_CD) AS org_count,
+        COUNT(*) AS item_count
+      FROM ItemPerformanceABC
+      GROUP BY TRANSACTION_DATE
+      ORDER BY sync_date DESC
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/abc-analysis/report?start_date=2026-05-01&end_date=2026-05-31&org_cd=ALL
+// Aggregates data from ItemPerformanceABC for the given date range, recalculates ABC categories
+router.get('/api/abc-analysis/report', async (req, res) => {
+  try {
+    let { start_date, end_date, org_name, page = '1', limit = '100', search = '', sortBy = 'SALES_VALUE', sortDir = 'desc' } = req.query;
+
+    if (!start_date || !end_date) {
+      return res.status(400).json({ error: 'start_date and end_date are required (format: YYYY-MM-DD)' });
+    }
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    const pool = await poolPromise;
+    const crmPool = await getCrmPool();
+
+    // Resolve org_name to org_cd
+    let org_cd = null;
+    if (org_name && org_name !== 'All Store') {
+      const storeResult = await crmPool.request()
+        .input('org_name', sql.NVarChar, org_name)
+        .query(`
+          SELECT DISTINCT ORG_CD
+          FROM DimStore
+          WHERE ORG_NAME = @org_name
+        `);
+
+      if (storeResult.recordset.length > 0) {
+        org_cd = storeResult.recordset[0].ORG_CD;
+      }
+    }
+
+    // Build org filter
+    const orgFilter = (org_cd && org_cd !== 'ALL')
+      ? `AND ORG_CD = @org_cd`
+      : '';
+
+    const request = pool.request()
+      .input('start_date', sql.Date, start_date)
+      .input('end_date', sql.Date, end_date);
+
+    if (org_cd && org_cd !== 'ALL') {
+      request.input('org_cd', sql.NVarChar, org_cd);
+    }
+
+    // Build dynamic select and group by based on ALL vs specific store
+    const selectOrg = (org_cd === 'ALL' || !org_cd) ? "'ALL' AS ORG_CD" : "ORG_CD";
+    const groupByClause = (org_cd === 'ALL' || !org_cd) ? "ITM_CD" : "ORG_CD, ITM_CD";
+
+    // Re-aggregate daily snapshots and recalculate ABC categories for the period
+    const query = `
+      WITH AGGREGATED AS (
+        SELECT
+          ${selectOrg},
+          ITM_CD,
+          MAX(ITEM_NAME) AS ITEM_NAME,
+          SUM(SALES_VALUE)       AS SALES_VALUE,
+          SUM(QTY_SOLD)          AS QTY_SOLD,
+          SUM(FREQUENCY)         AS FREQUENCY,
+          SUM(COST_VALUE * QTY_SOLD)        AS COST_VALUE,
+          SUM(MARGIN_VALUE)      AS MARGIN_VALUE,
+          COUNT(DISTINCT TRANSACTION_DATE) AS ACTIVE_DAYS,
+          MIN(TRANSACTION_DATE) AS FIRST_DATE,
+          MAX(TRANSACTION_DATE) AS LAST_DATE
+        FROM ItemPerformanceABC
+        WHERE TRANSACTION_DATE >= @start_date
+          AND TRANSACTION_DATE <= @end_date
+          ${orgFilter}
+        GROUP BY ${groupByClause}
+      ),
+      DERIVED AS (
+        SELECT *,
+          CASE WHEN SALES_VALUE = 0 THEN 0
+               ELSE ROUND((MARGIN_VALUE / SALES_VALUE) * 100, 2)
+          END AS GP_PERCENT,
+          CASE WHEN QTY_SOLD = 0 THEN 0
+               ELSE ROUND(SALES_VALUE / QTY_SOLD, 2)
+          END AS AVG_SELL_PRICE,
+          CASE WHEN FREQUENCY = 0 THEN 0
+               ELSE ROUND(SALES_VALUE / FREQUENCY, 2)
+          END AS AVG_BASKET_VALUE,
+          SALES_VALUE * 100.0 / SUM(SALES_VALUE) OVER (PARTITION BY ORG_CD) AS CONTRIBUTION_PCT,
+          DENSE_RANK() OVER (PARTITION BY ORG_CD ORDER BY SALES_VALUE DESC) AS RANK_SALES,
+          DENSE_RANK() OVER (PARTITION BY ORG_CD ORDER BY MARGIN_VALUE DESC) AS RANK_MARGIN,
+          DENSE_RANK() OVER (PARTITION BY ORG_CD ORDER BY QTY_SOLD DESC) AS RANK_QTY,
+          DENSE_RANK() OVER (PARTITION BY ORG_CD ORDER BY FREQUENCY DESC) AS RANK_FREQUENCY,
+          PERCENT_RANK() OVER (PARTITION BY ORG_CD ORDER BY SALES_VALUE ASC) AS SALES_SCORE,
+          PERCENT_RANK() OVER (PARTITION BY ORG_CD ORDER BY MARGIN_VALUE ASC) AS MARGIN_SCORE,
+          PERCENT_RANK() OVER (PARTITION BY ORG_CD ORDER BY FREQUENCY ASC) AS FREQUENCY_SCORE
+        FROM AGGREGATED
+      ),
+      CUMULATIVE AS (
+        SELECT *,
+          SUM(CONTRIBUTION_PCT) OVER (
+            PARTITION BY ORG_CD
+            ORDER BY SALES_VALUE DESC
+            ROWS UNBOUNDED PRECEDING
+          ) AS CUMULATIVE_PCT,
+          PERCENT_RANK() OVER (PARTITION BY ORG_CD ORDER BY GP_PERCENT ASC) AS GP_SCORE
+        FROM DERIVED
+      ),
+      RANKING AS (
+        SELECT *,
+          ROUND((SALES_SCORE * 40) + (MARGIN_SCORE * 30) + (FREQUENCY_SCORE * 20) + (GP_SCORE * 10), 2) AS HEALTH_SCORE
+        FROM CUMULATIVE
+      )
+      SELECT
+        ORG_CD,
+        ITM_CD,
+        ITEM_NAME,
+        SALES_VALUE,
+        QTY_SOLD,
+        FREQUENCY,
+        COST_VALUE,
+        MARGIN_VALUE,
+        GP_PERCENT,
+        AVG_SELL_PRICE,
+        AVG_BASKET_VALUE,
+        CONTRIBUTION_PCT,
+        CUMULATIVE_PCT,
+        CASE
+          WHEN CUMULATIVE_PCT <= 80 THEN 'A'
+          WHEN CUMULATIVE_PCT <= 95 THEN 'B'
+          ELSE 'C'
+        END AS ABC_CATEGORY,
+        RANK_SALES,
+        RANK_MARGIN,
+        RANK_QTY,
+        RANK_FREQUENCY,
+        ACTIVE_DAYS,
+        FIRST_DATE,
+        LAST_DATE,
+        HEALTH_SCORE,
+        CASE
+          WHEN HEALTH_SCORE >= 80 THEN 'STRATEGIC'
+          WHEN HEALTH_SCORE >= 60 THEN 'GROWTH'
+          WHEN HEALTH_SCORE >= 40 THEN 'MAINTAIN'
+          ELSE 'REVIEW'
+        END AS HEALTH_CATEGORY
+      FROM RANKING
+      ORDER BY ORG_CD, HEALTH_SCORE DESC;
+    `;
+
+    const result = await request.query(query);
+
+    // Compute Summary from all records
+    const summary = { total_sales: 0, total_items: 0, categories: { A: 0, B: 0, C: 0 } };
+    for (const row of result.recordset) {
+      summary.categories[row.ABC_CATEGORY]++;
+      summary.total_sales += parseFloat(row.SALES_VALUE || 0);
+      summary.total_items++;
+    }
+
+    // Apply Search
+    let filteredData = result.recordset;
+    if (search) {
+      const lowerSearch = search.toLowerCase();
+      filteredData = filteredData.filter(r =>
+        (r.ITEM_NAME && r.ITEM_NAME.toLowerCase().includes(lowerSearch)) ||
+        (r.ITM_CD && r.ITM_CD.toLowerCase().includes(lowerSearch))
+      );
+    }
+
+    // Apply Sort
+    if (sortBy) {
+      filteredData.sort((a, b) => {
+        let valA = a[sortBy];
+        let valB = b[sortBy];
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+
+        if (valA < valB) return sortDir === 'asc' ? -1 : 1;
+        if (valA > valB) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    // Apply Pagination
+    const totalRecords = filteredData.length;
+    const totalPages = Math.ceil(totalRecords / limitNum);
+    const offset = (pageNum - 1) * limitNum;
+    const paginatedData = filteredData.slice(offset, offset + limitNum);
+
+    res.json({
+      period: { start_date, end_date },
+      totalRecords,
+      totalPages,
+      summary,
+      rows: paginatedData
+    });
+
+  } catch (err) {
+    // test-heartbeat.cjs
+    const sql = require('mssql');
+
+    const config = {
+      server: '192.168.x.x', // Database server
+      database: 'CentaurDeploy',
+      authentication: {
+        type: 'default',
+        options: { userName: 'sa', password: 'your_pass' }
+      },
+      options: { encrypt: false, trustServerCertificate: true }
+    };
+
+    async function test() {
+      try {
+        const pool = new sql.ConnectionPool(config);
+        await pool.connect();
+
+        const result = await pool.request()
+          .input('h', sql.NVarChar, 'VMSQLDWH')
+          .query('SELECT * FROM Devices WHERE hostname = @h');
+
+        console.log('Current record:', result.recordset[0]);
+        await pool.close();
+      } catch (err) {
+        console.error('ERROR:', err.message);
+      }
+    }
+
+    test(); console.error('[ABC-REPORT]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/abc-analysis/orgs  — list distinct ORG_CD with org_name from DimStore
+router.get('/api/abc-analysis/orgs', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const crmPool = await getCrmPool();
+
+    // Get distinct ORG_CD from ItemPerformanceABC
+    const abcResult = await pool.request().query(`
+      SELECT DISTINCT ORG_CD
+      FROM ItemPerformanceABC
+      ORDER BY ORG_CD
+    `);
+
+    console.log('[ABC-ORGS] Found', abcResult.recordset.length, 'distinct ORG_CD in ItemPerformanceABC');
+
+    // Get org names from DimStore
+    const storeResult = await crmPool.request().query(`
+      SELECT DISTINCT ORG_CD AS org_cd, ORG_NAME AS org_name 
+      FROM DimStore 
+      WHERE 1 = 1
+      ORDER BY ORG_CD ASC
+    `);
+
+    console.log('[ABC-ORGS] Found', storeResult.recordset.length, 'stores in DimStore');
+
+    // Create a map for quick lookup
+    const storeMap = {};
+    storeResult.recordset.forEach(s => {
+      storeMap[s.org_cd] = s.org_name;
+    });
+
+    // Combine ABC org codes with store names
+    const combined = abcResult.recordset.map(r => ({
+      org_cd: r.ORG_CD,
+      org_name: storeMap[r.ORG_CD] || r.ORG_CD // fallback to code if name not found
+    }));
+
+    console.log('[ABC-ORGS] Returning', combined.length, 'combined store records:', combined);
+
+    res.json(combined);
+  } catch (err) {
+    console.error('[ABC-ORGS] Error:', err.message, err);
+    res.status(500).json({ error: err.message });
+  }
+});
 export default router;

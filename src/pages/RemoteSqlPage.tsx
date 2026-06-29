@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { 
-  Database, Play, CheckCircle, XCircle, ChevronDown, ChevronRight, ChevronLeft, Server, 
+  Database, Play, CheckCircle, XCircle, ChevronDown, ChevronRight, ChevronLeft, Server, ChevronUp, 
   Activity, Search, Trash2, Filter, Info, Save, Clock, Download, ShieldAlert,
   BarChart, LineChart, PieChart, LayoutDashboard, Edit2
 } from "lucide-react";
@@ -28,8 +28,10 @@ export default function RemoteSqlPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
+  const [resultsCollapsed, setResultsCollapsed] = useState(true);
 
   // New Features State
+
   const [templates, setTemplates] = useState<any[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [globalSafeMode, setGlobalSafeMode] = useState(true);
@@ -40,6 +42,7 @@ export default function RemoteSqlPage() {
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   const [editorView, setEditorView] = useState<any>(null);
   const [devicesCollapsed, setDevicesCollapsed] = useState(false);
+  const [editorCollapsed, setEditorCollapsed] = useState(false);
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateSortBy, setTemplateSortBy] = useState<"name_asc" | "name_desc" | "newest" | "oldest">("newest");
   const [selectedGroupFilter, setSelectedGroupFilter] = useState("All");
@@ -608,14 +611,21 @@ export default function RemoteSqlPage() {
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-4 lg:gap-6">
           {/* SQL Editor */}
-          <SectionCard className="h-[300px] lg:h-[40%] flex-none lg:flex-auto flex flex-col overflow-visible relative z-20">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-border pb-2">
+          <SectionCard className={cn("flex-none lg:flex-auto flex flex-col overflow-visible relative z-20", !editorCollapsed && "resize-y overflow-auto min-h-[200px] max-h-[80vh]")} style={{ height: editorCollapsed ? 'auto' : '300px', flex: editorCollapsed ? 'none' : undefined }}>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-border pb-2 relative">
               <div className="flex items-center gap-2">
-                <Database className="w-4 h-4 text-primary" />
-                <h3 className="font-bold text-sm">Editor</h3>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
-                {selectedDeviceIds.length > 0 && availableDatabases.length > 0 && (
+  <Database className="w-4 h-4 text-primary" />
+  <h3 className="font-bold text-sm">Editor</h3>
+</div>
+<button
+  onClick={() => setEditorCollapsed(!editorCollapsed)}
+  className="flex items-center gap-1 text-xs text-foreground-muted hover:text-primary absolute left-1/2 -translate-x-1/2 bg-surface px-2 rounded-full border border-border/50 shadow-sm"
+>
+  {editorCollapsed ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+  {editorCollapsed ? 'Expand' : 'Collapse'}
+</button>
+<div className="flex flex-wrap items-center gap-1.5 md:gap-2">
+  {selectedDeviceIds.length > 0 && availableDatabases.length > 0 && (
                   <div className="flex items-center gap-2 mr-2">
                     <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider hidden md:inline" title={selectedDeviceIds.length > 1 ? "Schema and autocomplete are based on the first selected device. Queries run on all selected devices." : ""}>
                       {selectedDeviceIds.length > 1 ? "DB Reference:" : "Database:"}
@@ -669,6 +679,7 @@ export default function RemoteSqlPage() {
               </div>
             </div>
             
+            <div className={cn("flex-1 min-h-0 flex flex-col collapsible", editorCollapsed ? "max-h-0 opacity-0 overflow-hidden" : "max-h-[2000px] opacity-100")}>
             {showTemplates && (
               <div className="absolute top-14 right-2 md:right-6 z-[100] w-72 bg-surface-overlay border border-border rounded-xl shadow-2xl p-3 animate-in fade-in slide-in-from-top-2 flex flex-col gap-2">
                 <div className="flex items-center justify-between border-b border-border pb-1">
@@ -772,51 +783,61 @@ export default function RemoteSqlPage() {
                         </div>
                       </div>
                     ))
-                  )}
+)}
                 </div>
               </div>
             )}
 
             <div className="flex-1 overflow-hidden rounded-lg border border-border shadow-inner bg-surface">
-              <CodeMirror
-                value={script}
-                height="100%"
-                theme={vscodeDark}
-                extensions={[sql({ schema: schemaForAutocompletion })]}
-                onChange={(value) => setScript(value)}
-                onUpdate={(v) => {
-                  if (v.view !== editorView) {
-                    setEditorView(v.view);
-                  }
-                }}
-                className="text-sm font-mono h-full"
-                basicSetup={{
-                  lineNumbers: true,
-                  foldGutter: true,
-                  highlightActiveLine: true,
-                  dropCursor: true,
-                  allowMultipleSelections: true,
-                  indentOnInput: true,
-                  bracketMatching: true,
-                  closeBrackets: true,
-                  autocompletion: true,
-                  rectangularSelection: true,
-                  crosshairCursor: true,
-                  highlightSelectionMatches: true,
-                  tabSize: 2,
-                }}
-              />
+              {!editorCollapsed && (
+                <CodeMirror
+                  value={script}
+                  height="100%"
+                  theme={vscodeDark}
+                  extensions={[sql({ schema: schemaForAutocompletion })]}
+                  onChange={(value) => setScript(value)}
+                  onUpdate={(v) => {
+                    if (v.view !== editorView) {
+                      setEditorView(v.view);
+                    }
+                  }}
+                  className="text-sm font-mono h-full"
+                  basicSetup={{
+                    lineNumbers: true,
+                    foldGutter: true,
+                    highlightActiveLine: true,
+                    dropCursor: true,
+                    allowMultipleSelections: true,
+                    indentOnInput: true,
+                    bracketMatching: true,
+                    closeBrackets: true,
+                    autocompletion: true,
+                    rectangularSelection: true,
+                    crosshairCursor: true,
+                    highlightSelectionMatches: true,
+                    tabSize: 2,
+                  }}
+                />
+              )}
+            </div>
             </div>
           </SectionCard>
 
           {/* Results Pane */}
-          <SectionCard className="flex-none h-[400px] lg:flex-1 lg:h-auto flex flex-col bg-background-subtle overflow-hidden relative z-10">
-            <div className="flex items-center justify-between mb-4 border-b border-border pb-2">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-info" />
-                <h3 className="font-bold text-sm">Execution Results</h3>
-              </div>
-              {results && (
+          <SectionCard className={cn("flex-none lg:flex-1 flex flex-col bg-background-subtle relative z-10", !resultsCollapsed ? "h-[400px] lg:h-auto overflow-hidden" : "")} style={{ height: resultsCollapsed ? 'auto' : undefined, flex: resultsCollapsed ? 'none' : undefined }}>
+            <div className="flex items-center justify-between mb-4 border-b border-border pb-2 relative">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-info" />
+              <h3 className="font-bold text-sm">Execution Results</h3>
+            </div>
+            <button
+              onClick={() => setResultsCollapsed(!resultsCollapsed)}
+              className="flex items-center gap-1 text-xs text-foreground-muted hover:text-primary absolute left-1/2 -translate-x-1/2 bg-surface px-2 rounded-full border border-border/50 shadow-sm"
+            >
+              {resultsCollapsed ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+              {resultsCollapsed ? 'Expand' : 'Collapse'}
+            </button>
+              {results && !resultsCollapsed && (
                 <button 
                   onClick={exportCsv}
                   className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold text-primary bg-primary/5 border border-primary/20 rounded hover:bg-primary/10 transition-all font-mono"
@@ -826,6 +847,7 @@ export default function RemoteSqlPage() {
               )}
             </div>
             
+            <div className={cn("flex-1 flex flex-col overflow-hidden collapsible", resultsCollapsed ? "max-h-0 opacity-0" : "max-h-[2000px] opacity-100")}>
             {!results && !isExecuting && (
               <div className="flex-1 flex flex-col items-center justify-center text-foreground-muted opacity-40">
                 <Play className="w-12 h-12 mb-3" />
@@ -916,6 +938,7 @@ export default function RemoteSqlPage() {
                 ))}
               </div>
             )}
+            </div>
           </SectionCard>
         </div>
       </div>
