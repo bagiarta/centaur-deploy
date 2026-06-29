@@ -3683,7 +3683,7 @@ async function runOfflineDetector() {
 
       if (isHeartbeatStale && canPing) {
         try {
-          const { stdout } = await execPromise(`ping -n 2 -w 1000 ${dev.ip}`);
+          const { stdout } = await execPromise(`ping -n 3 -w 1000 ${dev.ip}`);
           if (!stdout.includes("TTL=")) {
             isPingFailing = true;
           } else {

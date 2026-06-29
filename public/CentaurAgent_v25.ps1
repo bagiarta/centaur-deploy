@@ -5,8 +5,11 @@
 #   3. Poll and execute pending remote commands, report results
 #   4. Poll and execute pending file deployments
 param(
-    [string]$ServerUrl = "http://192.168.85.30:3001"
+    [string]$ServerUrl = "https://192.168.85.30:3001"
 )
+
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
 $Version    = "2.7.4"
 $Hostname   = $env:COMPUTERNAME
@@ -36,7 +39,7 @@ $LogPath    = "C:\Windows\Temp\centaur_agent.log"
 
 # Force correct server URL (never localhost)
 if (!$ServerUrl -or $ServerUrl -like "*localhost*" -or $ServerUrl -like "*127.0.0.1*") {
-    $ServerUrl = "http://192.168.85.30:3001"
+    $ServerUrl = "https://192.168.85.30:3001"
 }
 
 function Write-Log($msg) {
@@ -68,7 +71,10 @@ foreach ($legacy in $legacyTasks) {
 # ─────────────────────────────────────────────────────────
 Write-Log "[Update] Checking for newer agent version at $ServerUrl/api/agent/version..."
 try {
-    $verResponse = Invoke-RestMethod -Uri "$ServerUrl/api/agent/version" -Method Get -TimeoutSec 10 -ErrorAction Stop
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+    $json = $wc.DownloadString("$ServerUrl/api/agent/version")
+    $verResponse = $json | ConvertFrom-Json
     $serverVersion = $verResponse.version
 
     Write-Log "[Update] Local: v$Version | Server: v$serverVersion"
@@ -80,7 +86,9 @@ try {
     if ($serverParsed -gt $localParsed) {
         Write-Log "[Update] Newer version available. Downloading v$serverVersion..."
         $TempPath = "$env:TEMP\$AgentFile"
-        Invoke-WebRequest -Uri "$ServerUrl/$AgentFile" -OutFile $TempPath -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        $wcDownload = New-Object System.Net.WebClient
+        $wcDownload.Headers.Add("User-Agent", "Mozilla/5.0")
+        $wcDownload.DownloadFile("$ServerUrl/$AgentFile", $TempPath)
         Copy-Item -Path $TempPath -Destination $AgentPath -Force -ErrorAction Stop
         Write-Log "[Update] Agent updated to v$serverVersion. Exiting for next scheduler run to pick up new script."
         exit 0
@@ -190,7 +198,10 @@ try {
 Write-Log "[Commands] Polling for pending commands..."
 try {
     $pendingUrl  = "$ServerUrl/api/agent/pending?hostname=$([uri]::EscapeDataString($Hostname))"
-    $pendingResp = Invoke-RestMethod -Uri $pendingUrl -Method Get -TimeoutSec 10 -ErrorAction Stop
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+    $json = $wc.DownloadString($pendingUrl)
+    $pendingResp = $json | ConvertFrom-Json
     $commands    = $pendingResp.commands
 
     if ($commands -and $commands.Count -gt 0) {
@@ -250,7 +261,10 @@ try {
 Write-Log "[Deployments] Polling for pending deployments..."
 try {
     $depsUrl  = "$ServerUrl/api/agent/pending-deployments?hostname=$([uri]::EscapeDataString($Hostname))"
-    $depsResp = Invoke-RestMethod -Uri $depsUrl -Method Get -TimeoutSec 10 -ErrorAction Stop
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+    $json = $wc.DownloadString($depsUrl)
+    $depsResp = $json | ConvertFrom-Json
     $deployments = $depsResp.deployments
 
     if ($deployments -and $deployments.Count -gt 0) {
@@ -284,7 +298,9 @@ try {
                 $localFile   = Join-Path -Path $targetDir -ChildPath $fileName
 
                 Write-Log "[Deployments] Downloading from $downloadUrl to $localFile..."
-                Invoke-WebRequest -Uri $downloadUrl -OutFile $localFile -UseBasicParsing -TimeoutSec 300 -ErrorAction Stop
+                $wcDownload = New-Object System.Net.WebClient
+                $wcDownload.Headers.Add("User-Agent", "Mozilla/5.0")
+                $wcDownload.DownloadFile($downloadUrl, $localFile)
                 
                 $statusPayload = @{ deployment_id = $depId; device_id = $devId; status = "running"; progress = 50; log = "Installing..." } | ConvertTo-Json
                 try { Invoke-RestMethod -Uri "$ServerUrl/api/agent/deploy-status" -Method Post -Body $statusPayload -ContentType "application/json" -TimeoutSec 15 -ErrorAction SilentlyContinue } catch {}

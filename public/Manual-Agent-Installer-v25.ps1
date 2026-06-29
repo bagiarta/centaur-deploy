@@ -1,7 +1,9 @@
 param(
-    [string]$ServerUrl = "http://192.168.85.30:3001",
+    [string]$ServerUrl = "https://192.168.85.30:3001",
     [switch]$LocalOnly = $false
 )
+
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
 # 0. Global Setup
 # MANDATORY: Run as Administrator
@@ -19,7 +21,7 @@ $LogPath = "C:\Windows\Temp\centaur_v25_install.log"
 
 # Force Correct IP if local is detected
 if (!$ServerUrl -or $ServerUrl -like "*localhost*" -or $ServerUrl -like "*127.0.0.1*") {
-    $ServerUrl = "http://192.168.85.30:3001"
+    $ServerUrl = "https://192.168.85.30:3001"
 }
 
 # Ensure TLS 1.2
@@ -78,7 +80,9 @@ try {
         Copy-Item -Path $TempSource -Destination $AgentPath -Force -ErrorAction Stop
     } else {
         Write-Log "Online Download from $ServerUrl..."
-        Invoke-WebRequest -Uri "$ServerUrl/$AgentFile" -OutFile $AgentPath -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        $wc = New-Object System.Net.WebClient
+        $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+        $wc.DownloadFile("$ServerUrl/$AgentFile", $AgentPath)
     }
     Write-Log "Success: Agent core placed."
 } catch {

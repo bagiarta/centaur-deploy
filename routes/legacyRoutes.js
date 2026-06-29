@@ -183,7 +183,7 @@ router.post('/api/agent-jobs', async (req, res) => {
     const pool = await poolPromise;
 
     let serverUrl = `${req.protocol}://${req.get('host')}`;
-    if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
+    if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "https://192.168.85.30:3001";
     const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
     const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
 
@@ -364,7 +364,7 @@ router.post('/api/agent-jobs/retry', async (req, res) => {
       const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
       const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
       let serverUrl = `${req.protocol}://${req.get('host')}`;
-      if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
+      if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "https://192.168.85.30:3001";
 
       let statusResult = 'failed';
       let logMsg = '';
@@ -648,6 +648,73 @@ router.post('/api/deployments', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── POST /api/deployments/:id/targets ──────────────────────
+router.post('/api/deployments/:id/targets', async (req, res) => {
+  const { id } = req.params;
+  const { targets } = req.body;
+
+  if (!targets || !Array.isArray(targets) || targets.length === 0) {
+    return res.status(400).json({ error: "No targets provided" });
+  }
+
+  try {
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      // 1. Insert New Targets
+      for (const t of targets) {
+        // Check if device already exists for this deployment to avoid duplicates
+        const check = await transaction.request()
+          .input('deployment_id', sql.NVarChar, id)
+          .input('device_id', sql.NVarChar, t.device_id)
+          .query('SELECT 1 FROM DeploymentTargets WHERE deployment_id = @deployment_id AND device_id = @device_id');
+
+        if (check.recordset.length > 0) continue;
+
+        await transaction.request()
+          .input('deployment_id', sql.NVarChar, id)
+          .input('device_id', sql.NVarChar, t.device_id)
+          .input('hostname', sql.NVarChar, t.hostname)
+          .input('ip', sql.NVarChar, t.ip)
+          .input('status', sql.NVarChar, 'pending')
+          .input('log', sql.NVarChar, 'Waiting for agent...')
+          .input('updated_at', sql.NVarChar, new Date().toISOString())
+          .input('progress', sql.Int, 0)
+          .query(`
+            INSERT INTO DeploymentTargets 
+            (deployment_id, device_id, hostname, ip, status, log, updated_at, progress)
+            VALUES 
+            (@deployment_id, @device_id, @hostname, @ip, @status, @log, @updated_at, @progress)
+          `);
+      }
+
+      // 2. Update Deployment Counts
+      await transaction.request()
+        .input('id', sql.NVarChar, id)
+        .input('new_count', sql.Int, targets.length)
+        .query(`
+          UPDATE Deployments 
+          SET total_targets = total_targets + @new_count,
+              pending_count = pending_count + @new_count,
+              status = 'running' -- Force status back to running if it was success/failed
+          WHERE id = @id
+        `);
+
+      await transaction.commit();
+      res.json({ success: true, message: 'Targets added successfully' });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error('Add targets error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 
 
@@ -2246,7 +2313,7 @@ async function runOfflineDetector() {
 
       if (isHeartbeatStale && canPing) {
         try {
-          const { stdout } = await execPromise(`ping -n 2 -w 1000 ${dev.ip}`);
+          const { stdout } = await execPromise(`ping -n 3 -w 1000 ${dev.ip}`);
           if (!stdout.includes("TTL=")) {
             isPingFailing = true;
           } else {
