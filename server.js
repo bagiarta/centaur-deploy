@@ -19,8 +19,11 @@ import sqlRoutes from './routes/sqlRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import pushRoutes from './routes/pushRoutes.js';
+import scaleRoutes from './routes/scaleRoutes.js';
+import cctvRoutes from './routes/cctvRoutes.js';
 import legacyRoutes, { startBackgroundTasks } from './routes/legacyRoutes.js';
 import { sendWebPush } from './controllers/pushController.js';
+import { startCCTVPollingJob } from './utils/cctvPollingService.js';
 
 dotenv.config();
 
@@ -55,8 +58,11 @@ if (httpsServer) {
   io.attach(httpsServer);
 }
 
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 3005;
 const httpsPort = process.env.HTTPS_PORT || 3002;
+if (!fs.existsSync('C:\\Digimap')) { fs.mkdirSync('C:\\Digimap', { recursive: true }); }
+
+// Repo path – same as routes/scaleRoutes.js & legacyRoutes.js
 const REPO_PATH = path.resolve('F:\\PepiUpdater\\Repo');
 
 // Ensure Repo path exists
@@ -75,10 +81,17 @@ const packageStorage = multer.diskStorage({
   filename: (req, file, cb) => cb(null, file.originalname)
 });
 const packageUpload = multer({ storage: packageStorage });
+// Template upload configuration – stores files in C:\\Digimap
+const templateStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'C:\\Digimap'),
+  filename: (req, file, cb) => cb(null, file.originalname)
+});
+const templateUpload = multer({ storage: templateStorage });
 
 // Initialize Database
 initDb().then(() => {
   startBackgroundTasks();
+  startCCTVPollingJob();
 });
 
 // Register Routes
@@ -87,7 +100,16 @@ app.use('/api/groups', groupRoutes);
 app.use('/api/sql', sqlRoutes);
 app.use('/api/webhook', webhookRoutes);
 app.use('/api/chat', chatRoutes);
+// Endpoint for uploading template files (e.g., PLU CSV)
+app.post('/api/templates/upload', templateUpload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+  return res.json({ success: true, path: req.file.path });
+});
 app.use('/api/push', pushRoutes);
+app.use('/api/scales', scaleRoutes);
+app.use('/api/cctv', cctvRoutes);
 
 // Mount all remaining (unmigrated) routes at root to preserve exact paths
 app.use('/', legacyRoutes);

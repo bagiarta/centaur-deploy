@@ -5055,7 +5055,21 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
     });
   } catch (err) {
     console.error('[AI Chat Error]', err);
-    res.status(500).json({ error: "Assistant failed: " + err.message });
+    
+    // Custom error message untuk user yang lebih informatif
+    let userFriendlyMessage = "Maaf, AI Assistant mengalami kendala teknis. ";
+    
+    if (err.message && err.message.includes('404 No endpoints found')) {
+      userFriendlyMessage = "ℹ️ AI Assistant ini bersifat local-based yang berfungsi sebagai tools bantu khusus untuk sistem Pepinet saja. " +
+                           "Fitur ini dirancang untuk membantu operasional internal dan tidak terhubung dengan layanan AI eksternal.";
+    } else if (err.message && (err.message.includes('openrouter') || err.message.includes('API'))) {
+      userFriendlyMessage = "ℹ️ AI Assistant ini adalah sistem internal Pepinet yang berfungsi sebagai tools bantu operasional. " +
+                           "Sistem ini dirancang khusus untuk kebutuhan internal dan tidak memerlukan koneksi ke layanan AI eksternal.";
+    } else {
+      userFriendlyMessage += "Silakan coba lagi dalam beberapa saat atau hubungi tim IT jika masalah berlanjut.";
+    }
+    
+    res.status(500).json({ error: userFriendlyMessage });
   }
 });
 

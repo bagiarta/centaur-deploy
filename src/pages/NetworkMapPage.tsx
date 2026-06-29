@@ -1,4 +1,4 @@
-﻿
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "@/components/ui-enterprise";
 import {
@@ -159,8 +159,8 @@ function ZoneCard({
       onDragEnd={onZoneDragEnd}
       animate={{ x: zone.x, y: zone.y, width: zone.width, height: zone.collapsed ? ZONE_COLLAPSED_HEIGHT : zone.height }}
       transition={{ type: "spring", damping: 26, stiffness: 320 }}
-      className={cn("absolute z-30 rounded-xl border shadow-2xl overflow-hidden", isActive ? "ring-2 ring-primary/50" : "ring-1 ring-transparent")}
-      style={{ backgroundColor: "rgba(8, 15, 28, 0.82)", borderColor: `${zone.color}80` }}
+      className={cn("absolute z-30 rounded-xl border shadow-xl overflow-hidden", isActive ? "ring-2 ring-primary/50" : "ring-1 ring-transparent")}
+      style={{ backgroundColor: "rgba(255, 255, 255, 0.92)", borderColor: `${zone.color}60`, backdropFilter: "blur(16px)" }}
     >
       <div
         data-mesh-interactive="true"
@@ -172,25 +172,25 @@ function ZoneCard({
           }
         }}
         className={cn("h-14 px-4 flex items-center justify-between border-b", locked ? "cursor-default" : "cursor-grab active:cursor-grabbing")}
-        style={{ borderColor: `${zone.color}35`, backgroundColor: "rgba(6, 12, 20, 0.95)" }}
+        style={{ borderColor: `${zone.color}30`, backgroundColor: "rgba(248, 250, 252, 0.98)" }}
       >
         <div className="min-w-0 flex items-center gap-3">
-          <div className="flex items-center justify-center w-7 h-7 rounded-md border border-white/10 bg-white/5 text-white/60 shrink-0">
+          <div className="flex items-center justify-center w-7 h-7 rounded-md border border-slate-200 bg-slate-100 text-slate-400 shrink-0">
             <Move className="w-3.5 h-3.5" />
           </div>
           <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: zone.color }} />
           <div className="min-w-0">
-            <p className="text-sm font-black text-white truncate uppercase tracking-wide">{zone.title}</p>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-black">
+            <p className="text-sm font-black text-slate-800 truncate uppercase tracking-wide">{zone.title}</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 font-black">
               {zone.deviceIds.length} node · {visibleMembers} visible · {locked ? "layout locked" : "drag header"}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={(event) => { event.stopPropagation(); onToggleCollapse(); }} className="p-2 rounded-lg bg-black/15 hover:bg-black/25 text-white/70 transition-colors" title={zone.collapsed ? "Expand group" : "Collapse group"}>
+          <button onClick={(event) => { event.stopPropagation(); onToggleCollapse(); }} className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors" title={zone.collapsed ? "Expand group" : "Collapse group"}>
             {zone.collapsed ? <Plus className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
           </button>
-          <button onClick={(event) => { event.stopPropagation(); onDelete(); }} className="p-2 rounded-lg bg-black/15 hover:bg-danger/20 text-white/70 hover:text-danger transition-colors" title="Delete group">
+          <button onClick={(event) => { event.stopPropagation(); onDelete(); }} className="p-2 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-danger transition-colors" title="Delete group">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -198,8 +198,8 @@ function ZoneCard({
 
       {!zone.collapsed && (
         <>
-          <div className="absolute inset-x-0 top-14 bottom-0 pointer-events-none rounded-b-xl bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.08),_transparent_60%)]" />
-          <div className="absolute inset-x-3 top-[68px] bottom-3 pointer-events-none rounded-lg border border-dashed" style={{ borderColor: `${zone.color}35` }} />
+          <div className="absolute inset-x-0 top-14 bottom-0 pointer-events-none rounded-b-xl bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.04),_transparent_60%)]" />
+          <div className="absolute inset-x-3 top-[68px] bottom-3 pointer-events-none rounded-lg border border-dashed" style={{ borderColor: `${zone.color}25` }} />
         </>
       )}
 
@@ -207,7 +207,7 @@ function ZoneCard({
         <button
           data-mesh-interactive="true"
           onPointerDown={onResizeStart}
-          className="absolute right-2 bottom-2 min-w-[98px] h-8 px-2 rounded-lg bg-black/30 hover:bg-black/45 border border-white/10 flex items-center justify-center gap-1.5 text-white/70 transition-colors"
+          className="absolute right-2 bottom-2 min-w-[98px] h-8 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 flex items-center justify-center gap-1.5 text-slate-500 transition-colors"
           title="Resize group"
         >
           <ChevronsUpDown className="w-3.5 h-3.5 rotate-45" />
@@ -704,63 +704,63 @@ export default function NetworkMapPage() {
   }, [selectedDeviceIds, selectedGroupDeviceIds, visibleConnections]);
 
   return (
-    <div className="p-3 bg-background h-screen flex flex-col gap-4 animate-fade-up overflow-hidden relative">
-      <div className="flex justify-between items-center shrink-0 z-50 bg-slate-900/60 p-3 rounded-2xl border border-white/5 backdrop-blur-3xl shadow-2xl">
+    <div className="p-3 bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-100 h-screen flex flex-col gap-4 animate-fade-up overflow-hidden relative">
+      <div className="flex justify-between items-center shrink-0 z-50 bg-white/80 p-3 rounded-2xl border border-slate-200 backdrop-blur-xl shadow-lg">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-primary/10 rounded-xl border border-primary/20"><Globe className="w-5 h-5 text-primary" /></div>
           <div>
-            <h1 className="text-sm font-black text-white uppercase tracking-[0.18em] leading-none">Mesh Board v2.7.1</h1>
-            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-1">{devices.length} Nodes Total · {zones.length} Groups</p>
+            <h1 className="text-sm font-black text-slate-800 uppercase tracking-[0.18em] leading-none">Mesh Board v2.7.1</h1>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{devices.length} Nodes Total · {zones.length} Groups</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 p-1 bg-slate-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden group/filter transition-all focus-within:border-primary/50">
+          <div className="flex items-center gap-1.5 p-1 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden group/filter transition-all focus-within:border-primary/50">
             <div className="relative px-2 flex items-center">
-              <Search className="w-3.5 h-3.5 text-primary/60 group-focus-within/filter:text-primary transition-colors" />
-              <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search Intel..." className="bg-transparent text-[10px] font-black text-white placeholder:text-white/20 focus:outline-none w-24 hover:w-32 transition-all ml-1.5" />
+              <Search className="w-3.5 h-3.5 text-slate-400 group-focus-within/filter:text-primary transition-colors" />
+              <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search Intel..." className="bg-transparent text-[10px] font-black text-slate-700 placeholder:text-slate-300 focus:outline-none w-24 hover:w-32 transition-all ml-1.5" />
             </div>
-            <div className="h-4 w-px bg-white/10" />
+            <div className="h-4 w-px bg-slate-200" />
             <div className="flex items-center gap-1.5 px-3 py-1 bg-primary/10 hover:bg-primary/20 rounded-lg transition-all cursor-pointer">
               <Filter className="w-3 h-3 text-primary" />
-              <select value={subnetFilter} onChange={(event) => setSubnetFilter(event.target.value)} className="bg-transparent text-[10px] font-black text-white/90 outline-none cursor-pointer appearance-none uppercase tracking-tighter">
-                <option value="all" className="bg-slate-900 text-white">GLOBAL_MESH</option>
-                {subnetKeys.map((subnet) => <option key={subnet} value={subnet} className="bg-slate-900 text-white">{subnet}</option>)}
+              <select value={subnetFilter} onChange={(event) => setSubnetFilter(event.target.value)} className="bg-transparent text-[10px] font-black text-slate-700 outline-none cursor-pointer appearance-none uppercase tracking-tighter">
+                <option value="all" className="bg-white text-slate-700">GLOBAL_MESH</option>
+                {subnetKeys.map((subnet) => <option key={subnet} value={subnet} className="bg-white text-slate-700">{subnet}</option>)}
               </select>
-              <ChevronDown className="w-3 h-3 text-white/40" />
+              <ChevronDown className="w-3 h-3 text-slate-400" />
             </div>
           </div>
 
-          <div className="flex bg-slate-900 border border-white/10 p-0.5 rounded-xl shadow-inner">
-            <button onClick={() => setLayoutMode("topology")} className={cn("px-4 py-1.5 text-[9px] font-black uppercase rounded-lg transition-all flex items-center gap-1.5", layoutMode === "topology" ? "bg-primary text-white shadow-glow" : "text-white/40 hover:text-white hover:bg-white/5")}><Maximize2 className="w-3 h-3" /> Logical</button>
-            <button onClick={() => setLayoutMode("physical")} className={cn("px-4 py-1.5 text-[9px] font-black uppercase rounded-lg transition-all flex items-center gap-1.5", layoutMode === "physical" ? "bg-primary text-white shadow-glow" : "text-white/40 hover:text-white hover:bg-white/5")}><Move className="w-3 h-3" /> Mesh</button>
+          <div className="flex bg-slate-100 border border-slate-200 p-0.5 rounded-xl shadow-inner">
+            <button onClick={() => setLayoutMode("topology")} className={cn("px-4 py-1.5 text-[9px] font-black uppercase rounded-lg transition-all flex items-center gap-1.5", layoutMode === "topology" ? "bg-primary text-white shadow-md" : "text-slate-400 hover:text-slate-700 hover:bg-white")}><Maximize2 className="w-3 h-3" /> Logical</button>
+            <button onClick={() => setLayoutMode("physical")} className={cn("px-4 py-1.5 text-[9px] font-black uppercase rounded-lg transition-all flex items-center gap-1.5", layoutMode === "physical" ? "bg-primary text-white shadow-md" : "text-slate-400 hover:text-slate-700 hover:bg-white")}><Move className="w-3 h-3" /> Mesh</button>
           </div>
         </div>
       </div>
 
-      <SectionCard className="flex-1 w-full overflow-hidden relative border-border/40 bg-slate-950/20 glass group rounded-[2rem]">
+      <SectionCard className="flex-1 w-full overflow-hidden relative border-slate-200 bg-white/60 backdrop-blur-sm group rounded-[2rem] shadow-lg">
         {layoutMode === "physical" && (
           <>
             <div className="absolute top-4 right-4 flex items-center gap-2 z-50">
-              <div className="flex p-1 bg-slate-900/90 border border-white/10 rounded-xl backdrop-blur-3xl shadow-2xl">
-                <button onClick={() => setZoom(Math.min(zoom + 0.1, 2))} className="p-2 hover:bg-white/10 text-white rounded-lg transition-all"><Plus className="w-3.5 h-3.5" /></button>
-                <button onClick={() => setZoom(Math.max(zoom - 0.1, 0.2))} className="p-2 hover:bg-white/10 text-white rounded-lg transition-all"><Minus className="w-3.5 h-3.5" /></button>
-                <button onClick={() => { setZoom(0.85); centerMapOn(filteredDevices); }} className="p-2 hover:bg-white/10 text-primary rounded-lg transition-all" title="Reset view"><Focus className="w-3.5 h-3.5" /></button>
+              <div className="flex p-1 bg-white/90 border border-slate-200 rounded-xl backdrop-blur-xl shadow-lg">
+                <button onClick={() => setZoom(Math.min(zoom + 0.1, 2))} className="p-2 hover:bg-slate-100 text-slate-600 rounded-lg transition-all"><Plus className="w-3.5 h-3.5" /></button>
+                <button onClick={() => setZoom(Math.max(zoom - 0.1, 0.2))} className="p-2 hover:bg-slate-100 text-slate-600 rounded-lg transition-all"><Minus className="w-3.5 h-3.5" /></button>
+                <button onClick={() => { setZoom(0.85); centerMapOn(filteredDevices); }} className="p-2 hover:bg-slate-100 text-primary rounded-lg transition-all" title="Reset view"><Focus className="w-3.5 h-3.5" /></button>
               </div>
 
-              <div className="flex bg-slate-900/90 border border-white/10 p-1 rounded-xl backdrop-blur-3xl shadow-2xl">
-                <button onClick={() => setInteractionMode("select")} className={cn("px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all", interactionMode === "select" ? "bg-primary text-white shadow-glow" : "text-white/45 hover:text-white hover:bg-white/10")}><MousePointer2 className="w-3 h-3" /> Select</button>
-                <button onClick={() => setInteractionMode("pan")} className={cn("px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all", interactionMode === "pan" ? "bg-primary text-white shadow-glow" : "text-white/45 hover:text-white hover:bg-white/10")}><Move className="w-3 h-3" /> Pan</button>
+              <div className="flex bg-white/90 border border-slate-200 p-1 rounded-xl backdrop-blur-xl shadow-lg">
+                <button onClick={() => setInteractionMode("select")} className={cn("px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all", interactionMode === "select" ? "bg-primary text-white shadow-md" : "text-slate-400 hover:text-slate-700 hover:bg-slate-100")}><MousePointer2 className="w-3 h-3" /> Select</button>
+                <button onClick={() => setInteractionMode("pan")} className={cn("px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all", interactionMode === "pan" ? "bg-primary text-white shadow-md" : "text-slate-400 hover:text-slate-700 hover:bg-slate-100")}><Move className="w-3 h-3" /> Pan</button>
               </div>
 
-              <button onClick={autoArrange} className="px-3 py-2 bg-primary/20 hover:bg-primary border border-primary/40 text-primary hover:text-white rounded-xl backdrop-blur-xl shadow-glow transition-all flex items-center gap-1.5 text-[9px] font-black uppercase"><LayoutGrid className="w-3 h-3" /> Auto Arrange</button>
+              <button onClick={autoArrange} className="px-3 py-2 bg-primary/10 hover:bg-primary border border-primary/30 text-primary hover:text-white rounded-xl backdrop-blur-xl shadow-md transition-all flex items-center gap-1.5 text-[9px] font-black uppercase"><LayoutGrid className="w-3 h-3" /> Auto Arrange</button>
               <button
                 onClick={() => setLayoutLocked((prev) => !prev)}
                 className={cn(
                   "px-3 py-2 rounded-xl backdrop-blur-xl transition-all flex items-center gap-1.5 text-[9px] font-black uppercase border",
                   layoutLocked
-                    ? "bg-amber-500/20 border-amber-400/40 text-amber-200 hover:bg-amber-500/30"
-                    : "bg-slate-900/90 border-white/10 text-white/80 hover:bg-white/10"
+                    ? "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100"
+                    : "bg-white/90 border-slate-200 text-slate-600 hover:bg-slate-100"
                 )}
               >
                 {layoutLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
@@ -768,56 +768,56 @@ export default function NetworkMapPage() {
               </button>
             </div>
 
-            <div className="absolute top-4 left-4 z-50 w-[340px] rounded-[1.5rem] border border-white/10 bg-slate-900/88 backdrop-blur-3xl shadow-2xl overflow-hidden">
-              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+            <div className="absolute top-4 left-4 z-50 w-[340px] rounded-[1.5rem] border border-slate-200 bg-white/92 backdrop-blur-xl shadow-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.25em]">Mesh Grouping</p>
-                  <h3 className="text-sm font-black text-white tracking-tight">Work Zones</h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">Mesh Grouping</p>
+                  <h3 className="text-sm font-black text-slate-800 tracking-tight">Work Zones</h3>
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] text-white/40 uppercase font-black tracking-wider">Selected</p>
+                  <p className="text-[10px] text-slate-400 uppercase font-black tracking-wider">Selected</p>
                   <p className="text-sm font-black text-primary">{selectedDeviceIds.length}</p>
                 </div>
               </div>
 
               <div className="p-4 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => createZone()} className="px-3 py-2 rounded-xl bg-primary/15 hover:bg-primary/25 border border-primary/30 text-primary text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all"><FolderPlus className="w-3.5 h-3.5" /> Empty Group</button>
-                  <button onClick={() => createZone(selectedDeviceIds)} disabled={selectedDeviceIds.length === 0} className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all"><ScanLine className="w-3.5 h-3.5" /> Group Selected</button>
+                  <button onClick={() => createZone()} className="px-3 py-2 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/30 text-primary text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all"><FolderPlus className="w-3.5 h-3.5" /> Empty Group</button>
+                  <button onClick={() => createZone(selectedDeviceIds)} disabled={selectedDeviceIds.length === 0} className="px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all"><ScanLine className="w-3.5 h-3.5" /> Group Selected</button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => selectedZone && assignDevicesToZone(selectedZone.id, selectedDeviceIds)} disabled={!selectedZone || selectedDeviceIds.length === 0} className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all"><Plus className="w-3.5 h-3.5" /> Add To Active</button>
-                  <button onClick={() => removeDevicesFromZones(selectedDeviceIds)} disabled={selectedDeviceIds.length === 0} className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all"><Ungroup className="w-3.5 h-3.5" /> Ungroup</button>
+                  <button onClick={() => selectedZone && assignDevicesToZone(selectedZone.id, selectedDeviceIds)} disabled={!selectedZone || selectedDeviceIds.length === 0} className="px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all"><Plus className="w-3.5 h-3.5" /> Add To Active</button>
+                  <button onClick={() => removeDevicesFromZones(selectedDeviceIds)} disabled={selectedDeviceIds.length === 0} className="px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all"><Ungroup className="w-3.5 h-3.5" /> Ungroup</button>
                 </div>
 
-                <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-2 text-[11px] text-white/65 leading-relaxed">
+                <div className="rounded-xl border border-slate-200 bg-blue-50/50 px-3 py-2 text-[11px] text-slate-500 leading-relaxed">
                   Gunakan <span className="text-primary font-black">drag box</span> di mode Select untuk memilih banyak device.
-                  <span className="block mt-1">Untuk group: <span className="text-white font-bold">drag header</span> untuk pindah posisi dan <span className="text-white font-bold">tarik handle pojok kanan bawah</span> untuk ubah ukuran.</span>
-                  <span className="block mt-1">Saat <span className="text-white font-bold">Layout Locked</span> aktif, group dan device tidak bisa digeser.</span>
+                  <span className="block mt-1">Untuk group: <span className="text-slate-700 font-bold">drag header</span> untuk pindah posisi dan <span className="text-slate-700 font-bold">tarik handle pojok kanan bawah</span> untuk ubah ukuran.</span>
+                  <span className="block mt-1">Saat <span className="text-slate-700 font-bold">Layout Locked</span> aktif, group dan device tidak bisa digeser.</span>
                 </div>
 
                 <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
-                  {zones.length === 0 && <div className="rounded-xl border border-dashed border-white/15 px-3 py-4 text-center text-sm text-white/45">Belum ada group card. Buat group kosong atau pilih device lalu `Group Selected`.</div>}
+                  {zones.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-400">Belum ada group card. Buat group kosong atau pilih device lalu `Group Selected`.</div>}
                   {zones.map((zone) => {
                     const visibleCount = zone.deviceIds.filter((deviceId) => visibleDeviceIds.has(deviceId)).length;
                     const isActive = zone.id === selectedZoneId;
                     return (
-                      <div key={zone.id} className={cn("rounded-xl border p-3 transition-all", isActive ? "border-primary/40 bg-primary/10" : "border-white/10 bg-white/5")}>
+                      <div key={zone.id} className={cn("rounded-xl border p-3 transition-all", isActive ? "border-primary/40 bg-primary/5" : "border-slate-200 bg-slate-50")}>
                         <div className="flex items-start gap-3">
                           <div className="mt-1 h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: zone.color }} />
                           <div className="min-w-0 flex-1 space-y-2">
-                            <input value={zone.title} onChange={(event) => updateZone(zone.id, { title: event.target.value })} onFocus={() => setSelectedZoneId(zone.id)} className="w-full bg-transparent text-sm font-black text-white outline-none border-none p-0" />
-                            <p className="text-[10px] text-white/45 uppercase font-black tracking-wider">{zone.deviceIds.length} device · {visibleCount} visible</p>
+                            <input value={zone.title} onChange={(event) => updateZone(zone.id, { title: event.target.value })} onFocus={() => setSelectedZoneId(zone.id)} className="w-full bg-transparent text-sm font-black text-slate-800 outline-none border-none p-0" />
+                            <p className="text-[10px] text-slate-400 uppercase font-black tracking-wider">{zone.deviceIds.length} device · {visibleCount} visible</p>
                           </div>
-                          <button onClick={() => setSelectedZoneId(zone.id)} className="p-1.5 rounded-lg border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-colors" title="Set active group"><ChevronsUpDown className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setSelectedZoneId(zone.id)} className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors" title="Set active group"><ChevronsUpDown className="w-3.5 h-3.5" /></button>
                         </div>
 
                         <div className="mt-3 grid grid-cols-4 gap-2">
-                          <button onClick={() => focusZone(zone)} className="px-2 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[9px] font-black uppercase tracking-wider text-white transition-all flex items-center justify-center gap-1"><Focus className="w-3 h-3" /> Focus</button>
-                          <button onClick={() => assignDevicesToZone(zone.id, selectedDeviceIds)} disabled={selectedDeviceIds.length === 0} className="px-2 py-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-[9px] font-black uppercase tracking-wider text-white transition-all flex items-center justify-center gap-1"><Plus className="w-3 h-3" /> Add</button>
-                          <button onClick={() => toggleZoneCollapsed(zone.id)} className="px-2 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[9px] font-black uppercase tracking-wider text-white transition-all flex items-center justify-center gap-1">{zone.collapsed ? <Plus className="w-3 h-3" /> : <Minus className="w-3 h-3" />}{zone.collapsed ? "Open" : "Fold"}</button>
-                          <button onClick={() => deleteZone(zone.id)} className="px-2 py-2 rounded-lg bg-danger/10 hover:bg-danger/20 border border-danger/20 text-[9px] font-black uppercase tracking-wider text-danger transition-all flex items-center justify-center gap-1"><Trash2 className="w-3 h-3" /> Del</button>
+                          <button onClick={() => focusZone(zone)} className="px-2 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-[9px] font-black uppercase tracking-wider text-slate-600 transition-all flex items-center justify-center gap-1"><Focus className="w-3 h-3" /> Focus</button>
+                          <button onClick={() => assignDevicesToZone(zone.id, selectedDeviceIds)} disabled={selectedDeviceIds.length === 0} className="px-2 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-200 text-[9px] font-black uppercase tracking-wider text-slate-600 transition-all flex items-center justify-center gap-1"><Plus className="w-3 h-3" /> Add</button>
+                          <button onClick={() => toggleZoneCollapsed(zone.id)} className="px-2 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-[9px] font-black uppercase tracking-wider text-slate-600 transition-all flex items-center justify-center gap-1">{zone.collapsed ? <Plus className="w-3 h-3" /> : <Minus className="w-3 h-3" />}{zone.collapsed ? "Open" : "Fold"}</button>
+                          <button onClick={() => deleteZone(zone.id)} className="px-2 py-2 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-[9px] font-black uppercase tracking-wider text-danger transition-all flex items-center justify-center gap-1"><Trash2 className="w-3 h-3" /> Del</button>
                         </div>
                       </div>
                     );
@@ -828,7 +828,7 @@ export default function NetworkMapPage() {
           </>
         )}
 
-        <div className="absolute inset-0 z-0 pointer-events-none" style={{ backgroundImage: `radial-gradient(circle, #ffffff08 1.5px, transparent 1.5px)`, backgroundSize: "120px 120px", opacity: 0.2 }} />
+        <div className="absolute inset-0 z-0 pointer-events-none" style={{ backgroundImage: `radial-gradient(circle, #94a3b830 1.5px, transparent 1.5px)`, backgroundSize: "120px 120px", opacity: 0.5 }} />
 
         {loading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-background/80 backdrop-blur-md z-50">
@@ -841,34 +841,34 @@ export default function NetworkMapPage() {
               <div className="flex flex-col items-center gap-12 p-12 overflow-auto h-full w-full custom-scrollbar">
                 <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative mb-8 text-center group">
                   <div className="absolute inset-0 bg-primary/20 blur-3xl rounded-full scale-150 group-hover:bg-primary/30 transition-all duration-500" />
-                  <div className="relative w-64 p-8 bg-slate-900 border-2 border-primary/50 rounded-3xl shadow-glow overflow-hidden">
-                    <div className="absolute -top-10 -left-10 w-32 h-32 bg-primary/10 rounded-full blur-2xl" />
-                    <Server className="w-12 h-12 text-primary mx-auto mb-4 drop-shadow-glow" />
-                    <h2 className="text-sm font-black text-white uppercase tracking-[0.2em] mb-1">Master Controller</h2>
-                    <span className="text-[11px] text-primary/70 font-mono font-black tracking-widest bg-primary/5 px-4 py-1 rounded-full border border-primary/10 inline-block">127.0.0.1</span>
+                  <div className="relative w-64 p-8 bg-white border-2 border-primary/30 rounded-3xl shadow-xl overflow-hidden">
+                    <div className="absolute -top-10 -left-10 w-32 h-32 bg-primary/5 rounded-full blur-2xl" />
+                    <Server className="w-12 h-12 text-primary mx-auto mb-4" />
+                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-[0.2em] mb-1">Master Controller</h2>
+                    <span className="text-[11px] text-primary font-mono font-black tracking-widest bg-primary/5 px-4 py-1 rounded-full border border-primary/10 inline-block">127.0.0.1</span>
                   </div>
-                  <div className="absolute left-1/2 bottom-[-48px] w-0.5 h-12 bg-gradient-to-b from-primary to-primary/0 -translate-x-1/2 shadow-glow shadow-primary/50" />
+                  <div className="absolute left-1/2 bottom-[-48px] w-0.5 h-12 bg-gradient-to-b from-primary to-primary/0 -translate-x-1/2" />
                 </motion.div>
 
                 <div className="flex gap-10 flex-wrap justify-center w-full">
                   {subnetKeys.map((subnet) => (
                     <motion.div key={subnet} initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col gap-6">
-                      <div className="w-[360px] p-5 bg-slate-900/60 border border-white/10 rounded-3xl backdrop-blur-xl flex items-center justify-between shadow-2xl relative group/sub">
-                        <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/sub:opacity-100 rounded-3xl transition-opacity pointer-events-none" />
+                      <div className="w-[360px] p-5 bg-white border border-slate-200 rounded-3xl flex items-center justify-between shadow-lg relative group/sub hover:shadow-xl transition-shadow">
+                        <div className="absolute inset-0 bg-blue-50/50 opacity-0 group-hover/sub:opacity-100 rounded-3xl transition-opacity pointer-events-none" />
                         <div className="flex items-center gap-4">
                           <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20"><Globe className="w-6 h-6 text-primary" /></div>
                           <div>
-                            <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] leading-none mb-1">Subnet Segment</p>
-                            <h3 className="text-base font-black text-white tracking-tighter">{subnet}</h3>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] leading-none mb-1">Subnet Segment</p>
+                            <h3 className="text-base font-black text-slate-800 tracking-tighter">{subnet}</h3>
                           </div>
                         </div>
-                        <div className="h-12 w-12 flex items-center justify-center bg-slate-950/80 rounded-2xl border border-white/5 text-sm font-black text-white/40 shadow-inner">{subnets[subnet].length}</div>
+                        <div className="h-12 w-12 flex items-center justify-center bg-slate-100 rounded-2xl border border-slate-200 text-sm font-black text-slate-500 shadow-inner">{subnets[subnet].length}</div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3 pb-6">
                         {subnets[subnet].map((device) => (
-                          <motion.div key={device.id} whileHover={{ x: 4 }} className={cn("flex items-center gap-3 px-4 py-3 rounded-2xl border text-[10px] font-black uppercase transition-all shadow-xl", device.status === "online" ? "bg-green-500/5 border-green-500/20 text-green-400/90 shadow-green-500/5" : "bg-red-500/5 border-red-500/20 text-red-400/50")}>
-                            <div className={cn("w-1.5 h-1.5 rounded-full", device.status === "online" ? "bg-green-400 shadow-glow shadow-green-400/50" : "bg-red-400/40")} />
+                          <motion.div key={device.id} whileHover={{ x: 4 }} className={cn("flex items-center gap-3 px-4 py-3 rounded-2xl border text-[10px] font-black uppercase transition-all shadow-sm hover:shadow-md", device.status === "online" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-red-50 border-red-200 text-red-400")}>
+                            <div className={cn("w-2 h-2 rounded-full", device.status === "online" ? "bg-emerald-500 shadow-sm shadow-emerald-300" : "bg-red-400")} />
                             <span className="truncate tracking-widest">{device.hostname}</span>
                           </motion.div>
                         ))}
@@ -975,7 +975,7 @@ export default function NetworkMapPage() {
                         <path
                           d={line!.path}
                           fill="none"
-                          stroke="#020617"
+                          stroke="#e2e8f0"
                           strokeWidth="8"
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -1012,12 +1012,12 @@ export default function NetworkMapPage() {
                           strokeDasharray={line!.status === "online" ? "0" : "5,5"}
                           className="opacity-100 pointer-events-none"
                         />
-                        <circle cx={line!.x1} cy={line!.y1} r="4.6" fill="#020617" className="pointer-events-none" />
-                        <circle cx={line!.x2} cy={line!.y2} r="4.6" fill="#020617" className="pointer-events-none" />
+                        <circle cx={line!.x1} cy={line!.y1} r="4.6" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="1" className="pointer-events-none" />
+                        <circle cx={line!.x2} cy={line!.y2} r="4.6" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="1" className="pointer-events-none" />
                         <circle cx={line!.x1} cy={line!.y1} r="3.2" fill={line!.status === "online" ? "#22c55e" : "#ef4444"} className="pointer-events-none" />
                         <circle cx={line!.x2} cy={line!.y2} r="3.2" fill={line!.status === "online" ? "#22c55e" : "#ef4444"} className="pointer-events-none" />
-                        <circle cx={line!.elbowX} cy={line!.y1} r="2.7" fill="#e2e8f0" className="opacity-85 pointer-events-none" />
-                        <circle cx={line!.elbowX} cy={line!.y2} r="2.7" fill="#e2e8f0" className="opacity-85 pointer-events-none" />
+                        <circle cx={line!.elbowX} cy={line!.y1} r="2.7" fill="#94a3b8" className="opacity-85 pointer-events-none" />
+                        <circle cx={line!.elbowX} cy={line!.y2} r="2.7" fill="#94a3b8" className="opacity-85 pointer-events-none" />
                       </g>
                     ))}
                   </AnimatePresence>
@@ -1054,18 +1054,18 @@ export default function NetworkMapPage() {
                       className={cn("flex flex-col items-center group/node cursor-grab active:cursor-grabbing z-30", device.status !== "online" && "opacity-75")}
                       whileHover={{ scale: 1.05 }}
                     >
-                      <div className={cn("w-16 h-16 rounded-lg flex flex-col items-center justify-center border transition-all shadow-2xl relative", device.status === "online" ? "bg-slate-950 border-success/50 shadow-success/10" : "bg-slate-950/90 border-white/10", isLinking && "border-primary border-2 scale-110 shadow-glow shadow-primary/40 animate-pulse", isSelected && "border-primary-light ring-4 ring-primary/25 scale-110", searchTerm && (device.hostname.toLowerCase().includes(searchTerm.toLowerCase()) || device.ip.toLowerCase().includes(searchTerm.toLowerCase())) && "border-primary-light ring-4 ring-primary/20 scale-110")} style={zone ? { boxShadow: `0 0 0 1px ${zone.color}66, 0 18px 50px rgba(0, 0, 0, 0.35)` } : undefined}>
+                      <div className={cn("w-16 h-16 rounded-lg flex flex-col items-center justify-center border transition-all shadow-lg relative", device.status === "online" ? "bg-white border-emerald-300 shadow-emerald-100" : "bg-white border-slate-200", isLinking && "border-primary border-2 scale-110 shadow-lg shadow-primary/20 animate-pulse", isSelected && "border-primary ring-4 ring-primary/20 scale-110", searchTerm && (device.hostname.toLowerCase().includes(searchTerm.toLowerCase()) || device.ip.toLowerCase().includes(searchTerm.toLowerCase())) && "border-primary ring-4 ring-primary/15 scale-110")} style={zone ? { boxShadow: `0 0 0 1px ${zone.color}66, 0 8px 24px rgba(0, 0, 0, 0.08)` } : undefined}>
                         {device.hostname.includes("SRVR") || device.hostname.includes("HUB") ? <Server className="w-7 h-7" /> : <Monitor className="w-7 h-7" />}
 
-                        <button onClick={(event) => { event.stopPropagation(); setLinkModeFrom((current) => current === device.id ? null : device.id); }} className={cn("absolute -bottom-2 px-3 py-1 bg-slate-900 border border-white/10 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all shadow-2xl opacity-0 scale-50 group-hover/node:opacity-100 group-hover/node:scale-100", isLinking ? "bg-primary text-white" : "text-primary hover:bg-primary hover:text-white")}>{isLinking ? <Focus className="w-2.5 h-2.5" /> : <Link2 className="w-2.5 h-2.5" />}{isLinking ? "Cancel" : "Connect"}</button>
+                        <button onClick={(event) => { event.stopPropagation(); setLinkModeFrom((current) => current === device.id ? null : device.id); }} className={cn("absolute -bottom-2 px-3 py-1 bg-white border border-slate-200 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all shadow-lg opacity-0 scale-50 group-hover/node:opacity-100 group-hover/node:scale-100", isLinking ? "bg-primary text-white border-primary" : "text-primary hover:bg-primary hover:text-white")}>{isLinking ? <Focus className="w-2.5 h-2.5" /> : <Link2 className="w-2.5 h-2.5" />}{isLinking ? "Cancel" : "Connect"}</button>
 
                         {linkModeFrom && linkModeFrom !== device.id && <button onClick={(event) => { event.stopPropagation(); addConnection(device.id); }} className="absolute inset-0 bg-primary/20 flex items-center justify-center rounded-[22px] backdrop-blur-sm z-20 group-hover/node:bg-primary/40"><Plus className="w-8 h-8 text-white drop-shadow-glow" /></button>}
-                        {device.status === "online" && <div className="absolute top-1 right-1 w-3.5 h-3.5 bg-success rounded-full border-2 border-slate-900 animate-pulse shadow-glow shadow-success" />}
+                        {device.status === "online" && <div className="absolute top-1 right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white animate-pulse shadow-sm shadow-emerald-300" />}
                       </div>
 
                       <div className="mt-3 text-center pointer-events-none select-none">
-                        <p className="text-[10px] font-black text-white px-2 py-1 bg-slate-950 border border-white/10 rounded-md uppercase truncate max-w-[148px] shadow-xl tracking-wide">{device.hostname}</p>
-                        <p className="text-[9px] text-sky-300/80 font-mono font-black mt-0.5 tracking-[0.12em]">{device.ip}</p>
+                        <p className="text-[10px] font-black text-slate-700 px-2 py-1 bg-white border border-slate-200 rounded-md uppercase truncate max-w-[148px] shadow-sm tracking-wide">{device.hostname}</p>
+                        <p className="text-[9px] text-primary font-mono font-black mt-0.5 tracking-[0.12em]">{device.ip}</p>
                       </div>
                     </motion.div>
                   );
@@ -1093,11 +1093,11 @@ export default function NetworkMapPage() {
             )}
 
             {layoutMode === "physical" && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-2.5 bg-slate-900/80 backdrop-blur-3xl border border-white/10 rounded-full shadow-2xl z-50 flex items-center gap-6">
-                <div className="flex items-center gap-2"><div className="w-2 h-2 bg-success rounded-full" /><span className="text-[9px] font-black text-white uppercase tracking-wider">Online</span></div>
-                <div className="h-3 w-px bg-white/10" />
-                <div className="flex items-center gap-2"><div className="w-2 h-2 bg-danger rounded-full" /><span className="text-[9px] font-black text-white uppercase tracking-wider">Offline</span></div>
-                <div className="h-3 w-px bg-white/10" />
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-2.5 bg-white/90 backdrop-blur-xl border border-slate-200 rounded-full shadow-lg z-50 flex items-center gap-6">
+                <div className="flex items-center gap-2"><div className="w-2 h-2 bg-emerald-500 rounded-full" /><span className="text-[9px] font-black text-slate-600 uppercase tracking-wider">Online</span></div>
+                <div className="h-3 w-px bg-slate-200" />
+                <div className="flex items-center gap-2"><div className="w-2 h-2 bg-danger rounded-full" /><span className="text-[9px] font-black text-slate-600 uppercase tracking-wider">Offline</span></div>
+                <div className="h-3 w-px bg-slate-200" />
                 <div className="flex items-center gap-2 font-black text-[9px] text-primary uppercase tracking-wider"><Share2 className="w-3 h-3" />{interactionMode === "select" ? "Drag on empty canvas to multi-select" : "Pan mode active"}</div>
               </div>
             )}

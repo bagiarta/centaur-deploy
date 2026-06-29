@@ -3,9 +3,10 @@ import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Monitor, Package, Rocket, Download, ClipboardList,
   Terminal, History, Settings, ChevronLeft, ChevronRight,
-  Server, Shield, Bell, User, Activity, Users, Database,
+  Server, Shield, Bell, User, Activity, Users, Database, Scale,
   UserCog, ShieldCheck, LogOut, Bot, BookMarked, Globe, Menu, X, Search,
-  UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw
+  UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw,Wrench,
+  Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -27,6 +28,7 @@ export const navItems = [
     children: [
       { id: "crm_lookup", to: "/crm/lookup", icon: Search, label: "Customer Lookup" },
       { id: "crm_sync", to: "/crm/sync", icon: RefreshCw, label: "Manual Re-Sync CRM Items" },
+      { id: "crm_abc_analysis", to: "/crm/abc-analysis", icon: Activity, label: "ABC Analysis Report" },
       { id: "crm_report_txn", to: "/crm/reports/txn-analysis", icon: Activity, label: "Transaction Analysis" },
       { id: "crm_report_shopper", to: "/crm/reports/frequent-shopper", icon: Users, label: "Frequent Shopper" },
       { id: "crm_report_enrollment", to: "/crm/reports/member-enrollment", icon: UserPlus, label: "Member Enrollment" },
@@ -34,17 +36,30 @@ export const navItems = [
       { id: "crm_report_fraud", to: "/crm/reports/fraud-analysis", icon: Shield, label: "Fraud Analysis" },
     ]
   },
+  {
+      id: "Tolls & Utilities",
+      label: "Tools & Utilities",
+      icon: Wrench,
+      group: "main",
+      children: [
+        { id: "cctv", to: "/cctv", icon: Video, label: "CCTV Monitoring" },
+        { id: "network", to: "/network", icon: Globe, label: "Network Map" },
+        { id: "groups", to: "/groups", icon: Users, label: "Device Groups" },
+        { id: "sql", to: "/remote-sql", icon: Database, label: "Remote SQL" },
+        { id: "scales", to: "/scales", icon: Scale, label: "Scale Manager" },
+        { id: "agent", to: "/agent-installer", icon: Download, label: "Agent Installer" },
+        { id: "remote", to: "/remote", icon: Terminal, label: "Remote Commands"},
+        { id: "logs", to: "/logs", icon: History, label: "Logs & History" },
+        { id: "packages", to: "/packages", icon: Package, label: "Package Repo"},
+        { id: "deploy", to: "/deploy", icon: Rocket, label: "Deployments" },  
+      ]
+  },
   { id: "reports", to: "/reports", icon: Activity, label: "Reports", group: "main" },
-  { id: "devices", to: "/devices", icon: Monitor, label: "Devices", group: "main" },
-  { id: "network", to: "/network", icon: Globe, label: "Network Map", group: "main" },
-  { id: "packages", to: "/packages", icon: Package, label: "Package Repo", group: "main" },
-  { id: "deploy", to: "/deploy", icon: Rocket, label: "Deployments", group: "main" },
-  { id: "groups", to: "/groups", icon: Users, label: "Device Groups", group: "main" },
-  { id: "workflows", to: "/workflows", icon: BookMarked, label: "Knowledge Base", group: "main" },
-  { id: "agent", to: "/agent-installer", icon: Download, label: "Agent Installer", group: "tools" },
-  { id: "remote", to: "/remote", icon: Terminal, label: "Remote Commands", group: "tools" },
-  { id: "sql", to: "/remote-sql", icon: Database, label: "Remote SQL", group: "tools" },
-  { id: "logs", to: "/logs", icon: History, label: "Logs & History", group: "tools" },
+  { id: "devices", to: "/devices", icon: Monitor, label: "Devices", group: "main" },  
+    { id: "workflows", to: "/workflows", icon: BookMarked, label: "Knowledge Base", group: "main" },
+   
+    
+ 
   { id: "users", to: "/users", icon: UserCog, label: "User Management", group: "system", adminOnly: true },
   { id: "roles", to: "/roles", icon: ShieldCheck, label: "Roles & Access", group: "system", adminOnly: true },
   { id: "settings", to: "/settings", icon: Settings, label: "Settings", group: "system" },
@@ -75,9 +90,9 @@ const DEFAULT_THEME: ThemeSettings = {
   sidebarBg: "#10331f",
   sidebarText: "#d1fae5",
   sidebarAccent: "#f59e0b",
-  mainBg: "#0f172a",
-  contentText: "#f1f5f9",
-  cardBg: "#1e293b",
+  mainBg: "#f8fafc",
+  contentText: "#0f172a",
+  cardBg: "#ffffff",
   primaryBrand: "#3b82f6",
   appLogo: "",
   logoSize: 32,
@@ -136,6 +151,12 @@ const hexToHslStr = (hex: string) => {
 
 const applyThemeVariables = (theme: ThemeSettings) => {
   const root = document.documentElement;
+  
+  // FORCE light theme for main content, ignoring saved DB/localStorage dark themes
+  theme.mainBg = "#f8fafc";
+  theme.cardBg = "#ffffff";
+  theme.contentText = "#0f172a";
+
   const fgHsl = hexToHslStr(theme.contentText || DEFAULT_THEME.contentText);
   const bgHsl = hexToHslStr(theme.mainBg || DEFAULT_THEME.mainBg);
   const cdHsl = hexToHslStr(theme.cardBg || DEFAULT_THEME.cardBg);
@@ -184,7 +205,7 @@ const applyThemeVariables = (theme: ThemeSettings) => {
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
   const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) {
@@ -197,6 +218,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const { user, logout, hasPermission } = useAuth();
+  const userDisplayName = user?.full_name || user?.username || "";
+  const userHandle = user?.username ? `@${user.username}` : "";
   const [customLogo, setCustomLogo] = useState<string | null>(null);
   const [logoSize, setLogoSize] = useState(32);
   const [appName, setAppName] = useState("pepinetupdater");
@@ -595,7 +618,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <span className="hidden md:inline text-foreground-subtle text-xs">|</span>
             <span className="hidden md:inline text-xs text-foreground-muted font-medium">
-              Logged in as <span className="text-foreground">{user?.full_name || user?.username}</span>
+              Logged in as <span className="text-foreground">{userDisplayName}</span>
             </span>
           </div>
 
@@ -617,7 +640,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <User className="w-4 h-4 md:w-3.5 md:h-3.5" />
               </div>
               <div className="hidden sm:block">
-                <p className="text-xs font-semibold text-foreground leading-tight truncate max-w-[100px]">{user?.username}</p>
+                <p className="text-xs font-semibold text-foreground leading-tight truncate max-w-[100px]">{userDisplayName}</p>
+                {userHandle && <p className="text-[10px] text-foreground-muted leading-none truncate max-w-[100px]">{userHandle}</p>}
                 <p className="text-[10px] text-foreground-muted leading-none">{user?.role_name}</p>
               </div>
             </div>
@@ -666,7 +690,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
                 <div>
                   <span className="font-extrabold text-sidebar-foreground text-lg tracking-tight leading-none">{appName}</span>
-                  <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">v2.7.4 - Logged in as {user?.username}</p>
+                  <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">
+                    v2.7.4 - Logged in as {userDisplayName}{userHandle ? ` (${userHandle})` : ""}
+                  </p>
                 </div>
               </div>
               <button onClick={() => setMobileMenuOpen(false)} className="p-2 -mr-2 text-sidebar-foreground/50 hover:text-sidebar-foreground rounded-full hover:bg-sidebar-accent transition-colors">

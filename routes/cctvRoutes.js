@@ -1,0 +1,43 @@
+import express from 'express';
+import * as cctvController from '../controllers/cctvController.js';
+
+const router = express.Router();
+
+// ═══════════════════════════════════════════════════════════════
+// CCTV DEVICE ROUTES
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/devices', cctvController.getAllCCTVDevices);
+router.get('/devices/:id', cctvController.getCCTVDeviceById);
+router.post('/devices', cctvController.createCCTVDevice);
+router.put('/devices/:id', cctvController.updateCCTVDevice);
+router.delete('/devices/:id', cctvController.deleteCCTVDevice);
+
+// ═══════════════════════════════════════════════════════════════
+// CCTV DASHBOARD
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/dashboard', cctvController.getCCTVDashboard);
+
+// ═══════════════════════════════════════════════════════════════
+// CCTV MONITORING LOGS
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/logs', cctvController.getCCTVLogs);
+router.put('/logs/:id/resolve', cctvController.resolveCCTVLog);
+
+// ═══════════════════════════════════════════════════════════════
+// CCTV LOCATIONS
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/locations', cctvController.getAllCCTVLocations);
+
+// ═══════════════════════════════════════════════════════════════
+// HIKVISION ISAPI AUTO-DISCOVERY
+// ═══════════════════════════════════════════════════════════════
+
+router.post('/test-connection', cctvController.testConnection);
+router.post('/discover', cctvController.discoverDevice);
+router.post('/poll-now', cctvController.triggerPollNow);
+
+export default router;

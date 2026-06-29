@@ -123,11 +123,11 @@ export function PageHeader({ title, subtitle, actions }: {
 }
 
 // ── Section Card ─────────────────────────────────────────
-export function SectionCard({ title, subtitle, children, actions, className, id }: {
-  title?: string; subtitle?: string; children: React.ReactNode; actions?: React.ReactNode; className?: string; id?: string;
+export function SectionCard({ title, subtitle, children, actions, className, id, style }: {
+  title?: string; subtitle?: string; children: React.ReactNode; actions?: React.ReactNode; className?: string; id?: string; style?: React.CSSProperties;
 }) {
   return (
-    <div id={id} className={cn("card-enterprise overflow-hidden", className)}>
+    <div id={id} className={cn("card-enterprise overflow-hidden", className)} style={style}>
       {(title || actions) && (
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div>
