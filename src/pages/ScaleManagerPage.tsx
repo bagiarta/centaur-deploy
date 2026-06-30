@@ -569,28 +569,30 @@ export default function ScaleManagerPage() {
   const activeJobsCount = jobs.filter(j => j.status === 'pending' || j.status === 'running').length;
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto flex flex-col gap-6 text-slate-100 min-h-screen">
+    <div className="p-6 max-w-[1600px] mx-auto flex flex-col gap-6 text-black min-h-screen">
       
-      {/* ── HEADER ────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900/50 backdrop-blur-md p-6 rounded-2xl border border-slate-800/80 shadow-2xl">
+      {/* â”€â”€ HEADER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-100/50 backdrop-blur-md p-6 rounded-2xl border border-slate-300/80 shadow-2xl">
         <div>
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
-              <Scale className="w-6 h-6 text-white" />
+              <Scale className="w-6 h-6 text-black" />
             </div>
-            <h1 className="text-2xl font-black tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-              Scale Manager
-            </h1>
+            <div className="bg-slate-900 px-4 py-1.5 rounded-xl shadow-inner inline-flex items-center">
+              <h1 className="text-2xl font-black tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                Scale Manager
+              </h1>
+            </div>
           </div>
-          <p className="text-xs text-slate-400 mt-1 font-medium">
-            Manage Mettler Toledo & Digi scales — PLU templates, real-time diagnostics, bulk sync via agent gateways or direct F25 TCP.
+          <p className="text-xs text-black mt-1 font-medium">
+            Manage Mettler Toledo & Digi scales â€” PLU templates, real-time diagnostics, bulk sync via agent gateways or direct F25 TCP.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button 
             onClick={fetchData} 
-            className="p-2.5 rounded-xl border border-slate-800 bg-slate-900/80 text-slate-300 hover:text-white transition-all hover:bg-slate-800"
+            className="p-2.5 rounded-xl border border-slate-300 bg-slate-100/80 text-black hover:text-black transition-all hover:bg-slate-200"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -600,36 +602,36 @@ export default function ScaleManagerPage() {
               setScaleForm({ name: "", ip: "", port: 3001, model: "Mettler Toledo (bPlus)", location: "", department: "Meat", device_id: serverGateways[0]?.id || "" });
               setIsScaleModalOpen(true);
             }} 
-            className="px-4 py-2.5 bg-gradient-to-br from-primary to-primary/80 hover:from-primary/95 text-white rounded-xl font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center gap-2"
+            className="px-4 py-2.5 bg-gradient-to-br from-primary to-primary/80 hover:from-primary/95 text-black rounded-xl font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center gap-2"
           >
             <Plus className="w-4 h-4" /> Add Scale Device
           </button>
         </div>
       </div>
 
-      {/* ── STATS CARDS ───────────────────────────────────────────────────── */}
+      {/* â”€â”€ STATS CARDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Total Scales Registered", val: scales.length, sub: "Devices config", bg: "from-slate-900/60 to-slate-900/40", border: "border-slate-800/80", icon: Database, color: "text-slate-400" },
+          { label: "Total Scales Registered", val: scales.length, sub: "Devices config", bg: "from-slate-900/60 to-slate-900/40", border: "border-slate-300/80", icon: Database, color: "text-black" },
           { label: "Online & Connected", val: onlineScalesCount, sub: "Responding scales", bg: "from-emerald-950/20 to-slate-900/40", border: "border-emerald-500/20", icon: CheckCircle2, color: "text-emerald-400" },
           { label: "Offline / Errored", val: errorScalesCount, sub: "Requires checking", bg: "from-rose-950/20 to-slate-900/40", border: "border-rose-500/20", icon: AlertCircle, color: "text-rose-400" },
           { label: "Active Sync Tasks", val: activeJobsCount, sub: "Pending deployments", bg: "from-blue-950/20 to-slate-900/40", border: "border-blue-500/20", icon: RefreshCw, color: "text-blue-400", spin: activeJobsCount > 0 }
         ].map((c, i) => (
           <div key={i} className={`p-5 rounded-2xl border ${c.border} bg-gradient-to-br ${c.bg} flex items-center justify-between shadow-lg relative overflow-hidden group hover:scale-[1.01] transition-transform`}>
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-2">{c.label}</p>
+              <p className="text-[10px] font-bold text-black uppercase tracking-widest leading-none mb-2">{c.label}</p>
               <h3 className="text-3xl font-black leading-none">{c.val}</h3>
-              <p className="text-[10px] text-slate-500 font-medium mt-2">{c.sub}</p>
+              <p className="text-[10px] text-black font-medium mt-2">{c.sub}</p>
             </div>
-            <div className={`p-3 rounded-xl bg-slate-950/40 ${c.color}`}>
+            <div className={`p-3 rounded-xl bg-white/40 ${c.color}`}>
               <c.icon className={`w-5 h-5 ${c.spin ? 'animate-spin' : ''}`} />
             </div>
           </div>
         ))}
       </div>
 
-      {/* ── TAB BAR ───────────────────────────────────────────────────────── */}
-      <div className="flex border-b border-slate-800/80 space-x-1.5 p-1 bg-slate-950/40 rounded-xl w-fit self-start">
+      {/* â”€â”€ TAB BAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      <div className="flex border-b border-slate-300/80 space-x-1.5 p-1 bg-white/40 rounded-xl w-fit self-start">
         {[
           { key: "dashboard", label: "Dashboard & Control", icon: Scale },
           { key: "templates", label: "PLU Templates", icon: FileText },
@@ -640,8 +642,8 @@ export default function ScaleManagerPage() {
             onClick={() => setActiveTab(tab.key as any)}
             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
               activeTab === tab.key 
-                ? "bg-slate-800 text-white shadow-md border border-slate-700/50" 
-                : "text-slate-400 hover:text-white hover:bg-slate-900/40"
+                ? "bg-slate-200 text-black shadow-md border border-slate-400/50" 
+                : "text-black hover:text-black hover:bg-slate-100/40"
             }`}
           >
             <tab.icon className="w-3.5 h-3.5" />
@@ -650,16 +652,16 @@ export default function ScaleManagerPage() {
         ))}
       </div>
 
-      {/* ── TAB CONTENT ───────────────────────────────────────────────────── */}
+      {/* â”€â”€ TAB CONTENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       
       {/* 1. DASHBOARD & DIAGNOSTICS TAB */}
       {activeTab === "dashboard" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Scales List (Left - 2/3) */}
-          <div className="lg:col-span-2 flex flex-col gap-4 bg-slate-900/30 backdrop-blur-md p-6 rounded-2xl border border-slate-800/80 shadow-2xl">
+          <div className="lg:col-span-2 flex flex-col gap-4 bg-slate-100/30 backdrop-blur-md p-6 rounded-2xl border border-slate-300/80 shadow-2xl">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div className="flex items-center gap-3">
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <h2 className="text-base font-bold text-black flex items-center gap-2">
                   <Database className="w-4 h-4 text-primary" /> Active Scale Devices
                 </h2>
                 {selectedScales.length > 0 && (
@@ -672,27 +674,27 @@ export default function ScaleManagerPage() {
                 )}
               </div>
               <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-black absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input 
                   type="text" 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search scales by IP, location, brand..." 
-                  className="w-full pl-9 pr-4 py-1.5 bg-slate-950/80 border border-slate-800 rounded-xl text-xs placeholder:text-slate-600 focus:outline-none focus:border-primary/50 text-white transition-colors"
+                  className="w-full pl-9 pr-4 py-1.5 bg-white/80 border border-slate-300 rounded-xl text-xs placeholder:text-slate-900 focus:outline-none focus:border-primary/50 text-black transition-colors"
                 />
               </div>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-800/60">
+            <div className="overflow-x-auto rounded-xl border border-slate-300/60">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-950/60 border-b border-slate-800 font-bold text-slate-400">
+                  <tr className="bg-white/60 border-b border-slate-300 font-bold text-black">
                     <th className="p-3 w-10">
                       <input 
                         type="checkbox" 
                         checked={filteredScales.length > 0 && selectedScales.length === filteredScales.length}
                         onChange={toggleSelectAll}
-                        className="rounded border-slate-700 bg-slate-900"
+                        className="rounded border-slate-400 bg-slate-100"
                       />
                     </th>
                     <th className="p-3">Scale Name</th>
@@ -706,36 +708,36 @@ export default function ScaleManagerPage() {
                 <tbody>
                   {filteredScales.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-slate-500 font-medium">
+                      <td colSpan={6} className="p-8 text-center text-black font-medium">
                         No scale devices registered or matching search filters.
                       </td>
                     </tr>
                   ) : (
                     filteredScales.map((scale) => (
-                      <tr key={scale.id} className="border-b border-slate-800/40 hover:bg-slate-800/20 transition-colors">
+                      <tr key={scale.id} className="border-b border-slate-300/40 hover:bg-slate-200/20 transition-colors">
                         <td className="p-3">
                           <input 
                             type="checkbox" 
                             checked={selectedScales.includes(scale.id)}
                             onChange={() => toggleSelectScale(scale.id)}
-                            className="rounded border-slate-700 bg-slate-900"
+                            className="rounded border-slate-400 bg-slate-100"
                           />
                         </td>
-                        <td className="p-3 font-semibold text-white">
+                        <td className="p-3 font-semibold text-black">
                           <div>{scale.name}</div>
-                          <div className="text-[10px] text-slate-500 mt-0.5">{scale.model}</div>
+                          <div className="text-[10px] text-black mt-0.5">{scale.model}</div>
                         </td>
-                        <td className="p-3 font-mono text-slate-300">
+                        <td className="p-3 font-mono text-black">
                           {scale.ip}:{scale.port}
                         </td>
                         <td className="p-3">
-                          <span className="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-400">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-300 text-[10px] font-bold text-black">
                             {scale.location || 'HQ'} - {scale.department || 'General'}
                           </span>
                         </td>
                         <td className="p-3">
-                          <div className="font-semibold text-slate-300">{scale.gateway_hostname || scale.device_id}</div>
-                          <div className="text-[10px] text-slate-500">{scale.gateway_ip || 'Offline'}</div>
+                          <div className="font-semibold text-black">{scale.gateway_hostname || scale.device_id}</div>
+                          <div className="text-[10px] text-black">{scale.gateway_ip || 'Offline'}</div>
                         </td>
                         <td className="p-3">
                           <div className="flex items-center gap-1.5">
@@ -752,17 +754,17 @@ export default function ScaleManagerPage() {
                           {templates.length > 0 && (
                             <div className="relative group inline-block">
                               <button 
-                                className="px-2 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-blue-500/50 hover:bg-blue-500/10 text-blue-400 font-bold text-[10px] uppercase flex items-center gap-1"
+                                className="px-2 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-blue-500/50 hover:bg-blue-500/10 text-blue-400 font-bold text-[10px] uppercase flex items-center gap-1"
                               >
                                 Sync PLU <ChevronDown className="w-3 h-3" />
                               </button>
-                              <div className="absolute right-0 top-full mt-1 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden group-hover:block z-50 animate-in fade-in duration-200">
-                                <p className="px-2.5 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Select PLU Template</p>
+                              <div className="absolute right-0 top-full mt-1 w-48 bg-slate-100 border border-slate-300 rounded-xl shadow-2xl p-1.5 hidden group-hover:block z-50 animate-in fade-in duration-200">
+                                <p className="px-2.5 py-1 text-[9px] font-bold text-black uppercase tracking-wider">Select PLU Template</p>
                                 {templates.map(t => (
                                   <button
                                     key={t.id}
                                     onClick={() => dispatchSyncJob(scale.id, t.id)}
-                                    className="w-full text-left px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                                    className="w-full text-left px-2.5 py-1.5 text-[11px] font-semibold text-black hover:text-black hover:bg-slate-200 rounded-lg transition-colors"
                                   >
                                     {t.name}
                                   </button>
@@ -772,14 +774,14 @@ export default function ScaleManagerPage() {
                           )}
                           <button
                             onClick={() => handleEditScale(scale)}
-                            className="p-1.5 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800"
+                            className="p-1.5 rounded-lg border border-slate-300 text-black hover:text-black hover:bg-slate-200"
                             title="Edit scale configuration"
                           >
                             <Edit className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => handleDeleteScale(scale.id)}
-                            className="p-1.5 rounded-lg border border-slate-800 text-rose-500 hover:bg-rose-500/10"
+                            className="p-1.5 rounded-lg border border-slate-300 text-rose-500 hover:bg-rose-500/10"
                             title="Delete scale device"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -794,18 +796,18 @@ export default function ScaleManagerPage() {
           </div>
 
           {/* MT-SICS Control Box (Right - 1/3) */}
-          <div className="flex flex-col gap-4 bg-slate-900/30 backdrop-blur-md p-6 rounded-2xl border border-slate-800/80 shadow-2xl">
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
+          <div className="flex flex-col gap-4 bg-slate-100/30 backdrop-blur-md p-6 rounded-2xl border border-slate-300/80 shadow-2xl">
+            <h2 className="text-base font-bold text-black flex items-center gap-2">
               <Terminal className="w-4 h-4 text-emerald-400" /> Real-time Diagnostics
             </h2>
 
             {/* Select Scale */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target Diagnostic Scale</label>
+              <label className="text-[10px] font-bold text-black uppercase tracking-wider">Target Diagnostic Scale</label>
               <select
                 value={selectedScaleControl}
                 onChange={(e) => setSelectedScaleControl(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs focus:outline-none focus:border-primary/50 text-white"
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:outline-none focus:border-primary/50 text-black"
               >
                 {scales.map(s => (
                   <option key={s.id} value={s.id}>{s.name} ({s.ip})</option>
@@ -813,12 +815,12 @@ export default function ScaleManagerPage() {
               </select>
             </div>
 
-            <div className="flex flex-col gap-1.5 rounded-xl border border-slate-800/70 bg-slate-950/50 p-3">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">DigiNET Update / Scale Setup</label>
+            <div className="flex flex-col gap-1.5 rounded-xl border border-slate-300/70 bg-white/50 p-3">
+              <label className="text-[10px] font-bold text-black uppercase tracking-wider">DigiNET Update / Scale Setup</label>
               <select
                 value={selectedDigiNetPackage}
                 onChange={(e) => setSelectedDigiNetPackage(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs focus:outline-none focus:border-primary/50 text-white"
+                className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-xl text-xs focus:outline-none focus:border-primary/50 text-black"
               >
                 {digiNetPackages.length === 0 ? (
                   <option value="">No packages found in DigiNET folder</option>
@@ -839,15 +841,15 @@ export default function ScaleManagerPage() {
                   const scale = scales.find((item) => item.id === selectedScaleControl);
                   if (scale) handleEditScale(scale);
                 }}
-                className="px-3 py-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold hover:bg-slate-700 transition-all"
+                className="px-3 py-2 rounded-xl bg-slate-200 text-black border border-slate-400 text-xs font-bold hover:bg-slate-700 transition-all"
               >
                 Configure Selected Scale
               </button>
-              <p className="text-[10px] text-slate-500">Packages are read from the DigiNET folder on the server and queued to the selected gateway device.</p>
+              <p className="text-[10px] text-black">Packages are read from the DigiNET folder on the server and queued to the selected gateway device.</p>
             </div>
 
             {/* Premium LED Weight Display */}
-            <div className="bg-black/90 rounded-2xl border border-slate-800 p-5 shadow-inner flex flex-col items-center justify-center relative overflow-hidden group">
+            <div className="bg-slate-50/90 rounded-2xl border border-slate-300 p-5 shadow-inner flex flex-col items-center justify-center relative overflow-hidden group">
               <div className="absolute top-2 left-3 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-[8px] font-bold tracking-widest font-mono text-emerald-500/80 uppercase">Scale Stream</span>
@@ -855,11 +857,11 @@ export default function ScaleManagerPage() {
               <div className="text-4xl font-mono font-black text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.3)] mt-3">
                 {measuredWeight} <span className="text-xl text-emerald-500/60 font-semibold">{weightUnit}</span>
               </div>
-              <p className="text-[8px] font-bold text-slate-500 font-mono tracking-widest uppercase mt-2">
+              <p className="text-[8px] font-bold text-black font-mono tracking-widest uppercase mt-2">
                 {scales.find(s => s.id === selectedScaleControl)?.model?.toLowerCase().includes('digi') ? 'Digi F25 Connection Status' : 'MT-SICS Stable Weigh Indicator'}
               </p>
               
-              <div className="w-full bg-slate-900 h-1.5 rounded-full mt-4 overflow-hidden border border-slate-800">
+              <div className="w-full bg-slate-100 h-1.5 rounded-full mt-4 overflow-hidden border border-slate-300">
                 <div 
                   className="bg-gradient-to-r from-emerald-500 to-emerald-400 h-full transition-all duration-300"
                   style={{ width: `${Math.min(100, (parseFloat(measuredWeight) || 0) * 10)}%` }}
@@ -872,26 +874,26 @@ export default function ScaleManagerPage() {
               <button
                 disabled={isExecutingCmd || !selectedScaleControl}
                 onClick={() => executeSicsCommand("Z", "Zero Scale")}
-                className="py-2.5 bg-slate-950 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-600 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                className="py-2.5 bg-white border border-slate-300 text-black hover:text-black hover:border-slate-600 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 Zero Scale
               </button>
               <button
                 disabled={isExecutingCmd || !selectedScaleControl}
                 onClick={() => executeSicsCommand("T", "Tare Scale")}
-                className="py-2.5 bg-slate-950 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-600 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                className="py-2.5 bg-white border border-slate-300 text-black hover:text-black hover:border-slate-600 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 Tare Scale
               </button>
               <button
                 disabled={isExecutingCmd || !selectedScaleControl}
                 onClick={() => executeSicsCommand("S", "Read Weight")}
-                className="col-span-2 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-500/10 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                className="col-span-2 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-black rounded-xl text-xs font-black shadow-lg shadow-emerald-500/10 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {isExecutingCmd ? (
-                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                  <RefreshCw className="w-4 h-4 animate-spin text-black" />
                 ) : (
-                  <PlayCircle className="w-4 h-4 text-white" />
+                  <PlayCircle className="w-4 h-4 text-black" />
                 )}
                 Request Live Weight
               </button>
@@ -899,10 +901,10 @@ export default function ScaleManagerPage() {
 
             {/* Diagnostic Log */}
             <div className="flex flex-col gap-1.5 flex-1 min-h-[160px]">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Diagnostics Output</label>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex-1 overflow-y-auto font-mono text-[10px] text-emerald-500/80 flex flex-col gap-1 shadow-inner h-44">
+              <label className="text-[10px] font-bold text-black uppercase tracking-wider">Diagnostics Output</label>
+              <div className="bg-white border border-slate-300 rounded-xl p-3 flex-1 overflow-y-auto font-mono text-[10px] text-emerald-500/80 flex flex-col gap-1 shadow-inner h-44">
                 {scaleCommandLog.length === 0 ? (
-                  <p className="text-slate-600 italic">No diagnostics dispatched yet. Trigger actions to test connections.</p>
+                  <p className="text-slate-900 italic">No diagnostics dispatched yet. Trigger actions to test connections.</p>
                 ) : (
                   scaleCommandLog.map((log, index) => (
                     <div key={index} className="border-b border-slate-900 pb-1 break-all">{log}</div>
@@ -919,14 +921,14 @@ export default function ScaleManagerPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
           {/* Templates CRUD panel (Left - 1/3) */}
-          <div className="flex flex-col gap-4 bg-slate-900/30 backdrop-blur-md p-6 rounded-2xl border border-slate-800/80 shadow-2xl">
+          <div className="flex flex-col gap-4 bg-slate-100/30 backdrop-blur-md p-6 rounded-2xl border border-slate-300/80 shadow-2xl">
             <div className="flex justify-between items-center">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <h2 className="text-base font-bold text-black flex items-center gap-2">
                 <FileText className="w-4 h-4 text-primary" /> PLU Templates
               </h2>
               <div className="flex items-center gap-1.5">
                 <label
-                  className="p-1.5 bg-slate-950 border border-slate-800 rounded-lg hover:border-emerald-500/60 text-slate-300 hover:text-emerald-400 cursor-pointer transition-all"
+                  className="p-1.5 bg-white border border-slate-300 rounded-lg hover:border-emerald-500/60 text-black hover:text-emerald-400 cursor-pointer transition-all"
                   title="Upload PLU Template File"
                 >
                   <Upload className="w-4 h-4" />
@@ -960,7 +962,7 @@ export default function ScaleManagerPage() {
                     setTemplateForm({ name: "", description: "", file_format: "CSV", delimiter: ";", header_structure: "", row_template: "{plu_number};{name};{price};{shelf_life};{tare}" });
                     setIsTemplateModalOpen(true);
                   }}
-                  className="p-1.5 bg-slate-950 border border-slate-800 rounded-lg hover:border-slate-600 text-slate-300 hover:text-white transition-all"
+                  className="p-1.5 bg-white border border-slate-300 rounded-lg hover:border-slate-600 text-black hover:text-black transition-all"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -969,7 +971,7 @@ export default function ScaleManagerPage() {
 
             <div className="flex flex-col gap-2.5">
               {templates.length === 0 ? (
-                <p className="text-xs text-slate-500 italic p-4 text-center">No PLU templates defined. Add one to manage products.</p>
+                <p className="text-xs text-black italic p-4 text-center">No PLU templates defined. Add one to manage products.</p>
               ) : (
                 templates.map(tpl => (
                   <div 
@@ -977,32 +979,32 @@ export default function ScaleManagerPage() {
                     onClick={() => handleOpenPluManager(tpl)}
                     className={`p-4 rounded-xl border cursor-pointer hover:border-primary/50 transition-all flex flex-col gap-2 ${
                       selectedTemplateForPlu?.id === tpl.id 
-                        ? "bg-slate-800/40 border-primary/60 shadow-lg shadow-primary/5" 
-                        : "bg-slate-950/30 border-slate-800"
+                        ? "bg-slate-200/40 border-primary/60 shadow-lg shadow-primary/5" 
+                        : "bg-white/30 border-slate-300"
                     }`}
                   >
                     <div className="flex justify-between items-start">
                       <div>
-                        <h4 className="text-xs font-bold text-white">{tpl.name}</h4>
-                        <p className="text-[10px] text-slate-500 mt-0.5">{tpl.description || 'No description'}</p>
+                        <h4 className="text-xs font-bold text-black">{tpl.name}</h4>
+                        <p className="text-[10px] text-black mt-0.5">{tpl.description || 'No description'}</p>
                       </div>
-                      <span className="px-2 py-0.5 rounded-md bg-slate-900 text-[9px] font-bold text-slate-400 border border-slate-800">
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100 text-[9px] font-bold text-black border border-slate-300">
                         {tpl.file_format}
                       </span>
                     </div>
 
-                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/40">
-                      <span className="text-[9px] font-semibold text-slate-500 font-mono">Row layout: {tpl.row_template.substring(0, 30)}...</span>
+                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-300/40">
+                      <span className="text-[9px] font-semibold text-black font-mono">Row layout: {tpl.row_template.substring(0, 30)}...</span>
                       <div className="flex gap-1">
                         <button 
                           onClick={(e) => { e.stopPropagation(); handleEditTemplate(tpl); }}
-                          className="p-1 rounded bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
+                          className="p-1 rounded bg-slate-100 border border-slate-300 text-black hover:text-black"
                         >
                           <Edit className="w-3 h-3" />
                         </button>
                         <button 
                           onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tpl.id); }}
-                          className="p-1 rounded bg-slate-900 border border-slate-800 text-rose-500 hover:bg-rose-500/10"
+                          className="p-1 rounded bg-slate-100 border border-slate-300 text-rose-500 hover:bg-rose-500/10"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -1015,19 +1017,19 @@ export default function ScaleManagerPage() {
           </div>
 
           {/* PLU Items Manager (Right - 2/3) */}
-          <div className="lg:col-span-2 flex flex-col gap-4 bg-slate-900/30 backdrop-blur-md p-6 rounded-2xl border border-slate-800/80 shadow-2xl">
+          <div className="lg:col-span-2 flex flex-col gap-4 bg-slate-100/30 backdrop-blur-md p-6 rounded-2xl border border-slate-300/80 shadow-2xl">
             {selectedTemplateForPlu ? (
               <>
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-800 pb-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-300 pb-4">
                   <div>
-                    <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-black flex items-center gap-2">
                       <Database className="w-4 h-4 text-emerald-400" /> PLUs for '{selectedTemplateForPlu.name}'
                     </h2>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Template format: {selectedTemplateForPlu.file_format} (delimiter: '{selectedTemplateForPlu.delimiter}')</p>
+                    <p className="text-[10px] text-black mt-0.5">Template format: {selectedTemplateForPlu.file_format} (delimiter: '{selectedTemplateForPlu.delimiter}')</p>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <label className="px-3 py-1.5 bg-slate-950 border border-slate-800 hover:border-slate-600 text-slate-300 hover:text-white rounded-lg text-[10px] font-bold uppercase cursor-pointer flex items-center gap-1.5">
+                    <label className="px-3 py-1.5 bg-white border border-slate-300 hover:border-slate-600 text-black hover:text-black rounded-lg text-[10px] font-bold uppercase cursor-pointer flex items-center gap-1.5">
                       <Upload className="w-3.5 h-3.5" /> CSV Import
                       <input 
                         type="file" 
@@ -1042,17 +1044,17 @@ export default function ScaleManagerPage() {
                         setPluForm({ plu_number: pluItems.length + 1, name: "", price: 0, unit: "kg", shelf_life: 3, tare: 0, barcode_prefix: "22", ingredients: "" });
                         setIsPluModalOpen(true);
                       }}
-                      className="px-3 py-1.5 bg-primary hover:bg-primary/95 text-white rounded-lg text-[10px] font-black uppercase flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-primary hover:bg-primary/95 text-black rounded-lg text-[10px] font-black uppercase flex items-center gap-1.5"
                     >
                       <Plus className="w-3.5 h-3.5" /> Add PLU
                     </button>
                   </div>
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-slate-800/60 max-h-[500px]">
+                <div className="overflow-x-auto rounded-xl border border-slate-300/60 max-h-[500px]">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-slate-950/60 border-b border-slate-800 font-bold text-slate-400">
+                      <tr className="bg-white/60 border-b border-slate-300 font-bold text-black">
                         <th className="p-2.5">PLU #</th>
                         <th className="p-2.5">Name</th>
                         <th className="p-2.5">Price</th>
@@ -1064,25 +1066,25 @@ export default function ScaleManagerPage() {
                     <tbody>
                       {pluItems.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-slate-500 italic">
+                          <td colSpan={6} className="p-8 text-center text-black italic">
                             No PLU items found under this template. Click Add PLU or Import CSV.
                           </td>
                         </tr>
                       ) : (
                         pluItems.map((plu) => (
-                          <tr key={plu.id} className="border-b border-slate-800/40 hover:bg-slate-800/20 transition-colors">
-                            <td className="p-2.5 font-bold font-mono text-slate-300">{plu.plu_number}</td>
+                          <tr key={plu.id} className="border-b border-slate-300/40 hover:bg-slate-200/20 transition-colors">
+                            <td className="p-2.5 font-bold font-mono text-black">{plu.plu_number}</td>
                             <td className="p-2.5">
-                              <div className="font-semibold text-white">{plu.name}</div>
+                              <div className="font-semibold text-black">{plu.name}</div>
                               {plu.ingredients && (
-                                <div className="text-[9px] text-slate-500 mt-0.5 truncate max-w-[200px]">{plu.ingredients}</div>
+                                <div className="text-[9px] text-black mt-0.5 truncate max-w-[200px]">{plu.ingredients}</div>
                               )}
                             </td>
-                            <td className="p-2.5 font-bold text-slate-300">
+                            <td className="p-2.5 font-bold text-black">
                               Rp {plu.price.toLocaleString()}/{plu.unit}
                             </td>
-                            <td className="p-2.5 font-mono text-slate-400">{plu.tare.toFixed(3)} kg</td>
-                            <td className="p-2.5 text-slate-400">{plu.shelf_life} days</td>
+                            <td className="p-2.5 font-mono text-black">{plu.tare.toFixed(3)} kg</td>
+                            <td className="p-2.5 text-black">{plu.shelf_life} days</td>
                             <td className="p-2.5 text-right flex items-center justify-end gap-1">
                               <button
                                 onClick={() => {
@@ -1099,7 +1101,7 @@ export default function ScaleManagerPage() {
                                   });
                                   setIsPluModalOpen(true);
                                 }}
-                                className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                                className="p-1 rounded hover:bg-slate-200 text-black hover:text-black"
                               >
                                 <Edit className="w-3.5 h-3.5" />
                               </button>
@@ -1118,10 +1120,10 @@ export default function ScaleManagerPage() {
                 </div>
               </>
             ) : (
-              <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+              <div className="flex flex-col items-center justify-center py-20 text-black">
                 <Database className="w-12 h-12 text-slate-700 mb-3" />
                 <p className="font-bold text-xs">No Template Selected</p>
-                <p className="text-[10px] text-slate-600 mt-1">Select a PLU template from the left pane to manage scale product lists.</p>
+                <p className="text-[10px] text-slate-900 mt-1">Select a PLU template from the left pane to manage scale product lists.</p>
               </div>
             )}
           </div>
@@ -1130,15 +1132,15 @@ export default function ScaleManagerPage() {
 
       {/* 3. SYNC JOBS HISTORY TAB */}
       {activeTab === "history" && (
-        <div className="bg-slate-900/30 backdrop-blur-md p-6 rounded-2xl border border-slate-800/80 shadow-2xl flex flex-col gap-4">
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
+        <div className="bg-slate-100/30 backdrop-blur-md p-6 rounded-2xl border border-slate-300/80 shadow-2xl flex flex-col gap-4">
+          <h2 className="text-base font-bold text-black flex items-center gap-2">
             <Settings className="w-4 h-4 text-primary" /> Scale Job Sync Logs
           </h2>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-800/60">
+          <div className="overflow-x-auto rounded-xl border border-slate-300/60">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-950/60 border-b border-slate-800 font-bold text-slate-400">
+                <tr className="bg-white/60 border-b border-slate-300 font-bold text-black">
                   <th className="p-3">Job ID</th>
                   <th className="p-3">Target Scale</th>
                   <th className="p-3">Job Type</th>
@@ -1151,25 +1153,25 @@ export default function ScaleManagerPage() {
               <tbody>
                 {jobs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500 italic">
+                    <td colSpan={7} className="p-8 text-center text-black italic">
                       No synchronization jobs dispatched.
                     </td>
                   </tr>
                 ) : (
                   jobs.map((job) => (
-                    <tr key={job.id} className="border-b border-slate-800/40 hover:bg-slate-800/20 transition-colors">
-                      <td className="p-3 font-mono font-bold text-slate-300">{job.id}</td>
-                      <td className="p-3 font-semibold text-white">
+                    <tr key={job.id} className="border-b border-slate-300/40 hover:bg-slate-200/20 transition-colors">
+                      <td className="p-3 font-mono font-bold text-black">{job.id}</td>
+                      <td className="p-3 font-semibold text-black">
                         <div>{job.scale_name}</div>
-                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">{job.scale_ip}</div>
+                        <div className="text-[10px] text-black font-mono mt-0.5">{job.scale_ip}</div>
                       </td>
-                      <td className="p-3 font-semibold uppercase text-slate-400 text-[10px] tracking-wider">
+                      <td className="p-3 font-semibold uppercase text-black text-[10px] tracking-wider">
                         {job.job_type.replace('_', ' ')}
                       </td>
                       <td className="p-3 w-48">
                         <div className="flex flex-col gap-1.5">
-                          <span className="text-[10px] font-bold text-slate-300 leading-none">{job.progress}%</span>
-                          <div className="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden border border-slate-800">
+                          <span className="text-[10px] font-bold text-black leading-none">{job.progress}%</span>
+                          <div className="w-full bg-white h-1.5 rounded-full overflow-hidden border border-slate-300">
                             <div 
                               className={`h-full transition-all duration-500 ${
                                 job.status === 'success' ? 'bg-emerald-500' :
@@ -1181,17 +1183,17 @@ export default function ScaleManagerPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="p-3 max-w-xs break-words text-slate-400">
+                      <td className="p-3 max-w-xs break-words text-black">
                         {job.log}
                       </td>
-                      <td className="p-3 font-mono text-[10px] text-slate-500">
+                      <td className="p-3 font-mono text-[10px] text-black">
                         {new Date(job.created_at).toLocaleString()}
                       </td>
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider ${
-                          job.status === 'success' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/35' :
-                          job.status === 'failed' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/35' :
-                          'bg-blue-500/15 text-blue-400 border border-blue-500/35 animate-pulse'
+                          job.status === 'success' ? 'bg-emerald-600 text-white border border-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' :
+                          job.status === 'failed' ? 'bg-rose-600 text-white border border-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.5)]' :
+                          'bg-blue-600 text-white border border-blue-400 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]'
                         }`}>
                           {job.status}
                         </span>
@@ -1206,30 +1208,30 @@ export default function ScaleManagerPage() {
       )}
 
 
-      {/* ── MODAL: CREATE / EDIT SCALE ────────────────────────────────────── */}
+      {/* â”€â”€ MODAL: CREATE / EDIT SCALE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {isScaleModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <form onSubmit={handleSaveScale} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md flex flex-col gap-4 animate-in zoom-in-95 duration-200">
-            <h3 className="text-base font-bold text-white border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-400/60 backdrop-blur-sm">
+          <form onSubmit={handleSaveScale} className="bg-slate-100 border border-slate-300 rounded-2xl p-6 w-full max-w-md flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            <h3 className="text-base font-bold text-black border-b border-slate-300 pb-3">
               {editingScale ? 'Edit Scale Configuration' : 'Register Scale Device'}
             </h3>
 
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Scale Name</label>
+                <label className="text-[10px] font-bold text-black uppercase">Scale Name</label>
                 <input 
                   type="text" 
                   value={scaleForm.name} 
                   onChange={(e) => setScaleForm({...scaleForm, name: e.target.value})} 
                   placeholder="Meat Weighing bPlus 01"
                   required
-                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-primary/50"
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none focus:border-primary/50"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Scale Brand & Model</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Scale Brand & Model</label>
                   <select 
                     value={scaleForm.model} 
                     onChange={(e) => {
@@ -1240,7 +1242,7 @@ export default function ScaleManagerPage() {
                         port: newModel.includes('Digi') ? 4001 : 3001
                       });
                     }} 
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none"
                   >
                     <option value="Mettler Toledo (bPlus)">Mettler Toledo (bPlus)</option>
                     <option value="Mettler Toledo (UC)">Mettler Toledo (UC Line)</option>
@@ -1249,40 +1251,40 @@ export default function ScaleManagerPage() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Department</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Department</label>
                   <input 
                     type="text" 
                     value={scaleForm.department} 
                     onChange={(e) => setScaleForm({...scaleForm, department: e.target.value})} 
                     placeholder="Meat, Fresh, etc"
                     required
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2 flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Store Map / Location</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Store Map / Location</label>
                   <div className="relative flex items-center">
                     <select 
                       value={scaleForm.location}
                       onChange={(e) => setScaleForm({...scaleForm, location: e.target.value})}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none appearance-none"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none appearance-none"
                     >
                       <option value="">-- Select Store Location --</option>
                       {stores.map(store => (
                         <option key={store.org_cd} value={store.org_name}>{store.org_name}</option>
                       ))}
                     </select>
-                    <ChevronDown className="absolute right-3 w-4 h-4 text-slate-500 pointer-events-none" />
+                    <ChevronDown className="absolute right-3 w-4 h-4 text-black pointer-events-none" />
                   </div>
                   {scaleForm.location === "" && (
                     <input 
                       type="text"
                       placeholder="Or enter custom location manually..."
                       onChange={(e) => setScaleForm({...scaleForm, location: e.target.value})}
-                      className="mt-2 px-3 py-2 bg-slate-950/50 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                      className="mt-2 px-3 py-2 bg-white/50 border border-slate-300 rounded-xl text-xs text-black focus:outline-none"
                     />
                   )}
                 </div>
@@ -1290,36 +1292,36 @@ export default function ScaleManagerPage() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2 flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">IP Address</label>
+                  <label className="text-[10px] font-bold text-black uppercase">IP Address</label>
                   <input 
                     type="text" 
                     value={scaleForm.ip} 
                     onChange={(e) => setScaleForm({...scaleForm, ip: e.target.value})} 
                     placeholder="192.168.10.120"
                     required
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-primary/50 font-mono"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none focus:border-primary/50 font-mono"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Port</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Port</label>
                   <input 
                     type="number" 
                     value={scaleForm.port} 
                     onChange={(e) => setScaleForm({...scaleForm, port: parseInt(e.target.value)})} 
                     placeholder="3001"
                     required
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-primary/50 font-mono"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none focus:border-primary/50 font-mono"
                   />
                 </div>
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Gateway Device (Local Agent)</label>
+                <label className="text-[10px] font-bold text-black uppercase">Gateway Device (Local Agent)</label>
                 <select
                   value={scaleForm.device_id}
                   onChange={(e) => setScaleForm({...scaleForm, device_id: e.target.value})}
                   required
-                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none"
                 >
                   <option value="">-- Select Gateway PC --</option>
                   {serverGateways.map(g => (
@@ -1332,17 +1334,17 @@ export default function ScaleManagerPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-800 pt-4 mt-2">
+            <div className="flex justify-end gap-2 border-t border-slate-300 pt-4 mt-2">
               <button 
                 type="button" 
                 onClick={() => setIsScaleModalOpen(false)}
-                className="px-4 py-2 bg-slate-950 border border-slate-800 text-slate-400 hover:text-white rounded-xl text-xs font-semibold"
+                className="px-4 py-2 bg-white border border-slate-300 text-black hover:text-black rounded-xl text-xs font-semibold"
               >
                 Cancel
               </button>
               <button 
                 type="submit"
-                className="px-4 py-2 bg-primary text-white rounded-xl text-xs font-black"
+                className="px-4 py-2 bg-primary text-black rounded-xl text-xs font-black"
               >
                 Save Device
               </button>
@@ -1351,45 +1353,45 @@ export default function ScaleManagerPage() {
         </div>
       )}
 
-      {/* ── MODAL: CREATE / EDIT TEMPLATE ─────────────────────────────────── */}
+      {/* â”€â”€ MODAL: CREATE / EDIT TEMPLATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {isTemplateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <form onSubmit={handleSaveTemplate} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-lg flex flex-col gap-4 animate-in zoom-in-95 duration-200">
-            <h3 className="text-base font-bold text-white border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-400/60 backdrop-blur-sm">
+          <form onSubmit={handleSaveTemplate} className="bg-slate-100 border border-slate-300 rounded-2xl p-6 w-full max-w-lg flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            <h3 className="text-base font-bold text-black border-b border-slate-300 pb-3">
               {editingTemplate ? 'Edit PLU Template' : 'Add PLU Template'}
             </h3>
 
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Template Name</label>
+                <label className="text-[10px] font-bold text-black uppercase">Template Name</label>
                 <input 
                   type="text" 
                   value={templateForm.name} 
                   onChange={(e) => setTemplateForm({...templateForm, name: e.target.value})} 
                   placeholder="Mettler bPlus Meat CSV Format"
                   required
-                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none"
                 />
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Description</label>
+                <label className="text-[10px] font-bold text-black uppercase">Description</label>
                 <input 
                   type="text" 
                   value={templateForm.description} 
                   onChange={(e) => setTemplateForm({...templateForm, description: e.target.value})} 
                   placeholder="Export format for bPlus retail scales"
-                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">File Format</label>
+                  <label className="text-[10px] font-bold text-black uppercase">File Format</label>
                   <select
                     value={templateForm.file_format}
                     onChange={(e) => setTemplateForm({...templateForm, file_format: e.target.value})}
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black"
                   >
                     <option value="CSV">CSV</option>
                     <option value="TXT">TXT Plain</option>
@@ -1397,33 +1399,33 @@ export default function ScaleManagerPage() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Column Delimiter</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Column Delimiter</label>
                   <input 
                     type="text" 
                     value={templateForm.delimiter} 
                     onChange={(e) => setTemplateForm({...templateForm, delimiter: e.target.value})} 
                     placeholder=";"
                     required
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black font-mono"
                   />
                 </div>
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Header Row (Optional)</label>
+                <label className="text-[10px] font-bold text-black uppercase">Header Row (Optional)</label>
                 <input 
                   type="text" 
                   value={templateForm.header_structure} 
                   onChange={(e) => setTemplateForm({...templateForm, header_structure: e.target.value})} 
                   placeholder="plu_number;name;price;shelf_life;tare;barcode_prefix;ingredients"
-                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono"
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black font-mono"
                 />
               </div>
 
               <div className="flex flex-col gap-1">
                 <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Line Structure Row Template</label>
-                  <span className="text-[8px] text-slate-500 font-bold font-mono">Placeholders: {"{plu_number}"}, {"{name}"}, {"{price}"}, {"{shelf_life}"}, {"{tare}"}, {"{ingredients}"}</span>
+                  <label className="text-[10px] font-bold text-black uppercase">Line Structure Row Template</label>
+                  <span className="text-[8px] text-black font-bold font-mono">Placeholders: {"{plu_number}"}, {"{name}"}, {"{price}"}, {"{shelf_life}"}, {"{tare}"}, {"{ingredients}"}</span>
                 </div>
                 <textarea 
                   value={templateForm.row_template} 
@@ -1431,22 +1433,22 @@ export default function ScaleManagerPage() {
                   placeholder="{plu_number};{name};{price};{shelf_life};{tare}"
                   required
                   rows={2}
-                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none font-mono"
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none font-mono"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-800 pt-4 mt-2">
+            <div className="flex justify-end gap-2 border-t border-slate-300 pt-4 mt-2">
               <button 
                 type="button" 
                 onClick={() => setIsTemplateModalOpen(false)}
-                className="px-4 py-2 bg-slate-950 border border-slate-800 text-slate-400 hover:text-white rounded-xl text-xs font-semibold"
+                className="px-4 py-2 bg-white border border-slate-300 text-black hover:text-black rounded-xl text-xs font-semibold"
               >
                 Cancel
               </button>
               <button 
                 type="submit"
-                className="px-4 py-2 bg-primary text-white rounded-xl text-xs font-black"
+                className="px-4 py-2 bg-primary text-black rounded-xl text-xs font-black"
               >
                 Save Template
               </button>
@@ -1456,122 +1458,122 @@ export default function ScaleManagerPage() {
       )}
 
 
-      {/* ── MODAL: CREATE / EDIT PLU ITEM ────────────────────────────────── */}
+      {/* â”€â”€ MODAL: CREATE / EDIT PLU ITEM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {isPluModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <form onSubmit={handleSavePlu} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md flex flex-col gap-4 animate-in zoom-in-95 duration-200">
-            <h3 className="text-base font-bold text-white border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-400/60 backdrop-blur-sm">
+          <form onSubmit={handleSavePlu} className="bg-slate-100 border border-slate-300 rounded-2xl p-6 w-full max-w-md flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            <h3 className="text-base font-bold text-black border-b border-slate-300 pb-3">
               {editingPlu ? 'Edit PLU Item' : 'Add PLU Item'}
             </h3>
 
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">PLU #</label>
+                  <label className="text-[10px] font-bold text-black uppercase">PLU #</label>
                   <input 
                     type="number" 
                     value={pluForm.plu_number} 
                     onChange={(e) => setPluForm({...pluForm, plu_number: parseInt(e.target.value)})} 
                     placeholder="12"
                     required
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none font-bold font-mono"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none font-bold font-mono"
                   />
                 </div>
                 <div className="col-span-2 flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Item Name</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Item Name</label>
                   <input 
                     type="text" 
                     value={pluForm.name} 
                     onChange={(e) => setPluForm({...pluForm, name: e.target.value})} 
                     placeholder="Daging Giling Istimewa"
                     required
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Price (Rp)</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Price (Rp)</label>
                   <input 
                     type="number" 
                     value={pluForm.price} 
                     onChange={(e) => setPluForm({...pluForm, price: parseFloat(e.target.value)})} 
                     placeholder="120000"
                     required
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none font-mono"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none font-mono"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Unit Type</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Unit Type</label>
                   <input 
                     type="text" 
                     value={pluForm.unit} 
                     onChange={(e) => setPluForm({...pluForm, unit: e.target.value})} 
                     placeholder="kg"
                     required
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Tare (kg)</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Tare (kg)</label>
                   <input 
                     type="number" 
                     step="0.001"
                     value={pluForm.tare} 
                     onChange={(e) => setPluForm({...pluForm, tare: parseFloat(e.target.value)})} 
                     placeholder="0.005"
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none font-mono"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none font-mono"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Shelf Life (Days)</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Shelf Life (Days)</label>
                   <input 
                     type="number" 
                     value={pluForm.shelf_life} 
                     onChange={(e) => setPluForm({...pluForm, shelf_life: parseInt(e.target.value)})} 
                     placeholder="3"
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none font-mono"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none font-mono"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Barcode Prefix</label>
+                  <label className="text-[10px] font-bold text-black uppercase">Barcode Prefix</label>
                   <input 
                     type="text" 
                     value={pluForm.barcode_prefix} 
                     onChange={(e) => setPluForm({...pluForm, barcode_prefix: e.target.value})} 
                     placeholder="22"
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none font-mono"
+                    className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none font-mono"
                   />
                 </div>
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Ingredients / Composition</label>
+                <label className="text-[10px] font-bold text-black uppercase">Ingredients / Composition</label>
                 <textarea 
                   value={pluForm.ingredients} 
                   onChange={(e) => setPluForm({...pluForm, ingredients: e.target.value})} 
                   placeholder="Daging sapi murni segar pilihan tanpa bahan pengawet."
                   rows={3}
-                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-black focus:outline-none"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-800 pt-4 mt-2">
+            <div className="flex justify-end gap-2 border-t border-slate-300 pt-4 mt-2">
               <button 
                 type="button" 
                 onClick={() => setIsPluModalOpen(false)}
-                className="px-4 py-2 bg-slate-950 border border-slate-800 text-slate-400 hover:text-white rounded-xl text-xs font-semibold"
+                className="px-4 py-2 bg-white border border-slate-300 text-black hover:text-black rounded-xl text-xs font-semibold"
               >
                 Cancel
               </button>
               <button 
                 type="submit"
-                className="px-4 py-2 bg-primary text-white rounded-xl text-xs font-black"
+                className="px-4 py-2 bg-primary text-black rounded-xl text-xs font-black"
               >
                 Save PLU
               </button>
@@ -1580,56 +1582,56 @@ export default function ScaleManagerPage() {
         </div>
       )}
 
-      {/* ── MODAL: BULK SYNC ─────────────────────────────────────────────── */}
+      {/* â”€â”€ MODAL: BULK SYNC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {isBulkSyncModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md flex flex-col gap-4 animate-in zoom-in-95 duration-200 shadow-2xl">
-            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-400/60 backdrop-blur-sm">
+          <div className="bg-slate-100 border border-slate-300 rounded-2xl p-6 w-full max-w-md flex flex-col gap-4 animate-in zoom-in-95 duration-200 shadow-2xl">
+            <div className="flex items-center gap-3 border-b border-slate-300 pb-3">
               <div className="p-2 bg-blue-500/20 rounded-lg">
                 <Upload className="w-5 h-5 text-blue-400" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white">Bulk Sync PLU</h3>
-                <p className="text-xs text-slate-400">Deploy PLU template to {selectedScales.length} selected devices</p>
+                <h3 className="text-base font-bold text-black">Bulk Sync PLU</h3>
+                <p className="text-xs text-black">Deploy PLU template to {selectedScales.length} selected devices</p>
               </div>
             </div>
 
             <div className="flex flex-col gap-4 py-2">
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-1 max-h-32 overflow-y-auto">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Target Devices</span>
+              <div className="p-3 bg-white rounded-xl border border-slate-300 flex flex-col gap-1 max-h-32 overflow-y-auto">
+                <span className="text-[10px] font-bold text-black uppercase tracking-wider mb-1">Target Devices</span>
                 {scales.filter(s => selectedScales.includes(s.id)).map(s => (
-                  <div key={s.id} className="text-xs text-slate-300 flex justify-between items-center">
-                    <span>{s.name} <span className="text-slate-500">({s.location})</span></span>
-                    <span className="font-mono text-[10px] text-slate-500">{s.ip}</span>
+                  <div key={s.id} className="text-xs text-black flex justify-between items-center">
+                    <span>{s.name} <span className="text-black">({s.location})</span></span>
+                    <span className="font-mono text-[10px] text-black">{s.ip}</span>
                   </div>
                 ))}
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select PLU Template</label>
+                <label className="text-[10px] font-bold text-black uppercase tracking-wider">Select PLU Template</label>
                 <div className="flex flex-col gap-2">
                   {templates.map(t => (
                     <button
                       key={t.id}
                       onClick={() => dispatchBulkSyncJob(t.id)}
-                      className="w-full text-left px-4 py-3 bg-slate-800/40 hover:bg-blue-600/20 border border-slate-800 hover:border-blue-500/50 rounded-xl transition-all group"
+                      className="w-full text-left px-4 py-3 bg-slate-200/40 hover:bg-blue-600/20 border border-slate-300 hover:border-blue-500/50 rounded-xl transition-all group"
                     >
-                      <div className="font-bold text-sm text-slate-200 group-hover:text-blue-400">{t.name}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">{t.file_format} Format</div>
+                      <div className="font-bold text-sm text-black group-hover:text-blue-400">{t.name}</div>
+                      <div className="text-xs text-black mt-0.5">{t.file_format} Format</div>
                     </button>
                   ))}
                   {templates.length === 0 && (
-                    <p className="text-xs text-slate-500 text-center py-4 italic">No PLU templates available.</p>
+                    <p className="text-xs text-black text-center py-4 italic">No PLU templates available.</p>
                   )}
                 </div>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-800 pt-4 mt-2">
+            <div className="flex justify-end gap-2 border-t border-slate-300 pt-4 mt-2">
               <button 
                 type="button" 
                 onClick={() => setIsBulkSyncModalOpen(false)}
-                className="px-4 py-2 bg-slate-950 border border-slate-800 text-slate-400 hover:text-white rounded-xl text-xs font-semibold w-full"
+                className="px-4 py-2 bg-white border border-slate-300 text-black hover:text-black rounded-xl text-xs font-semibold w-full"
               >
                 Cancel Bulk Sync
               </button>
