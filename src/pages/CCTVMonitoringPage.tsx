@@ -157,10 +157,24 @@ export default function CCTVMonitoringPage() {
     name: ''
   });
 
+  const silentPollStatus = async () => {
+    try {
+      await fetch('/api/cctv/poll-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      fetchData();
+    } catch (error) {
+      console.error('Silent poll failed:', error);
+    }
+  };
+
   useEffect(() => {
     fetchData();
     fetchLocations();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
+    const interval = setInterval(() => {
+      silentPollStatus();
+    }, 60000); // Automatically check device statuses every 1 minute
     return () => clearInterval(interval);
   }, []);
 
@@ -178,9 +192,10 @@ export default function CCTVMonitoringPage() {
 
   const fetchData = async () => {
     try {
+      const timestamp = new Date().getTime();
       const [devicesRes, dashboardRes] = await Promise.all([
-        fetch('/api/cctv/devices'),
-        fetch('/api/cctv/dashboard')
+        fetch(`/api/cctv/devices?_t=${timestamp}`, { cache: 'no-store' }),
+        fetch(`/api/cctv/dashboard?_t=${timestamp}`, { cache: 'no-store' })
       ]);
 
       if (devicesRes.ok) {
