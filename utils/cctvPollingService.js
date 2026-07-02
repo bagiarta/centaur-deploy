@@ -1,7 +1,12 @@
 import sql from 'mssql';
 import { poolPromise } from '../config/db.js';
-import fetch from 'node-fetch';
 import cron from 'node-cron';
+import { autoDiscoverDevice } from '../services/hikvisionService.js';
+import { sendDiscordAlert } from './discordWebhook.js';
+
+// In-memory state tracker to prevent Discord notification spam.
+// Format: deviceId -> { offline: boolean, badChannels: string[], badDisks: string[], timeMismatch: boolean }
+const deviceStates = new Map();
 
 // ═══════════════════════════════════════════════════════════════
 // HIKVISION ISAPI SERVICE
@@ -9,93 +14,137 @@ import cron from 'node-cron';
 
 async function pollHikvisionDevice(device) {
   try {
-    const baseUrl = `${device.is_https ? 'https' : 'http'}://${device.ip_address}:${device.port}`;
-    const auth = Buffer.from(`${device.username}:${Buffer.from(device.password_hash, 'base64').toString()}`).toString('base64');
-    
-    // Get device info
-    const deviceInfoUrl = `${baseUrl}/ISAPI/System/deviceInfo`;
-    const response = await fetch(deviceInfoUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/xml'
-      },
-      timeout: 10000
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    const password = Buffer.from(device.password_hash, 'base64').toString();
+    const result = await autoDiscoverDevice(device.ip_address, device.port, device.username, password, device.is_https);
+
+    // Initialize state if not exists
+    if (!deviceStates.has(device.id)) {
+      deviceStates.set(device.id, { offline: false, badChannels: [], badDisks: [], timeMismatch: false });
     }
-    
-    const xmlData = await response.text();
-    
-    // Update device status to online
+    const state = deviceStates.get(device.id);
+
+    if (!result.device) {
+      // Device is completely offline/unreachable
+      await updateDeviceStatus(device.id, 'offline', 'Device unreachable or authentication failed');
+      
+      if (!state.offline) {
+        state.offline = true;
+        await sendDiscordAlert(
+          `🚨 CCTV Device Offline: ${device.name}`,
+          `**Host:** ${device.ip_address}:${device.port}\n**Vendor:** ${device.vendor}\n**Error:** Cannot reach device or authenticate.`,
+          0xef4444 // Red
+        );
+      }
+      return { success: false, deviceId: device.id, error: 'Unreachable' };
+    }
+
+    // Device is Online
     await updateDeviceStatus(device.id, 'online');
+    if (state.offline) {
+      state.offline = false;
+      await sendDiscordAlert(
+        `✅ CCTV Device Recovered: ${device.name}`,
+        `**Host:** ${device.ip_address}:${device.port}\nDevice is back online.`,
+        0x22c55e // Green
+      );
+    }
+
+    // Check Channels
+    const badChannels = (result.channels || []).filter(c => c.status !== 'online');
+    const badChannelIds = badChannels.map(c => c.id);
+    const newBadChannels = badChannels.filter(c => !state.badChannels.includes(c.id));
+    const recoveredChannels = state.badChannels.filter(id => !badChannelIds.includes(id));
     
-    // Get channels status
-    await pollChannelStatus(device, auth, baseUrl);
-    
-    // Get storage status
-    await pollStorageStatus(device, auth, baseUrl);
-    
+    if (newBadChannels.length > 0) {
+      const chNames = newBadChannels.map(c => `- ${c.name} (Status: ${c.status})`).join('\n');
+      await sendDiscordAlert(
+        `⚠️ CCTV Channel Offline: ${device.name}`,
+        `**Host:** ${device.ip_address}\nThe following channels went offline or lost video:\n${chNames}`,
+        0xf59e0b // Amber
+      );
+    }
+    if (recoveredChannels.length > 0) {
+      await sendDiscordAlert(
+        `✅ CCTV Channel Recovered: ${device.name}`,
+        `**Host:** ${device.ip_address}\n${recoveredChannels.length} channel(s) recovered and are back online.`,
+        0x22c55e // Green
+      );
+    }
+    state.badChannels = badChannelIds;
+
+    // Check Storage
+    const badDisks = (result.storage || []).filter(s => s.status !== 'ok' && s.status !== 'normal');
+    const badDiskIds = badDisks.map(d => d.id);
+    const newBadDisks = badDisks.filter(d => !state.badDisks.includes(d.id));
+    const recoveredDisks = state.badDisks.filter(id => !badDiskIds.includes(id));
+
+    if (newBadDisks.length > 0) {
+      const diskNames = newBadDisks.map(d => `- HDD ${d.id} (${d.name || 'Unknown'}) - Status: ${d.status}`).join('\n');
+      await sendDiscordAlert(
+        `💿 CCTV Storage Alert: ${device.name}`,
+        `**Host:** ${device.ip_address}\nThe following storage disks are reporting errors:\n${diskNames}`,
+        0xef4444 // Red
+      );
+    }
+    if (recoveredDisks.length > 0) {
+      await sendDiscordAlert(
+        `✅ CCTV Storage Recovered: ${device.name}`,
+        `**Host:** ${device.ip_address}\n${recoveredDisks.length} disk(s) returned to normal status.`,
+        0x22c55e // Green
+      );
+    }
+    state.badDisks = badDiskIds;
+
+    // Check System Time Mismatch
+    const devTimeStr = result.device.systemTime; // e.g. '2026-07-02T10:00:00'
+    if (devTimeStr) {
+      const devDate = new Date(devTimeStr);
+      const serverDate = new Date();
+      // Check if day/month/year differs
+      const isMismatch = (
+        devDate.getFullYear() !== serverDate.getFullYear() ||
+        devDate.getMonth() !== serverDate.getMonth() ||
+        devDate.getDate() !== serverDate.getDate()
+      );
+
+      if (isMismatch && !state.timeMismatch) {
+        state.timeMismatch = true;
+        await sendDiscordAlert(
+          `⏱️ CCTV Time Sync Error: ${device.name}`,
+          `**Host:** ${device.ip_address}\nDevice time is out of sync.\n**Device Time:** ${devDate.toISOString().split('T')[0]}\n**Server Time:** ${serverDate.toISOString().split('T')[0]}\nPlease re-sync the device time.`,
+          0xf59e0b // Amber
+        );
+      } else if (!isMismatch && state.timeMismatch) {
+        state.timeMismatch = false;
+        await sendDiscordAlert(
+          `✅ CCTV Time Synced: ${device.name}`,
+          `**Host:** ${device.ip_address}\nDevice time matches today's date.`,
+          0x22c55e // Green
+        );
+      }
+    }
+
     return { success: true, deviceId: device.id };
   } catch (err) {
     console.error(`[CCTV Polling] Error polling device ${device.name}:`, err.message);
     
-    // Update device status to offline/error
     await updateDeviceStatus(device.id, 'offline', err.message);
+
+    if (!deviceStates.has(device.id)) {
+      deviceStates.set(device.id, { offline: false, badChannels: [], badDisks: [], timeMismatch: false });
+    }
+    const state = deviceStates.get(device.id);
+
+    if (!state.offline) {
+      state.offline = true;
+      await sendDiscordAlert(
+        `🚨 CCTV Device Offline: ${device.name}`,
+        `**Host:** ${device.ip_address}:${device.port}\n**Error:** ${err.message}`,
+        0xef4444
+      );
+    }
     
     return { success: false, deviceId: device.id, error: err.message };
-  }
-}
-
-async function pollChannelStatus(device, auth, baseUrl) {
-  try {
-    const channelUrl = `${baseUrl}/ISAPI/ContentMgmt/InputProxy/channels`;
-    const response = await fetch(channelUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/xml'
-      },
-      timeout: 10000
-    });
-    
-    if (!response.ok) return;
-    
-    const xmlData = await response.text();
-    
-    // Parse XML and update channel status
-    // For simplicity, we'll just log it here
-    // In production, parse XML and update CCTVChannels table
-    console.log(`[CCTV Polling] Channel data received for ${device.name}`);
-    
-  } catch (err) {
-    console.error(`[CCTV Polling] Error polling channels for ${device.name}:`, err.message);
-  }
-}
-
-async function pollStorageStatus(device, auth, baseUrl) {
-  try {
-    const storageUrl = `${baseUrl}/ISAPI/ContentMgmt/Storage`;
-    const response = await fetch(storageUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/xml'
-      },
-      timeout: 10000
-    });
-    
-    if (!response.ok) return;
-    
-    const xmlData = await response.text();
-    
-    // Parse XML and update storage status
-    console.log(`[CCTV Polling] Storage data received for ${device.name}`);
-    
-  } catch (err) {
-    console.error(`[CCTV Polling] Error polling storage for ${device.name}:`, err.message);
   }
 }
 
@@ -163,13 +212,13 @@ export async function pollAllCCTVDevices() {
   try {
     const pool = await poolPromise;
     
-    // Get all active devices
+    // Get all active devices (FIXED SQL SYNTAX for SQL Server)
     const result = await pool.request()
       .query(`
         SELECT id, name, device_type, vendor, ip_address, port, username, password_hash, is_https
         FROM CCTVDevices 
         WHERE is_active = 1
-        ORDER BY last_poll ASC NULLS FIRST
+        ORDER BY CASE WHEN last_poll IS NULL THEN 0 ELSE 1 END, last_poll ASC
       `);
     
     const devices = result.recordset;
