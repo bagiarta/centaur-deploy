@@ -39,7 +39,8 @@ import {
   Signal,
   Clock,
   Database,
-  TrendingUp
+  TrendingUp,
+  Search
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -133,12 +134,16 @@ export default function CCTVMonitoringPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [polling, setPolling] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [deviceTime, setDeviceTime] = useState<{localTime?: string; timeZone?: string} | null>(null);
+  const [loadingTime, setLoadingTime] = useState(false);
   
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [syncing, setSyncing] = useState(false);
   
   const [submitting, setSubmitting] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -394,22 +399,33 @@ export default function CCTVMonitoringPage() {
     setSelectedDevice(device);
     setViewDialogOpen(true);
     setLoadingDetails(true);
+    setDeviceTime(null);
+    setLoadingTime(true);
 
+    // Fetch device details and system time in parallel
     try {
-      const response = await fetch(`/api/cctv/devices/${device.id}`);
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.data) {
-          setSelectedDevice(result.data);
-        }
+      const [detailRes, timeRes] = await Promise.allSettled([
+        fetch(`/api/cctv/devices/${device.id}`, { cache: 'no-store' }),
+        fetch(`/api/cctv/devices/${device.id}/time`, { cache: 'no-store' })
+      ]);
+
+      if (detailRes.status === 'fulfilled' && detailRes.value.ok) {
+        const result = await detailRes.value.json();
+        if (result.success && result.data) setSelectedDevice(result.data);
       } else {
         toast.error('Failed to load full device details');
+      }
+
+      if (timeRes.status === 'fulfilled' && timeRes.value.ok) {
+        const timeResult = await timeRes.value.json();
+        if (timeResult.success && timeResult.data) setDeviceTime(timeResult.data);
       }
     } catch (error) {
       console.error('Error fetching device details:', error);
       toast.error('Failed to load full device details');
     } finally {
       setLoadingDetails(false);
+      setLoadingTime(false);
     }
   };
 
@@ -425,6 +441,27 @@ export default function CCTVMonitoringPage() {
       name: device.name
     });
     setEditDialogOpen(true);
+  };
+
+  const handleSyncDevice = async () => {
+    if (!selectedDevice) return;
+    setSyncing(true);
+    try {
+      const response = await fetch(`/api/cctv/devices/${selectedDevice.id}/sync`, { method: 'POST' });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        toast.success(result.message || 'Device synced successfully');
+        fetchData(); // Refresh list to get updated channel counts
+        setEditDialogOpen(false);
+      } else {
+        toast.error(result.error || 'Failed to sync device');
+      }
+    } catch (error) {
+      console.error('Error syncing device:', error);
+      toast.error('Failed to connect to server');
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const handleUpdateDevice = async (e: React.FormEvent) => {
@@ -672,41 +709,70 @@ export default function CCTVMonitoringPage() {
           </div>
         )}
 
-        {/* Enhanced Devices List */}
-        <Tabs defaultValue="all" className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-3 h-12 bg-white shadow-lg rounded-xl">
-            <TabsTrigger value="all" className="rounded-lg data-[state=active]:bg-blue-500 data-[state=active]:text-white">
-              All Devices ({devices.length})
-            </TabsTrigger>
-            <TabsTrigger value="online" className="rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-              Online ({devices.filter(d => d.status === 'online').length})
-            </TabsTrigger>
-            <TabsTrigger value="offline" className="rounded-lg data-[state=active]:bg-red-500 data-[state=active]:text-white">
-              Offline ({devices.filter(d => d.status === 'offline').length})
-            </TabsTrigger>
-          </TabsList>
+      <div className="mb-6 space-y-4">
+        {/* Search Bar */}
+        <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+          <div className="relative flex-1 w-full">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <Input 
+              placeholder="Search by device name, IP address, or location..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 border-gray-300 focus:border-blue-500 rounded-lg h-12 w-full"
+            />
+          </div>
+          {searchQuery && (
+            <Button variant="ghost" onClick={() => setSearchQuery('')} className="text-gray-500 hover:text-gray-700">
+              Clear
+            </Button>
+          )}
+        </div>
 
-          <TabsContent value="all" className="space-y-4 mt-6">
-            {devices.length === 0 ? (
-              <Card className="border-0 shadow-xl bg-white">
-                <CardContent className="flex flex-col items-center justify-center py-16">
-                  <div className="p-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full mb-6">
-                    <Video className="w-16 h-16 text-blue-600" />
-                  </div>
-                  <h3 className="text-2xl font-bold text-gray-800 mb-2">No CCTV Devices Found</h3>
-                  <p className="text-gray-500 mb-6">Get started by adding your first CCTV device</p>
-                  <Button 
-                    onClick={() => setDialogOpen(true)}
-                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg"
-                  >
-                    <Plus className="w-5 h-5 mr-2" />
-                    Add First Device
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {devices.map((device) => (
+        {(() => {
+          const filteredDevices = devices.filter(d => 
+            d.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+            d.ip_address.includes(searchQuery) ||
+            (d.location_name && d.location_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (d.model && d.model.toLowerCase().includes(searchQuery.toLowerCase()))
+          );
+
+          return (
+            <Tabs defaultValue="all" className="w-full">
+              <TabsList className="grid w-full max-w-md grid-cols-3 h-12 bg-white shadow-lg rounded-xl">
+                <TabsTrigger value="all" className="rounded-lg data-[state=active]:bg-blue-500 data-[state=active]:text-white">
+                  All Devices ({filteredDevices.length})
+                </TabsTrigger>
+                <TabsTrigger value="online" className="rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                  Online ({filteredDevices.filter(d => d.status === 'online').length})
+                </TabsTrigger>
+                <TabsTrigger value="offline" className="rounded-lg data-[state=active]:bg-red-500 data-[state=active]:text-white">
+                  Offline ({filteredDevices.filter(d => d.status === 'offline').length})
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="all" className="space-y-4 mt-6">
+                {filteredDevices.length === 0 ? (
+                  <Card className="border-0 shadow-xl bg-white">
+                    <CardContent className="flex flex-col items-center justify-center py-16">
+                      <div className="p-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full mb-6">
+                        <Video className="w-16 h-16 text-blue-600" />
+                      </div>
+                      <h3 className="text-2xl font-bold text-gray-800 mb-2">No CCTV Devices Found</h3>
+                      <p className="text-gray-500 mb-6">{searchQuery ? 'No devices match your search query.' : 'Get started by adding your first CCTV device'}</p>
+                      {!searchQuery && (
+                        <Button 
+                          onClick={() => setDialogOpen(true)}
+                          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg"
+                        >
+                          <Plus className="w-5 h-5 mr-2" />
+                          Add First Device
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {filteredDevices.map((device) => (
                   <Card 
                     key={device.id} 
                     className={`border-0 shadow-xl hover:shadow-2xl transition-all duration-300 overflow-hidden ${
@@ -815,10 +881,10 @@ export default function CCTVMonitoringPage() {
               </div>
             )}
           </TabsContent>
-
-          <TabsContent value="online" className="mt-6">
+          
+          <TabsContent value="online" className="space-y-4 mt-6">
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {devices.filter(d => d.status === 'online').map((device) => (
+              {filteredDevices.filter(d => d.status === 'online').map((device) => (
                 <Card 
                   key={device.id} 
                   className="border-0 shadow-xl bg-gradient-to-br from-emerald-50 to-blue-50 hover:shadow-2xl transition-all"
@@ -845,10 +911,10 @@ export default function CCTVMonitoringPage() {
               ))}
             </div>
           </TabsContent>
-
-          <TabsContent value="offline" className="mt-6">
+          
+          <TabsContent value="offline" className="space-y-4 mt-6">
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {devices.filter(d => d.status === 'offline').map((device) => (
+              {filteredDevices.filter(d => d.status === 'offline').map((device) => (
                 <Card 
                   key={device.id} 
                   className="border-0 shadow-xl bg-gradient-to-br from-gray-50 to-slate-100 hover:shadow-2xl transition-all"
@@ -876,6 +942,9 @@ export default function CCTVMonitoringPage() {
             </div>
           </TabsContent>
         </Tabs>
+          );
+        })()}
+      </div>
 
       {/* Add Device Dialog - Simplified with Auto-Discovery */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1001,18 +1070,99 @@ export default function CCTVMonitoringPage() {
 
               {/* Discovered Data Display */}
               {discoveredData && (
-                <div className="col-span-2 p-4 bg-green-50 border border-green-200 rounded-lg space-y-2">
-                  <p className="font-semibold text-green-800">✓ Discovery Successful!</p>
-                  {discoveredData.device && (
-                    <div className="text-sm space-y-1">
-                      <p><strong>Name:</strong> {discoveredData.device.deviceName || 'N/A'}</p>
-                      <p><strong>Model:</strong> {discoveredData.device.deviceModel || 'N/A'}</p>
-                      <p><strong>Firmware:</strong> {discoveredData.device.firmwareVersion || 'N/A'}</p>
+                <div className="col-span-2 border border-green-300 rounded-xl overflow-hidden">
+                  {/* Header */}
+                  <div className="bg-green-600 px-4 py-2.5 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-white" />
+                    <p className="font-semibold text-white text-sm">Discovery Successful!</p>
+                  </div>
+
+                  <div className="bg-green-50 p-4 space-y-4">
+                    {/* Device Info */}
+                    {discoveredData.device && (
+                      <div>
+                        <p className="text-xs font-bold text-green-700 uppercase tracking-wider mb-2">Device Information</p>
+                        <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Name</span>
+                            <span className="font-medium">{discoveredData.device.deviceName || 'N/A'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Model</span>
+                            <span className="font-medium">{discoveredData.device.deviceModel || 'N/A'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Type</span>
+                            <span className="font-medium">{discoveredData.device.deviceType || 'N/A'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Firmware</span>
+                            <span className="font-medium">{discoveredData.device.firmwareVersion || 'N/A'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">MAC Address</span>
+                            <span className="font-mono text-xs">{discoveredData.device.macAddress || 'N/A'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Serial Number</span>
+                            <span className="font-mono text-xs truncate max-w-[140px]" title={discoveredData.device.serialNumber}>{discoveredData.device.serialNumber || 'N/A'}</span>
+                          </div>
+                          {discoveredData.device.localTime && (
+                            <div className="col-span-2 flex justify-between border-t border-green-200 pt-1 mt-1">
+                              <span className="text-gray-500">Device Time</span>
+                              <span className="font-mono text-xs">{discoveredData.device.localTime} {discoveredData.device.timeZone && `(${discoveredData.device.timeZone})`}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Channels */}
+                    <div>
+                      <p className="text-xs font-bold text-green-700 uppercase tracking-wider mb-2">
+                        Channels ({discoveredData.channels?.length || 0})
+                      </p>
+                      {discoveredData.channels && discoveredData.channels.length > 0 ? (
+                        <div className="max-h-32 overflow-y-auto space-y-1">
+                          {discoveredData.channels.map((ch: any, i: number) => (
+                            <div key={i} className="flex items-center justify-between text-xs bg-white rounded px-2 py-1 border border-green-100">
+                              <span className="font-medium">Ch {ch.channel_number || ch.id}: {ch.channel_name || ch.name || `Channel ${i + 1}`}</span>
+                              <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${ch.status === 'online' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                {ch.status || 'N/A'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 italic">No channels found</p>
+                      )}
                     </div>
-                  )}
-                  <div className="flex gap-4 text-sm">
-                    <span><strong>Channels:</strong> {discoveredData.channels?.length || 0}</span>
-                    <span><strong>Storage:</strong> {discoveredData.storage?.length || 0}</span>
+
+                    {/* Storage */}
+                    <div>
+                      <p className="text-xs font-bold text-green-700 uppercase tracking-wider mb-2">
+                        Storage ({discoveredData.storage?.length || 0})
+                      </p>
+                      {discoveredData.storage && discoveredData.storage.length > 0 ? (
+                        <div className="space-y-1">
+                          {discoveredData.storage.map((disk: any, i: number) => (
+                            <div key={i} className="text-xs bg-white rounded px-2 py-1 border border-green-100 flex items-center justify-between">
+                              <span className="font-medium">{disk.name || disk.hddName || `Disk ${i + 1}`} ({disk.type || disk.hddType || 'HDD'})</span>
+                              <div className="flex items-center gap-2">
+                                {disk.capacity > 0 && (
+                                  <span className="text-gray-500">{Math.round(disk.capacity / 1024)} GB · {disk.usagePercentage || disk.usage_percentage || 0}% used</span>
+                                )}
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${disk.status === 'ok' || disk.status === 'normal' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                  {disk.status || 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 italic">No storage found</p>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1101,6 +1251,31 @@ export default function CCTVMonitoringPage() {
                   <p className="text-sm text-muted-foreground">{selectedDevice.vendor} {selectedDevice.device_type}</p>
                 </div>
                 {getStatusBadge(selectedDevice.status)}
+              </div>
+
+              {/* System Time Card */}
+              <div className="p-4 rounded-lg border border-blue-200 bg-blue-50 flex items-center gap-4">
+                <div className="p-2 bg-blue-100 rounded-full">
+                  <Clock className="w-5 h-5 text-blue-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider mb-1">Device System Time</p>
+                  {loadingTime ? (
+                    <div className="flex items-center gap-2 text-blue-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">Fetching time from device...</span>
+                    </div>
+                  ) : deviceTime?.localTime ? (
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1">
+                      <span className="text-sm font-mono font-semibold text-blue-800">{deviceTime.localTime}</span>
+                      {deviceTime.timeZone && (
+                        <span className="text-xs text-blue-500 bg-blue-100 px-2 py-0.5 rounded-full">{deviceTime.timeZone}</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-blue-400 italic">Could not retrieve device time</span>
+                  )}
+                </div>
               </div>
 
               {/* Basic Information */}
@@ -1321,8 +1496,34 @@ export default function CCTVMonitoringPage() {
           </DialogHeader>
           
           <form onSubmit={handleUpdateDevice} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              {/* Device Name */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* Sync Channels & Storage Button */}
+                <div className="col-span-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleSyncDevice}
+                    disabled={syncing}
+                    className="w-full bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
+                  >
+                    {syncing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Syncing Channels & Storage...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Sync Channels & Storage from Device
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-muted-foreground text-center mt-2">
+                    Fetches the latest channel configuration directly from the device
+                  </p>
+                </div>
+
+                {/* Device Name */}
               <div className="col-span-2">
                 <Label htmlFor="edit-name">Device Name *</Label>
                 <Input

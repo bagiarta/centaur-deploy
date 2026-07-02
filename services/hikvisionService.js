@@ -148,7 +148,38 @@ export async function getDeviceInfo(ip, port, username, password, isHttps) {
 
   console.log('[HIKVISION] Device Info:', deviceInfo);
   
-  return { success: true, data: deviceInfo };
+  return {
+    success: true,
+    data: deviceInfo,
+    raw: xml
+  };
+}
+
+/**
+ * Get System Time
+ * Endpoint: /ISAPI/System/time
+ */
+export async function getSystemTime(ip, port, username, password, isHttps) {
+  const result = await makeISAPIRequest(ip, port, username, password, '/ISAPI/System/time', isHttps);
+  
+  if (!result.success) {
+    return result;
+  }
+  
+  const xml = result.data;
+  
+  const timeInfo = {
+    localTime: parseXMLValue(xml, 'localTime'),
+    timeZone: parseXMLValue(xml, 'timeZone')
+  };
+
+  console.log('[HIKVISION] Device Time:', timeInfo);
+  
+  return {
+    success: true,
+    data: timeInfo,
+    raw: xml
+  };
 }
 
 /**
@@ -192,6 +223,49 @@ export async function getChannelStatus(ip, port, username, password, isHttps) {
   
   return { success: true, data: channels };
 }
+
+/**
+ * Get DVR Analog Channel Info
+ * Endpoint: /ISAPI/System/Video/inputs/channels
+ * Used for DVR devices (analog cameras) instead of NVR IP cameras
+ */
+export async function getDVRChannels(ip, port, username, password, isHttps) {
+  const result = await makeISAPIRequest(ip, port, username, password, '/ISAPI/System/Video/inputs/channels', isHttps);
+  
+  if (!result.success) {
+    return { success: false, error: result.error };
+  }
+
+  const xml = result.data;
+  console.log('[HIKVISION] DVR Channel XML (first 1000 chars):', xml.substring(0, 1000));
+
+  const channels = [];
+  const channelRegex = /<VideoInputChannel[^>]*>([\s\S]*?)<\/VideoInputChannel>/gi;
+  const channelMatches = xml.match(channelRegex);
+
+  console.log(`[HIKVISION] Found ${channelMatches ? channelMatches.length : 0} DVR channel matches`);
+
+  if (channelMatches) {
+    channelMatches.forEach((channelXml, index) => {
+      const id = parseXMLValue(channelXml, 'id') || String(index + 1);
+      const name = parseXMLValue(channelXml, 'name') || `Channel ${id}`;
+      const resolutionWidth = parseXMLValue(channelXml, 'resolutionWidth');
+      const resolutionHeight = parseXMLValue(channelXml, 'resolutionHeight');
+      channels.push({
+        id,
+        channel_number: parseInt(id),
+        channel_name: name,
+        status: 'online',
+        is_enabled: true,
+        resolution: resolutionWidth && resolutionHeight ? `${resolutionWidth}x${resolutionHeight}` : null
+      });
+    });
+  }
+
+  console.log(`[HIKVISION] Parsed ${channels.length} DVR channels`);
+  return { success: channels.length > 0, data: channels };
+}
+
 
 /**
  * Get Channel Details
@@ -349,23 +423,45 @@ export async function autoDiscoverDevice(ip, port, username, password, isHttps) 
     deviceResult = await getDeviceStatus(ip, port, username, password, isHttps);
   }
   
+  // Also get the system time
+  let timeResult = await getSystemTime(ip, port, username, password, isHttps);
+  
   if (deviceResult.success) {
     results.device = deviceResult.data;
+    if (timeResult.success) {
+      results.device.localTime = timeResult.data.localTime;
+      results.device.timeZone = timeResult.data.timeZone;
+    }
   } else {
     results.errors.push(`Device info: ${deviceResult.error}`);
   }
 
-  // 2. Get channel status
-  const channelResult = await getChannelStatus(ip, port, username, password, isHttps);
-  if (channelResult.success) {
-    results.channels = channelResult.data;
+  // 2. Get channel info - use DVR endpoint for DVR, NVR endpoint for NVR
+  const deviceType = (results.device?.deviceType || '').toUpperCase();
+  const deviceName = (results.device?.deviceName || '').toLowerCase();
+  const isDVR = deviceType.includes('DVR') || deviceName.includes('embedded net dvr');
+
+  if (isDVR) {
+    console.log('[HIKVISION] Device is DVR - using analog channel endpoint /ISAPI/System/Video/inputs/channels');
+    const dvrChannelResult = await getDVRChannels(ip, port, username, password, isHttps);
+    if (dvrChannelResult.success) {
+      results.channels = dvrChannelResult.data;
+    } else {
+      results.errors.push(`DVR channel info: ${dvrChannelResult.error}`);
+    }
   } else {
-    results.errors.push(`Channel status: ${channelResult.error}`);
-    
-    // Try alternative endpoint
-    const channelDetailsResult = await getChannelDetails(ip, port, username, password, isHttps);
-    if (channelDetailsResult.success) {
-      results.channels = channelDetailsResult.data;
+    // NVR (or unknown): use InputProxy endpoint for IP cameras
+    console.log('[HIKVISION] Device is NVR (or unknown) - using InputProxy channel endpoint');
+    const channelResult = await getChannelStatus(ip, port, username, password, isHttps);
+    if (channelResult.success) {
+      results.channels = channelResult.data;
+    } else {
+      results.errors.push(`Channel status: ${channelResult.error}`);
+      // Try alternative NVR endpoint
+      const channelDetailsResult = await getChannelDetails(ip, port, username, password, isHttps);
+      if (channelDetailsResult.success) {
+        results.channels = channelDetailsResult.data;
+      }
     }
   }
 
@@ -403,8 +499,11 @@ export default {
   autoDiscoverDevice,
   getDeviceStatus,
   getDeviceInfo,
+  getSystemTime,
   getChannelStatus,
   getChannelDetails,
+  getDVRChannels,
   getStorageDetection,
   getHDDInfo
 };
+
