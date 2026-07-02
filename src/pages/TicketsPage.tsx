@@ -73,7 +73,7 @@ export default function TicketsPage() {
   const [targetSearchQuery, setTargetSearchQuery] = useState("");
   const [targetStatusFilter, setTargetStatusFilter] = useState("All");
   const [triggerLoading, setTriggerLoading] = useState(false);
-  
+
   const [isManageTargetsOpen, setIsManageTargetsOpen] = useState(false);
   const [manageTargetsData, setManageTargetsData] = useState({
     hostname: "",
@@ -266,9 +266,9 @@ export default function TicketsPage() {
       await fetch(`/api/tickets/${selectedTicket.id}/assign`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          assigned_to: assignee || null, 
-          performed_by: user?.username 
+        body: JSON.stringify({
+          assigned_to: assignee || null,
+          performed_by: user?.username
         }),
       });
       await fetchTickets();
@@ -294,7 +294,7 @@ export default function TicketsPage() {
         }),
       });
       if (!res.ok) throw new Error("Failed to update targets");
-      
+
       await fetchTickets();
       // Refetch current ticket details to update the view
       const updatedQs = new URLSearchParams({
@@ -307,7 +307,7 @@ export default function TicketsPage() {
         const found = updatedTickets.find((t: any) => t.id === selectedTicket.id);
         if (found) setSelectedTicket(found);
       }
-      
+
       await fetchLogs(selectedTicket.id);
       setIsManageTargetsOpen(false);
     } catch (err) {
@@ -327,7 +327,7 @@ export default function TicketsPage() {
         body: JSON.stringify({ status, remark, performed_by: user?.username, hostname }),
       });
       if (!res.ok) throw new Error("Failed to update target");
-      
+
       await fetchTickets();
       // Update selected ticket in place to avoid flicker
       setSelectedTicket(prev => {
@@ -372,7 +372,7 @@ export default function TicketsPage() {
     if (filterAssignee === "Me" && t.assigned_to !== user?.username) return false;
     if (filterAssignee === "Unassigned" && t.assigned_to) return false;
     if (filterAssignee !== "All" && filterAssignee !== "Me" && filterAssignee !== "Unassigned" && t.assigned_to !== filterAssignee) return false;
-    
+
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       return t.title.toLowerCase().includes(term) || t.id.toLowerCase().includes(term) || t.outlet_name?.toLowerCase().includes(term);
@@ -380,11 +380,11 @@ export default function TicketsPage() {
     return true;
   });
 
-  console.log("Ticket Status:", { 
-    ticketCount: tickets.length, 
+  console.log("Ticket Status:", {
+    ticketCount: tickets.length,
     filteredCount: filteredTickets.length,
-    user: user?.username, 
-    loading, 
+    user: user?.username,
+    loading,
     canManageTickets,
     filterStatus,
     filterAssignee
@@ -392,10 +392,10 @@ export default function TicketsPage() {
 
   const handleExportTicketsCSV = () => {
     const headers = [
-      "ID", "Title", "Category", "Status", "Priority", "Outlet", "Hostname", 
+      "ID", "Title", "Category", "Status", "Priority", "Outlet", "Hostname",
       "Created By", "Created At", "Assigned To", "Resolved By", "Resolved At", "Closed By", "Closed At"
     ];
-    
+
     const rows = filteredTickets.map(t => [
       t.id,
       `"${t.title.replace(/"/g, '""')}"`,
@@ -430,7 +430,7 @@ export default function TicketsPage() {
 
   const handleExportTargetsCSV = () => {
     if (!selectedTicket || !selectedTicket.targets) return;
-    
+
     const headers = ["Ticket ID", "Ticket Title", "Hostname", "Status", "Remark", "Solved By", "Solved At"];
     const rows = selectedTicket.targets.map(t => [
       selectedTicket.id,
@@ -441,12 +441,12 @@ export default function TicketsPage() {
       t.solved_by || "-",
       t.updated_at ? formatServerDate(t.updated_at) : "-"
     ]);
-    
+
     const csvContent = [
       headers.join(","),
       ...rows.map(r => r.join(","))
     ].join("\n");
-    
+
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -482,7 +482,7 @@ export default function TicketsPage() {
             <div>
               <p className="text-sm uppercase tracking-[0.35em] text-blue-100/80">Helpdesk Operations</p>
               <h1 className="mt-3 text-3xl lg:text-4xl font-extrabold tracking-tight">Tickets Dashboard</h1>
-              <p className="mt-2 max-w-2xl text-sm text-blue-100/80">Monitor and respond to incoming support tickets with an elegant operational view inspired by CCTV monitoring pages.</p>
+              <p className="mt-2 max-w-2xl text-sm text-blue-100/80">Monitor and respond to incoming support tickets.</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-3xl bg-white/10 border border-white/15 p-4 shadow-xl backdrop-blur-md">
@@ -506,603 +506,603 @@ export default function TicketsPage() {
 
         <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
           <div className={cn("flex flex-col w-full bg-card rounded-3xl border border-border overflow-hidden shadow-xl shadow-slate-900/5", selectedTicket ? "hidden xl:flex" : "flex")}>
-        <div className="p-4 border-b border-border bg-surface/50">
-          <div className="flex justify-between items-start">
-            <div>
-              <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                <Ticket className="w-5 h-5 text-primary" />
-                Helpdesk Tickets
-              </h2>
-              <p className="text-xs text-foreground-muted mb-4 uppercase tracking-widest">{canManageTickets ? 'All User Reports' : 'My Reports'}</p>
-            </div>
-            {canManageTickets && (
-              <button
-                onClick={handleTriggerDailySummary}
-                disabled={triggerLoading}
-                title="Send daily summary notification to WhatsApp"
-                className="p-2 bg-white/10 border border-white/10 rounded-2xl text-white/80 hover:bg-white/15 transition-all disabled:opacity-50"
-              >
-                <MessageSquare className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-3">
-            <div className="relative flex gap-2 items-center bg-surface/80 p-3 rounded-3xl border border-border shadow-sm">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-foreground-muted" />
-                <input
-                  type="text"
-                  placeholder="Search tickets..."
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full bg-surface/95 border border-transparent rounded-2xl pl-9 pr-3 py-2 text-sm text-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all"
-                />
-              </div>
-              <button
-                onClick={handleExportTicketsCSV}
-                className="p-2 bg-white/10 border border-white/10 rounded-2xl text-white/80 hover:bg-white/15 transition-all flex items-center justify-center"
-                title="Export list to CSV"
-              >
-                <Download className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex bg-surface/95 p-1 rounded-3xl border border-border shadow-sm">
-              {['All', 'Open', 'In Progress', 'Resolved', 'Closed'].map(s => (
-                <button
-                  key={s}
-                  onClick={() => setFilterStatus(s)}
-                  className={cn(
-                    "flex-1 text-[11px] font-semibold py-1.5 rounded-2xl transition-all",
-                    filterStatus === s ? "bg-white text-slate-950 shadow-sm" : "text-foreground-muted hover:text-foreground"
-                  )}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-            
-            <div className="flex bg-surface/95 p-1 rounded-3xl border border-border mt-2 items-center shadow-sm">
-              <select 
-                value={filterAssignee} 
-                onChange={e => setFilterAssignee(e.target.value)}
-                className="w-full bg-transparent text-foreground text-[11px] font-semibold py-2 focus:outline-none px-3 rounded-2xl cursor-pointer"
-              >
-                <option value="All" className="bg-surface text-foreground">All Assignees</option>
-                <option value="Me" className="bg-surface text-foreground">Assigned to Me</option>
-                <option value="Unassigned" className="bg-surface text-foreground">Unassigned</option>
-                {users.map(u => (
-                  <option key={u.id} value={u.username} className="bg-surface text-foreground">{getUserDisplayName(u)}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : filteredTickets.length === 0 ? (
-            <div className="text-center p-8 text-foreground-muted text-sm">
-              No tickets found.
-            </div>
-          ) : (
-            filteredTickets.map(ticket => {
-              // SLA Warning logic: if high priority, open/in-progress for > 2 hours -> show indicator
-              let isSLAWarning = false;
-              if ((ticket.priority === 'High' || ticket.priority === 'Critical') && ['Open', 'In Progress'].includes(ticket.status)) {
-                const created = new Date(ticket.created_at);
-                const now = new Date();
-                const diffHours = (now.getTime() - created.getTime()) / (1000 * 60 * 60);
-                if (diffHours > 2) isSLAWarning = true;
-              }
-
-              return (
-                <button
-                  key={ticket.id}
-                  onClick={() => setSelectedTicket(ticket)}
-                  className={cn(
-                    "w-full text-left p-4 rounded-3xl border transition-all text-sm group relative shadow-sm hover:shadow-2xl",
-                    selectedTicket?.id === ticket.id
-                      ? "border-primary bg-gradient-to-br from-blue-50 to-slate-50 shadow-[0_0_30px_rgba(59,130,246,0.15)]"
-                      : "border-border bg-white/90 hover:border-primary hover:bg-slate-50"
-                  )}
-                >
-                  {isSLAWarning && <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-danger animate-ping" title="SLA Overdue Warning" />}
-
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="font-mono text-xs text-foreground-muted">{ticket.id}</span>
-                    <span className={cn("text-[10px] px-2 py-0.5 rounded-md font-semibold", getPriorityColor(ticket.priority))}>
-                      {ticket.priority}
-                    </span>
-                  </div>
-
-                  <h3 className="font-semibold text-foreground mb-1 line-clamp-1 group-hover:text-primary transition-colors">{ticket.title}</h3>
-                  <p className="text-xs text-foreground-muted line-clamp-1 mb-3">{ticket.outlet_name || "No Outlet"} • {ticket.category}</p>
-
-                  <div className="flex items-center justify-between mt-auto">
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 text-xs font-medium">
-                        {getStatusIcon(ticket.status)}
-                        <span className={
-                          ticket.status === 'Resolved' ? 'text-success' :
-                            ticket.status === 'In Progress' ? 'text-warning' :
-                              ticket.status === 'Closed' ? 'text-foreground-muted' : 'text-primary'
-                        }>{ticket.status}</span>
-                      </div>
-                      {ticket.assigned_to && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
-                           @{ticket.assigned_to}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-foreground-muted">
-                      {formatServerDateOnly(ticket.created_at)}
-                    </span>
-                  </div>
-                </button>
-              )
-            })
-          )}
-        </div>
-      </div>
-      {/* ── Right Detailed View ── */}
-      <div className={cn("flex-1 flex-col bg-card/95 border border-border rounded-3xl shadow-2xl overflow-y-auto", selectedTicket ? "flex" : "hidden md:flex")}>
-        {selectedTicket ? (
-          <div className="flex flex-col min-h-full">
-            <div className="p-4 md:p-6 border-b border-border bg-surface/30 shrink-0">
-              {/* Mobile Back Button */}
-              <div className="md:hidden mb-4">
-                <button 
-                  onClick={() => setSelectedTicket(null)}
-                  className="flex items-center gap-1 text-sm font-medium text-foreground-muted hover:text-foreground"
-                >
-                  <ChevronRight className="w-4 h-4 rotate-180" /> Back to Tickets
-                </button>
-              </div>
-              <div className="flex justify-between items-start mb-4">
+            <div className="p-4 border-b border-border bg-surface/50">
+              <div className="flex justify-between items-start">
                 <div>
-                  <h2 className="text-2xl font-bold text-foreground mb-1">{selectedTicket.title}</h2>
-                  <p className="text-sm font-mono text-foreground-subtle flex items-center gap-2">
-                    {selectedTicket.id}
-                    <span className="px-2 py-0.5 rounded bg-surface border border-border text-xs">{selectedTicket.category}</span>
-                  </p>
+                  <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+                    <Ticket className="w-5 h-5 text-primary" />
+                    Helpdesk Tickets
+                  </h2>
+                  <p className="text-xs text-foreground-muted mb-4 uppercase tracking-widest">{canManageTickets ? 'All User Reports' : 'My Reports'}</p>
                 </div>
-
-                <div className="flex gap-2 items-center">
-                  <div className={cn("px-3 py-1 flex items-center gap-1.5 rounded-full border text-sm font-semibold",
-                    selectedTicket.status === 'Resolved' ? 'bg-success/10 border-success/30 text-success' :
-                      selectedTicket.status === 'Closed' ? 'bg-surface border-border text-foreground-muted' :
-                        selectedTicket.status === 'In Progress' ? 'bg-warning/10 border-warning/30 text-warning' :
-                          'bg-primary/10 border-primary/30 text-primary'
-                  )}>
-                    {getStatusIcon(selectedTicket.status)}
-                    {selectedTicket.status}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                <div className="bg-background p-3 rounded-md border border-border">
-                  <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Reported By</p>
-                  <p className="text-sm font-medium text-foreground">
-                    {resolveUserDisplayName(selectedTicket.created_by)}
-                    <span className="ml-1 text-xs text-foreground-muted">{resolveUserHandle(selectedTicket.created_by)}</span>
-                  </p>
-                </div>
-                <div className="bg-background p-3 rounded-md border border-border">
-                  <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Outlet / Branch</p>
-                  <p className="text-sm font-medium text-foreground">{selectedTicket.outlet_name || '-'}</p>
-                </div>
-                <div className="bg-background p-3 rounded-md border border-border">
-                  <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Target Hostname</p>
-                  <p className="text-sm font-medium text-foreground">{selectedTicket.hostname || '-'}</p>
-                </div>
-                <div className="bg-background p-3 rounded-md border border-border">
-                  <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Created At</p>
-                  <p className="text-sm font-medium text-foreground">{formatServerDate(selectedTicket.created_at)}</p>
-                </div>
-                {canAssign ? (
-                  <div className="bg-surface p-3 rounded-md border border-border col-span-2 md:col-span-1 shadow-sm">
-                    <p className="text-[10px] uppercase font-bold text-primary mb-1.5 flex items-center gap-1.5">
-                      <span className="w-1 h-1 rounded-full bg-primary animate-pulse" />
-                      Assign To
-                    </p>
-                    <select 
-                      className="w-full bg-background text-foreground text-sm font-semibold focus:outline-none cursor-pointer border border-border rounded px-2 py-1.5 hover:border-primary/40 transition-all shadow-inner"
-                      value={selectedTicket.assigned_to || ""}
-                      onChange={(e) => handleAssignTicket(e.target.value)}
-                      disabled={actionLoading}
-                    >
-                      <option value="" className="bg-surface text-foreground">Unassigned</option>
-                      {users.map(u => (
-                        <option key={u.id} value={u.username} className="bg-surface text-foreground">
-                          {getUserDisplayName(u)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="bg-background p-3 rounded-md border border-border">
-                    <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Assigned To</p>
-                    <p className="text-sm font-medium text-foreground">
-                      {selectedTicket.assigned_to ? resolveUserDisplayName(selectedTicket.assigned_to) : 'Unassigned'}
-                      {selectedTicket.assigned_to && (
-                        <span className="ml-1 text-xs text-foreground-muted">{resolveUserHandle(selectedTicket.assigned_to)}</span>
-                      )}
-                    </p>
-                  </div>
+                {canManageTickets && (
+                  <button
+                    onClick={handleTriggerDailySummary}
+                    disabled={triggerLoading}
+                    title="Send daily summary notification to WhatsApp"
+                    className="p-2 bg-white/10 border border-white/10 rounded-2xl text-white/80 hover:bg-white/15 transition-all disabled:opacity-50"
+                  >
+                    <MessageSquare className="w-5 h-5" />
+                  </button>
                 )}
               </div>
-            </div>
-            {selected_ticket_can_edit && (
-              <div className="px-6 py-2 bg-surface/5 border-b border-border flex justify-end">
-                <button 
-                  onClick={() => {
-                    setManageTargetsData({
-                      hostname: selectedTicket.hostname || "",
-                      selected_group_ids: selectedTicket.linked_group_ids || []
-                    });
-                    setIsManageTargetsOpen(true);
-                  }}
-                  className="text-[10px] font-bold uppercase tracking-wider text-primary hover:text-primary-hover flex items-center gap-1 transition-colors"
-                >
-                   <Filter className="w-3 h-3" /> Manage Targets (Host/Groups)
-                </button>
-              </div>
-            )}
-
-            {selectedTicket.targets && selectedTicket.targets.length > 0 && (
-              <div className="px-6 py-4 bg-surface/10 border-b border-border">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Task Completion</h3>
-                  <span className="text-sm font-bold text-primary">
-                    {Math.round((selectedTicket.targets.filter(t => t.status === 'Solved').length / selectedTicket.targets.length) * 100)}%
-                  </span>
-                </div>
-                <div className="w-full bg-surface-raised h-2 rounded-full overflow-hidden border border-border">
-                  <div 
-                    className="bg-primary h-full transition-all duration-500 ease-out" 
-                    style={{ width: `${(selectedTicket.targets.filter(t => t.status === 'Solved').length / selectedTicket.targets.length) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="flex-1 p-4 md:p-6 flex flex-col gap-6 md:gap-8">
-              {selectedTicket.targets && selectedTicket.targets.length > 0 && (
-                <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-2">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted">
-                        Target Hostnames ({selectedTicket.targets.length})
-                      </h3>
-                      <button 
-                        onClick={handleExportTargetsCSV}
-                        className="text-[10px] flex items-center gap-1 font-bold uppercase tracking-wider text-primary hover:text-primary-hover transition-colors bg-primary/10 px-2 py-1 rounded"
-                        title="Export details to CSV"
-                      >
-                        <Download className="w-3 h-3" /> Export
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <select 
-                        value={targetStatusFilter}
-                        onChange={(e) => setTargetStatusFilter(e.target.value)}
-                        className="bg-surface border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:border-primary transition-all"
-                      >
-                        <option value="All">All Status</option>
-                        <option value="Solved">Solved</option>
-                        <option value="Pending">Pending</option>
-                      </select>
-                      <div className="relative w-full sm:w-48">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" />
-                        <input
-                          type="text"
-                          placeholder="Search hostnames..."
-                          className="w-full bg-surface border border-border rounded-md pl-9 pr-3 py-1.5 text-xs focus:outline-none focus:border-primary transition-all"
-                          value={targetSearchQuery}
-                          onChange={(e) => setTargetSearchQuery(e.target.value)}
-                        />
-                        {targetSearchQuery && (
-                          <button 
-                            onClick={() => setTargetSearchQuery("")}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid gap-3">
-                    {selectedTicket.targets
-                      .filter(t => t.hostname.toLowerCase().includes(targetSearchQuery.toLowerCase()))
-                      .filter(t => targetStatusFilter === "All" || t.status === targetStatusFilter)
-                      .map(target => (
-                      <div key={target.id} className="bg-surface/95 border border-border rounded-lg p-3 flex flex-col gap-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono text-sm font-bold text-foreground">{target.hostname}</span>
-                            <span className={cn(
-                              "text-[10px] px-2 py-0.5 rounded font-bold uppercase shrink-0",
-                              target.status === 'Solved' ? "bg-success/10 text-success border border-success/20" : "bg-warning/10 text-warning border border-warning/20"
-                            )}>
-                              {target.status}
-                            </span>
-                            {target.isFromGroup && (
-                              <span className="text-[9px] bg-primary/5 text-primary-hover px-1.5 py-0.5 rounded border border-primary/10 italic shrink-0">
-                                dynamic group
-                              </span>
-                            )}
-                          </div>
-                          {canManageTickets && selectedTicket.status !== 'Closed' && selectedTicket.status !== 'Resolved' && (
-                            <button
-                              onClick={() => handleUpdateTarget(target.id, target.status === 'Solved' ? 'Pending' : 'Solved', target.remark, target.hostname)}
-                              disabled={actionLoading}
-                              className={cn(
-                                "px-3 py-1.5 text-xs font-bold rounded transition-colors w-full sm:w-auto shrink-0",
-                                target.status === 'Solved' 
-                                  ? "bg-warning/10 text-warning hover:bg-warning/20 border border-warning/30" 
-                                  : "bg-success text-white hover:bg-success/90"
-                              )}
-                            >
-                              {target.status === 'Solved' ? 'Set Pending' : 'Mark Solved'}
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                           <input 
-                              type="text" 
-                              placeholder="Add a remark for this host..."
-                              defaultValue={target.remark || ""}
-                              onBlur={(e) => {
-                                if (e.target.value !== (target.remark || "")) {
-                                  handleUpdateTarget(target.id, target.status, e.target.value, target.hostname);
-                                }
-                              }}
-                              disabled={actionLoading || !canManageTickets || selectedTicket.status === 'Closed' || selectedTicket.status === 'Resolved'}
-                              className="flex-1 bg-surface border border-border px-2 py-1 text-xs rounded focus:border-primary focus:outline-none disabled:opacity-60"
-                           />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <div className="space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted border-b border-border pb-2">Issue Description</h3>
-                <div className="bg-surface/95 p-4 rounded-lg border border-border leading-relaxed text-sm text-foreground whitespace-pre-wrap">
-                  {selectedTicket.description}
-                </div>
-              </div>
-
-              {selectedTicket.resolution_note && (
-                <div className="space-y-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-success border-b border-border pb-2 flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4" /> Resolution Note
-                  </h3>
-                  <div className="bg-success/5 p-4 rounded-lg border border-success/20 leading-relaxed text-sm text-foreground whitespace-pre-wrap">
-                    {selectedTicket.resolution_note}
+                <div className="relative flex gap-2 items-center bg-surface/80 p-3 rounded-3xl border border-border shadow-sm">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-foreground-muted" />
+                    <input
+                      type="text"
+                      placeholder="Search tickets..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="w-full bg-surface/95 border border-transparent rounded-2xl pl-9 pr-3 py-2 text-sm text-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all"
+                    />
                   </div>
-                  <div className="text-xs text-foreground-muted text-right">
-                    Resolved by {selectedTicket.resolved_by} on {selectedTicket.resolved_at ? formatServerDate(selectedTicket.resolved_at) : ''}
-                  </div>
+                  <button
+                    onClick={handleExportTicketsCSV}
+                    className="p-2 bg-white/10 border border-white/10 rounded-2xl text-white/80 hover:bg-white/15 transition-all flex items-center justify-center"
+                    title="Export list to CSV"
+                  >
+                    <Download className="w-5 h-5" />
+                  </button>
                 </div>
-              )}
 
-              <div className="space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted border-b border-border pb-2">Audit Trail</h3>
-                <div className="space-y-4 pt-2">
-                  {ticketLogs.slice(-1).map((log) => (
-                    <div key={log.id} className="flex gap-4 relative">
-                      <div className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center shrink-0 z-10 text-foreground-muted">
-                        <MessageSquare className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="flex-1 pt-1.5">
-                        <p className="text-sm text-foreground">
-                          <span className="font-semibold text-primary">{log.performed_by}</span> {log.action}
-                        </p>
-                        <p className="text-xs text-foreground-subtle mt-0.5">{formatServerDate(log.created_at)}</p>
-                      </div>
-                    </div>
+                <div className="flex bg-surface/95 p-1 rounded-3xl border border-border shadow-sm">
+                  {['All', 'Open', 'In Progress', 'Resolved', 'Closed'].map(s => (
+                    <button
+                      key={s}
+                      onClick={() => setFilterStatus(s)}
+                      className={cn(
+                        "flex-1 text-[11px] font-semibold py-1.5 rounded-2xl transition-all",
+                        filterStatus === s ? "bg-white text-slate-950 shadow-sm" : "text-foreground-muted hover:text-foreground"
+                      )}
+                    >
+                      {s}
+                    </button>
                   ))}
                 </div>
-              </div>
 
-            </div>
-
-            {/* ── Actions Panel ── */}
-            {selectedTicket.status !== 'Closed' && (
-              <div className="p-4 border-t border-border bg-surface flex flex-col gap-3 shrink-0">
-
-                {/* Admin Actions */}
-                {canManageTickets && selectedTicket.status !== 'Resolved' && (
-                  <div className="flex gap-3">
-                    {selectedTicket.status === 'Open' && (
-                      <button disabled={actionLoading} onClick={() => handleUpdateStatus('In Progress')} className="px-4 py-2 bg-warning/10 text-warning hover:bg-warning/20 disabled:opacity-50 border border-warning/20 font-medium text-sm rounded-md transition-all flex items-center gap-2">
-                        <Clock className="w-4 h-4" /> Start Progress
-                      </button>
-                    )}
-
-                    <div className="flex-1 flex flex-col gap-2">
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="Enter resolution notes to resolve ticket..."
-                          value={resolutionInput}
-                          onChange={e => setResolutionInput(e.target.value)}
-                          className="flex-1 bg-background border border-border px-3 py-2 text-sm rounded-md focus:border-success focus:ring-1 focus:ring-success"
-                        />
-                        <button 
-                          disabled={
-                            actionLoading || 
-                            !resolutionInput.trim() || 
-                            (selectedTicket.targets && selectedTicket.targets.length > 0 && selectedTicket.targets.some(t => t.status !== 'Solved'))
-                          } 
-                          onClick={() => handleUpdateStatus('Resolved')} 
-                          className="px-5 py-2 bg-success text-white hover:bg-success/90 disabled:opacity-50 font-medium text-sm rounded-md transition-all flex items-center gap-2"
-                        >
-                          <CheckCircle className="w-4 h-4" /> Resolve Ticket
-                        </button>
-                      </div>
-                      {selectedTicket.targets && selectedTicket.targets.length > 0 && selectedTicket.targets.some(t => t.status !== 'Solved') && (
-                        <p className="text-[10px] text-danger font-bold uppercase tracking-tight">
-                          * All targets must be marked as Solved before you can resolve the ticket.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* User Confirmation Action (Only Creator) */}
-                {user?.username === selectedTicket.created_by && selectedTicket.status === 'Resolved' && (
-                  <div className="flex items-center justify-between bg-primary/10 border border-primary/30 p-4 rounded-lg">
-                    <div>
-                      <p className="font-semibold text-primary text-sm">Issue marked as resolved</p>
-                      <p className="text-xs text-foreground-muted mt-1">Please confirm if the problem has been fully fixed on your end.</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button disabled={actionLoading} onClick={() => handleUpdateStatus('Open')} className="px-4 py-2 text-sm font-medium text-danger border border-danger/30 hover:bg-danger/10 rounded-md transition-all">
-                        No, Reopen
-                      </button>
-                      <button disabled={actionLoading} onClick={() => handleUpdateStatus('Closed')} className="px-6 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-md transition-all shadow-md">
-                        Yes, Confirm Closed
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Fallbacks */}
-                {canManageTickets && user?.username !== selectedTicket.created_by && selectedTicket.status === 'Resolved' && (
-                  <p className="text-sm text-foreground-muted italic text-center py-2">
-                    Waiting for the creator ({resolveUserDisplayName(selectedTicket.created_by) || selectedTicket.created_by}) to confirm and close the ticket.
-                  </p>
-                )}
-
-                {user?.username === selectedTicket.created_by && selectedTicket.status !== 'Resolved' && (
-                  <p className="text-sm text-foreground-muted italic text-center py-2">
-                    Waiting for IT Support to resolve your issue.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-foreground-muted p-6">
-            {pieData.length > 0 ? (
-              <div className="w-full max-w-sm flex flex-col items-center">
-                <h3 className="text-xl font-semibold text-foreground mb-6">Tickets Status Overview</h3>
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} stroke="transparent" />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip
-                        contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '8px' }}
-                        itemStyle={{ color: 'var(--foreground)' }}
-                      />
-                      <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            ) : (
-              <>
-                <Ticket className="w-16 h-16 mb-4 opacity-50 stroke-1" />
-                <p className="text-lg font-medium">Select a ticket</p>
-                <p className="text-sm opacity-70">Choose a ticket from the left sidebar to view its details.</p>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Manage Targets Modal ── */}
-      {isManageTargetsOpen && selectedTicket && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-card w-full max-w-lg rounded-xl border border-border shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-surface/50">
-              <h2 className="text-lg font-bold text-foreground">Manage Ticket Targets</h2>
-              <button onClick={() => setIsManageTargetsOpen(false)} className="text-foreground-muted hover:text-foreground">&times;</button>
-            </div>
-            
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-2">Manual Hostnames (Optional)</label>
-                <input 
-                  type="text" 
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  value={manageTargetsData.hostname}
-                  onChange={(e) => setManageTargetsData(prev => ({ ...prev, hostname: e.target.value }))}
-                  placeholder="e.g. PC-A, PC-B"
-                />
-                <p className="text-[10px] text-foreground-muted mt-1 italic">Comma separated for unregistered devices</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-2">Linked Groups</label>
-                  <select 
-                    multiple
-                    className="w-full h-32 bg-surface/95 border border-border rounded-lg p-2 text-xs focus:outline-none"
-                    value={manageTargetsData.selected_group_ids}
-                    onChange={(e) => {
-                      const values = Array.from(e.target.selectedOptions, option => option.value);
-                      setManageTargetsData(prev => ({ ...prev, selected_group_ids: values }));
-                    }}
+                <div className="flex bg-surface/95 p-1 rounded-3xl border border-border mt-2 items-center shadow-sm">
+                  <select
+                    value={filterAssignee}
+                    onChange={e => setFilterAssignee(e.target.value)}
+                    className="w-full bg-transparent text-foreground text-[11px] font-semibold py-2 focus:outline-none px-3 rounded-2xl cursor-pointer"
                   >
-                    {groups.map(g => (
-                      <option key={g.id} value={g.id}>{g.name} ({g.device_count})</option>
+                    <option value="All" className="bg-surface text-foreground">All Assignees</option>
+                    <option value="Me" className="bg-surface text-foreground">Assigned to Me</option>
+                    <option value="Unassigned" className="bg-surface text-foreground">Unassigned</option>
+                    {users.map(u => (
+                      <option key={u.id} value={u.username} className="bg-surface text-foreground">{getUserDisplayName(u)}</option>
                     ))}
                   </select>
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold uppercase tracking-wider text-foreground-muted mb-2">Notice</span>
-                  <div className="text-[10px] text-foreground-muted space-y-2">
-                    <p>• Adding/Removing hosts will reset the target progress bar.</p>
-                    <p>• Linked groups are <strong>dynamic</strong>; changes to group members will reflect in this ticket.</p>
-                    <p>• Current target status/remarks for existing hosts will be preserved if the hostname remains in the list.</p>
-                  </div>
-                </div>
               </div>
             </div>
 
-            <div className="p-4 border-t border-border bg-surface/50 flex justify-end gap-3">
-              <button 
-                onClick={() => setIsManageTargetsOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-foreground hover:bg-surface rounded-md"
-              >
-                Cancel
-              </button>
-              <button 
-                disabled={actionLoading}
-                onClick={handleUpdateTargetsBulk}
-                className="px-6 py-2 bg-primary text-white text-sm font-bold rounded-md hover:bg-primary-hover disabled:opacity-50"
-              >
-                {actionLoading ? "Updating..." : "Update Targets"}
-              </button>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {loading ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : filteredTickets.length === 0 ? (
+                <div className="text-center p-8 text-foreground-muted text-sm">
+                  No tickets found.
+                </div>
+              ) : (
+                filteredTickets.map(ticket => {
+                  // SLA Warning logic: if high priority, open/in-progress for > 2 hours -> show indicator
+                  let isSLAWarning = false;
+                  if ((ticket.priority === 'High' || ticket.priority === 'Critical') && ['Open', 'In Progress'].includes(ticket.status)) {
+                    const created = new Date(ticket.created_at);
+                    const now = new Date();
+                    const diffHours = (now.getTime() - created.getTime()) / (1000 * 60 * 60);
+                    if (diffHours > 2) isSLAWarning = true;
+                  }
+
+                  return (
+                    <button
+                      key={ticket.id}
+                      onClick={() => setSelectedTicket(ticket)}
+                      className={cn(
+                        "w-full text-left p-4 rounded-3xl border transition-all text-sm group relative shadow-sm hover:shadow-2xl",
+                        selectedTicket?.id === ticket.id
+                          ? "border-primary bg-gradient-to-br from-blue-50 to-slate-50 shadow-[0_0_30px_rgba(59,130,246,0.15)]"
+                          : "border-border bg-white/90 hover:border-primary hover:bg-slate-50"
+                      )}
+                    >
+                      {isSLAWarning && <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-danger animate-ping" title="SLA Overdue Warning" />}
+
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="font-mono text-xs text-foreground-muted">{ticket.id}</span>
+                        <span className={cn("text-[10px] px-2 py-0.5 rounded-md font-semibold", getPriorityColor(ticket.priority))}>
+                          {ticket.priority}
+                        </span>
+                      </div>
+
+                      <h3 className="font-semibold text-foreground mb-1 line-clamp-1 group-hover:text-primary transition-colors">{ticket.title}</h3>
+                      <p className="text-xs text-foreground-muted line-clamp-1 mb-3">{ticket.outlet_name || "No Outlet"} • {ticket.category}</p>
+
+                      <div className="flex items-center justify-between mt-auto">
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5 text-xs font-medium">
+                            {getStatusIcon(ticket.status)}
+                            <span className={
+                              ticket.status === 'Resolved' ? 'text-success' :
+                                ticket.status === 'In Progress' ? 'text-warning' :
+                                  ticket.status === 'Closed' ? 'text-foreground-muted' : 'text-primary'
+                            }>{ticket.status}</span>
+                          </div>
+                          {ticket.assigned_to && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                              @{ticket.assigned_to}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-foreground-muted">
+                          {formatServerDateOnly(ticket.created_at)}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })
+              )}
             </div>
           </div>
+          {/* ── Right Detailed View ── */}
+          <div className={cn("flex-1 flex-col bg-card/95 border border-border rounded-3xl shadow-2xl overflow-y-auto", selectedTicket ? "flex" : "hidden md:flex")}>
+            {selectedTicket ? (
+              <div className="flex flex-col min-h-full">
+                <div className="p-4 md:p-6 border-b border-border bg-surface/30 shrink-0">
+                  {/* Mobile Back Button */}
+                  <div className="md:hidden mb-4">
+                    <button
+                      onClick={() => setSelectedTicket(null)}
+                      className="flex items-center gap-1 text-sm font-medium text-foreground-muted hover:text-foreground"
+                    >
+                      <ChevronRight className="w-4 h-4 rotate-180" /> Back to Tickets
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h2 className="text-2xl font-bold text-foreground mb-1">{selectedTicket.title}</h2>
+                      <p className="text-sm font-mono text-foreground-subtle flex items-center gap-2">
+                        {selectedTicket.id}
+                        <span className="px-2 py-0.5 rounded bg-surface border border-border text-xs">{selectedTicket.category}</span>
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2 items-center">
+                      <div className={cn("px-3 py-1 flex items-center gap-1.5 rounded-full border text-sm font-semibold",
+                        selectedTicket.status === 'Resolved' ? 'bg-success/10 border-success/30 text-success' :
+                          selectedTicket.status === 'Closed' ? 'bg-surface border-border text-foreground-muted' :
+                            selectedTicket.status === 'In Progress' ? 'bg-warning/10 border-warning/30 text-warning' :
+                              'bg-primary/10 border-primary/30 text-primary'
+                      )}>
+                        {getStatusIcon(selectedTicket.status)}
+                        {selectedTicket.status}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                    <div className="bg-background p-3 rounded-md border border-border">
+                      <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Reported By</p>
+                      <p className="text-sm font-medium text-foreground">
+                        {resolveUserDisplayName(selectedTicket.created_by)}
+                        <span className="ml-1 text-xs text-foreground-muted">{resolveUserHandle(selectedTicket.created_by)}</span>
+                      </p>
+                    </div>
+                    <div className="bg-background p-3 rounded-md border border-border">
+                      <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Outlet / Branch</p>
+                      <p className="text-sm font-medium text-foreground">{selectedTicket.outlet_name || '-'}</p>
+                    </div>
+                    <div className="bg-background p-3 rounded-md border border-border">
+                      <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Target Hostname</p>
+                      <p className="text-sm font-medium text-foreground">{selectedTicket.hostname || '-'}</p>
+                    </div>
+                    <div className="bg-background p-3 rounded-md border border-border">
+                      <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Created At</p>
+                      <p className="text-sm font-medium text-foreground">{formatServerDate(selectedTicket.created_at)}</p>
+                    </div>
+                    {canAssign ? (
+                      <div className="bg-surface p-3 rounded-md border border-border col-span-2 md:col-span-1 shadow-sm">
+                        <p className="text-[10px] uppercase font-bold text-primary mb-1.5 flex items-center gap-1.5">
+                          <span className="w-1 h-1 rounded-full bg-primary animate-pulse" />
+                          Assign To
+                        </p>
+                        <select
+                          className="w-full bg-background text-foreground text-sm font-semibold focus:outline-none cursor-pointer border border-border rounded px-2 py-1.5 hover:border-primary/40 transition-all shadow-inner"
+                          value={selectedTicket.assigned_to || ""}
+                          onChange={(e) => handleAssignTicket(e.target.value)}
+                          disabled={actionLoading}
+                        >
+                          <option value="" className="bg-surface text-foreground">Unassigned</option>
+                          {users.map(u => (
+                            <option key={u.id} value={u.username} className="bg-surface text-foreground">
+                              {getUserDisplayName(u)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="bg-background p-3 rounded-md border border-border">
+                        <p className="text-[10px] uppercase font-bold text-foreground-muted mb-1">Assigned To</p>
+                        <p className="text-sm font-medium text-foreground">
+                          {selectedTicket.assigned_to ? resolveUserDisplayName(selectedTicket.assigned_to) : 'Unassigned'}
+                          {selectedTicket.assigned_to && (
+                            <span className="ml-1 text-xs text-foreground-muted">{resolveUserHandle(selectedTicket.assigned_to)}</span>
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {selected_ticket_can_edit && (
+                  <div className="px-6 py-2 bg-surface/5 border-b border-border flex justify-end">
+                    <button
+                      onClick={() => {
+                        setManageTargetsData({
+                          hostname: selectedTicket.hostname || "",
+                          selected_group_ids: selectedTicket.linked_group_ids || []
+                        });
+                        setIsManageTargetsOpen(true);
+                      }}
+                      className="text-[10px] font-bold uppercase tracking-wider text-primary hover:text-primary-hover flex items-center gap-1 transition-colors"
+                    >
+                      <Filter className="w-3 h-3" /> Manage Targets (Host/Groups)
+                    </button>
+                  </div>
+                )}
+
+                {selectedTicket.targets && selectedTicket.targets.length > 0 && (
+                  <div className="px-6 py-4 bg-surface/10 border-b border-border">
+                    <div className="flex justify-between items-center mb-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Task Completion</h3>
+                      <span className="text-sm font-bold text-primary">
+                        {Math.round((selectedTicket.targets.filter(t => t.status === 'Solved').length / selectedTicket.targets.length) * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-surface-raised h-2 rounded-full overflow-hidden border border-border">
+                      <div
+                        className="bg-primary h-full transition-all duration-500 ease-out"
+                        style={{ width: `${(selectedTicket.targets.filter(t => t.status === 'Solved').length / selectedTicket.targets.length) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex-1 p-4 md:p-6 flex flex-col gap-6 md:gap-8">
+                  {selectedTicket.targets && selectedTicket.targets.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-2">
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted">
+                            Target Hostnames ({selectedTicket.targets.length})
+                          </h3>
+                          <button
+                            onClick={handleExportTargetsCSV}
+                            className="text-[10px] flex items-center gap-1 font-bold uppercase tracking-wider text-primary hover:text-primary-hover transition-colors bg-primary/10 px-2 py-1 rounded"
+                            title="Export details to CSV"
+                          >
+                            <Download className="w-3 h-3" /> Export
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                          <select
+                            value={targetStatusFilter}
+                            onChange={(e) => setTargetStatusFilter(e.target.value)}
+                            className="bg-surface border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:border-primary transition-all"
+                          >
+                            <option value="All">All Status</option>
+                            <option value="Solved">Solved</option>
+                            <option value="Pending">Pending</option>
+                          </select>
+                          <div className="relative w-full sm:w-48">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" />
+                            <input
+                              type="text"
+                              placeholder="Search hostnames..."
+                              className="w-full bg-surface border border-border rounded-md pl-9 pr-3 py-1.5 text-xs focus:outline-none focus:border-primary transition-all"
+                              value={targetSearchQuery}
+                              onChange={(e) => setTargetSearchQuery(e.target.value)}
+                            />
+                            {targetSearchQuery && (
+                              <button
+                                onClick={() => setTargetSearchQuery("")}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="grid gap-3">
+                        {selectedTicket.targets
+                          .filter(t => t.hostname.toLowerCase().includes(targetSearchQuery.toLowerCase()))
+                          .filter(t => targetStatusFilter === "All" || t.status === targetStatusFilter)
+                          .map(target => (
+                            <div key={target.id} className="bg-surface/95 border border-border rounded-lg p-3 flex flex-col gap-3">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-mono text-sm font-bold text-foreground">{target.hostname}</span>
+                                  <span className={cn(
+                                    "text-[10px] px-2 py-0.5 rounded font-bold uppercase shrink-0",
+                                    target.status === 'Solved' ? "bg-success/10 text-success border border-success/20" : "bg-warning/10 text-warning border border-warning/20"
+                                  )}>
+                                    {target.status}
+                                  </span>
+                                  {target.isFromGroup && (
+                                    <span className="text-[9px] bg-primary/5 text-primary-hover px-1.5 py-0.5 rounded border border-primary/10 italic shrink-0">
+                                      dynamic group
+                                    </span>
+                                  )}
+                                </div>
+                                {canManageTickets && selectedTicket.status !== 'Closed' && selectedTicket.status !== 'Resolved' && (
+                                  <button
+                                    onClick={() => handleUpdateTarget(target.id, target.status === 'Solved' ? 'Pending' : 'Solved', target.remark, target.hostname)}
+                                    disabled={actionLoading}
+                                    className={cn(
+                                      "px-3 py-1.5 text-xs font-bold rounded transition-colors w-full sm:w-auto shrink-0",
+                                      target.status === 'Solved'
+                                        ? "bg-warning/10 text-warning hover:bg-warning/20 border border-warning/30"
+                                        : "bg-success text-white hover:bg-success/90"
+                                    )}
+                                  >
+                                    {target.status === 'Solved' ? 'Set Pending' : 'Mark Solved'}
+                                  </button>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="Add a remark for this host..."
+                                  defaultValue={target.remark || ""}
+                                  onBlur={(e) => {
+                                    if (e.target.value !== (target.remark || "")) {
+                                      handleUpdateTarget(target.id, target.status, e.target.value, target.hostname);
+                                    }
+                                  }}
+                                  disabled={actionLoading || !canManageTickets || selectedTicket.status === 'Closed' || selectedTicket.status === 'Resolved'}
+                                  className="flex-1 bg-surface border border-border px-2 py-1 text-xs rounded focus:border-primary focus:outline-none disabled:opacity-60"
+                                />
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted border-b border-border pb-2">Issue Description</h3>
+                    <div className="bg-surface/95 p-4 rounded-lg border border-border leading-relaxed text-sm text-foreground whitespace-pre-wrap">
+                      {selectedTicket.description}
+                    </div>
+                  </div>
+
+                  {selectedTicket.resolution_note && (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-success border-b border-border pb-2 flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4" /> Resolution Note
+                      </h3>
+                      <div className="bg-success/5 p-4 rounded-lg border border-success/20 leading-relaxed text-sm text-foreground whitespace-pre-wrap">
+                        {selectedTicket.resolution_note}
+                      </div>
+                      <div className="text-xs text-foreground-muted text-right">
+                        Resolved by {selectedTicket.resolved_by} on {selectedTicket.resolved_at ? formatServerDate(selectedTicket.resolved_at) : ''}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-foreground-muted border-b border-border pb-2">Audit Trail</h3>
+                    <div className="space-y-4 pt-2">
+                      {ticketLogs.slice(-1).map((log) => (
+                        <div key={log.id} className="flex gap-4 relative">
+                          <div className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center shrink-0 z-10 text-foreground-muted">
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 pt-1.5">
+                            <p className="text-sm text-foreground">
+                              <span className="font-semibold text-primary">{log.performed_by}</span> {log.action}
+                            </p>
+                            <p className="text-xs text-foreground-subtle mt-0.5">{formatServerDate(log.created_at)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* ── Actions Panel ── */}
+                {selectedTicket.status !== 'Closed' && (
+                  <div className="p-4 border-t border-border bg-surface flex flex-col gap-3 shrink-0">
+
+                    {/* Admin Actions */}
+                    {canManageTickets && selectedTicket.status !== 'Resolved' && (
+                      <div className="flex gap-3">
+                        {selectedTicket.status === 'Open' && (
+                          <button disabled={actionLoading} onClick={() => handleUpdateStatus('In Progress')} className="px-4 py-2 bg-warning/10 text-warning hover:bg-warning/20 disabled:opacity-50 border border-warning/20 font-medium text-sm rounded-md transition-all flex items-center gap-2">
+                            <Clock className="w-4 h-4" /> Start Progress
+                          </button>
+                        )}
+
+                        <div className="flex-1 flex flex-col gap-2">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Enter resolution notes to resolve ticket..."
+                              value={resolutionInput}
+                              onChange={e => setResolutionInput(e.target.value)}
+                              className="flex-1 bg-background border border-border px-3 py-2 text-sm rounded-md focus:border-success focus:ring-1 focus:ring-success"
+                            />
+                            <button
+                              disabled={
+                                actionLoading ||
+                                !resolutionInput.trim() ||
+                                (selectedTicket.targets && selectedTicket.targets.length > 0 && selectedTicket.targets.some(t => t.status !== 'Solved'))
+                              }
+                              onClick={() => handleUpdateStatus('Resolved')}
+                              className="px-5 py-2 bg-success text-white hover:bg-success/90 disabled:opacity-50 font-medium text-sm rounded-md transition-all flex items-center gap-2"
+                            >
+                              <CheckCircle className="w-4 h-4" /> Resolve Ticket
+                            </button>
+                          </div>
+                          {selectedTicket.targets && selectedTicket.targets.length > 0 && selectedTicket.targets.some(t => t.status !== 'Solved') && (
+                            <p className="text-[10px] text-danger font-bold uppercase tracking-tight">
+                              * All targets must be marked as Solved before you can resolve the ticket.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* User Confirmation Action (Only Creator) */}
+                    {user?.username === selectedTicket.created_by && selectedTicket.status === 'Resolved' && (
+                      <div className="flex items-center justify-between bg-primary/10 border border-primary/30 p-4 rounded-lg">
+                        <div>
+                          <p className="font-semibold text-primary text-sm">Issue marked as resolved</p>
+                          <p className="text-xs text-foreground-muted mt-1">Please confirm if the problem has been fully fixed on your end.</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button disabled={actionLoading} onClick={() => handleUpdateStatus('Open')} className="px-4 py-2 text-sm font-medium text-danger border border-danger/30 hover:bg-danger/10 rounded-md transition-all">
+                            No, Reopen
+                          </button>
+                          <button disabled={actionLoading} onClick={() => handleUpdateStatus('Closed')} className="px-6 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-md transition-all shadow-md">
+                            Yes, Confirm Closed
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Fallbacks */}
+                    {canManageTickets && user?.username !== selectedTicket.created_by && selectedTicket.status === 'Resolved' && (
+                      <p className="text-sm text-foreground-muted italic text-center py-2">
+                        Waiting for the creator ({resolveUserDisplayName(selectedTicket.created_by) || selectedTicket.created_by}) to confirm and close the ticket.
+                      </p>
+                    )}
+
+                    {user?.username === selectedTicket.created_by && selectedTicket.status !== 'Resolved' && (
+                      <p className="text-sm text-foreground-muted italic text-center py-2">
+                        Waiting for IT Support to resolve your issue.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-foreground-muted p-6">
+                {pieData.length > 0 ? (
+                  <div className="w-full max-w-sm flex flex-col items-center">
+                    <h3 className="text-xl font-semibold text-foreground mb-6">Tickets Status Overview</h3>
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={80}
+                            paddingAngle={5}
+                            dataKey="value"
+                          >
+                            {pieData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} stroke="transparent" />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip
+                            contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '8px' }}
+                            itemStyle={{ color: 'var(--foreground)' }}
+                          />
+                          <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <Ticket className="w-16 h-16 mb-4 opacity-50 stroke-1" />
+                    <p className="text-lg font-medium">Select a ticket</p>
+                    <p className="text-sm opacity-70">Choose a ticket from the left sidebar to view its details.</p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Manage Targets Modal ── */}
+          {isManageTargetsOpen && selectedTicket && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+              <div className="bg-card w-full max-w-lg rounded-xl border border-border shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-surface/50">
+                  <h2 className="text-lg font-bold text-foreground">Manage Ticket Targets</h2>
+                  <button onClick={() => setIsManageTargetsOpen(false)} className="text-foreground-muted hover:text-foreground">&times;</button>
+                </div>
+
+                <div className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-2">Manual Hostnames (Optional)</label>
+                    <input
+                      type="text"
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                      value={manageTargetsData.hostname}
+                      onChange={(e) => setManageTargetsData(prev => ({ ...prev, hostname: e.target.value }))}
+                      placeholder="e.g. PC-A, PC-B"
+                    />
+                    <p className="text-[10px] text-foreground-muted mt-1 italic">Comma separated for unregistered devices</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-2">Linked Groups</label>
+                      <select
+                        multiple
+                        className="w-full h-32 bg-surface/95 border border-border rounded-lg p-2 text-xs focus:outline-none"
+                        value={manageTargetsData.selected_group_ids}
+                        onChange={(e) => {
+                          const values = Array.from(e.target.selectedOptions, option => option.value);
+                          setManageTargetsData(prev => ({ ...prev, selected_group_ids: values }));
+                        }}
+                      >
+                        {groups.map(g => (
+                          <option key={g.id} value={g.id}>{g.name} ({g.device_count})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold uppercase tracking-wider text-foreground-muted mb-2">Notice</span>
+                      <div className="text-[10px] text-foreground-muted space-y-2">
+                        <p>• Adding/Removing hosts will reset the target progress bar.</p>
+                        <p>• Linked groups are <strong>dynamic</strong>; changes to group members will reflect in this ticket.</p>
+                        <p>• Current target status/remarks for existing hosts will be preserved if the hostname remains in the list.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 border-t border-border bg-surface/50 flex justify-end gap-3">
+                  <button
+                    onClick={() => setIsManageTargetsOpen(false)}
+                    className="px-4 py-2 text-sm font-medium text-foreground hover:bg-surface rounded-md"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={actionLoading}
+                    onClick={handleUpdateTargetsBulk}
+                    className="px-6 py-2 bg-primary text-white text-sm font-bold rounded-md hover:bg-primary-hover disabled:opacity-50"
+                  >
+                    {actionLoading ? "Updating..." : "Update Targets"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
-  </div>
-</div>
   );
 }

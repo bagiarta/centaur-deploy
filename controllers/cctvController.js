@@ -203,6 +203,41 @@ export const getCCTVDeviceById = async (req, res) => {
   }
 };
 
+export const getCCTVDeviceTime = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { id } = req.params;
+
+    const deviceResult = await pool.request()
+      .input('id', sql.NVarChar, id)
+      .query(`SELECT id, ip_address, port, username, password_hash, is_https FROM CCTVDevices WHERE id = @id AND is_active = 1`);
+
+    if (deviceResult.recordset.length === 0) {
+      return res.status(404).json({ success: false, error: 'Device not found' });
+    }
+
+    const device = deviceResult.recordset[0];
+    const password = Buffer.from(device.password_hash, 'base64').toString('utf-8');
+
+    const timeResult = await hikvisionService.getSystemTime(
+      device.ip_address,
+      device.port,
+      device.username,
+      password,
+      device.is_https
+    );
+
+    if (!timeResult.success) {
+      return res.status(503).json({ success: false, error: 'Failed to retrieve device time' });
+    }
+
+    res.json({ success: true, data: timeResult.data });
+  } catch (err) {
+    console.error('[CCTV] getCCTVDeviceTime error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 export const createCCTVDevice = async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -761,6 +796,147 @@ export const testConnection = async (req, res) => {
  * Auto-discover device information
  * POST /api/cctv/discover
  */
+
+export const syncCCTVDevice = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { id } = req.params;
+    
+    // Get device
+    const deviceResult = await pool.request()
+      .input('id', sql.NVarChar, id)
+      .query('SELECT * FROM CCTVDevices WHERE id = @id AND is_active = 1');
+      
+    if (deviceResult.recordset.length === 0) {
+      return res.status(404).json({ success: false, error: 'Device not found' });
+    }
+    
+    const device = deviceResult.recordset[0];
+    const password = Buffer.from(device.password_hash, 'base64').toString('utf-8');
+    
+    // Auto-discover
+    const result = await hikvisionService.autoDiscoverDevice(
+      device.ip_address, device.port, device.username, password, device.is_https
+    );
+    
+    if (!result.success && (!result.data || (!result.data.channels.length && !result.data.storage.length))) {
+      return res.status(400).json({ success: false, error: 'Failed to discover device data' });
+    }
+    
+    const discoveredData = result.data;
+    const now = new Date();
+    let channelsAdded = 0;
+    let storageAdded = 0;
+    
+    // Save channels
+    if (discoveredData && discoveredData.channels && discoveredData.channels.length > 0) {
+      await pool.request()
+        .input('device_id', sql.NVarChar, id)
+        .query('UPDATE CCTVChannels SET is_enabled = 0 WHERE device_id = @device_id');
+        
+      for (const channel of discoveredData.channels) {
+        const channelId = `${id}-ch${channel.id}`;
+        const channelNumber = parseInt(channel.id) || 1;
+        const channelName = `Channel ${channelNumber}`;
+        const channelStatus = (channel.online === 'true' || channel.status === 'online') ? 'online' : 'offline';
+        const isEnabled = true;
+        const cameraIP = channel.ipAddress || null;
+        const channelSettings = cameraIP ? JSON.stringify({ camera_ip: cameraIP, protocol: channel.proxyProtocol }) : null;
+        
+        try {
+          await pool.request()
+            .input('id', sql.NVarChar, channelId)
+            .input('device_id', sql.NVarChar, id)
+            .input('channel_number', sql.Int, channelNumber)
+            .input('channel_name', sql.NVarChar, channelName)
+            .input('status', sql.NVarChar, channelStatus)
+            .input('is_enabled', sql.Bit, isEnabled)
+            .input('channel_settings', sql.NVarChar, channelSettings)
+            .input('created_at', sql.DateTime, now)
+            .input('updated_at', sql.DateTime, now)
+            .query(`
+              INSERT INTO CCTVChannels (id, device_id, channel_number, channel_name, status, is_enabled, channel_settings, created_at, updated_at)
+              VALUES (@id, @device_id, @channel_number, @channel_name, @status, @is_enabled, @channel_settings, @created_at, @updated_at)
+            `);
+          channelsAdded++;
+        } catch (chErr) {
+          if (chErr.message.includes('duplicate') || chErr.message.includes('unique') || chErr.message.includes('Violation of PRIMARY KEY constraint')) {
+            await pool.request()
+              .input('device_id', sql.NVarChar, id)
+              .input('channel_number', sql.Int, channelNumber)
+              .input('status', sql.NVarChar, channelStatus)
+              .input('is_enabled', sql.Bit, isEnabled)
+              .input('channel_settings', sql.NVarChar, channelSettings)
+              .input('updated_at', sql.DateTime, now)
+              .query(`
+                UPDATE CCTVChannels 
+                SET status = @status, is_enabled = @is_enabled, 
+                    channel_settings = @channel_settings, updated_at = @updated_at
+                WHERE device_id = @device_id AND channel_number = @channel_number
+              `);
+            channelsAdded++;
+          } else {
+            console.error('[CCTV] Channel save error:', chErr.message);
+          }
+        }
+      }
+    }
+    
+    // Save storage
+    if (discoveredData && discoveredData.storage && discoveredData.storage.length > 0) {
+      await pool.request()
+        .input('device_id', sql.NVarChar, id)
+        .query('DELETE FROM CCTVStorage WHERE device_id = @device_id');
+        
+      for (const storage of discoveredData.storage) {
+        const storageId = `${id}-hdd${storage.id}`;
+        const diskNumber = parseInt(storage.id) || 1;
+        const diskName = storage.name || `HDD ${diskNumber}`;
+        
+        // Hikvision returns MB, convert to bytes for bigint
+        const totalSpace = storage.capacity ? parseInt(storage.capacity) * 1024 * 1024 : 0; // MB to bytes
+        const freeSpace = storage.freeSpace ? parseInt(storage.freeSpace) * 1024 * 1024 : 0;
+        const usedSpace = totalSpace - freeSpace;
+        const usagePercentage = storage.usagePercentage || (totalSpace > 0 ? ((usedSpace / totalSpace) * 100).toFixed(2) : 0);
+        const diskStatus = (storage.status === 'ok' || storage.status === 'normal') ? 'normal' : 'error';
+        const diskType = storage.type || storage.hddType || 'HDD';
+        
+        try {
+          await pool.request()
+            .input('id', sql.NVarChar, storageId)
+            .input('device_id', sql.NVarChar, id)
+            .input('disk_number', sql.Int, diskNumber)
+            .input('disk_name', sql.NVarChar, diskName)
+            .input('total_space', sql.BigInt, totalSpace)
+            .input('free_space', sql.BigInt, freeSpace)
+            .input('used_space', sql.BigInt, usedSpace)
+            .input('usage_percentage', sql.Decimal(5, 2), parseFloat(usagePercentage))
+            .input('status', sql.NVarChar, diskStatus)
+            .input('disk_type', sql.NVarChar, diskType)
+            .input('created_at', sql.DateTime, now)
+            .input('updated_at', sql.DateTime, now)
+            .query(`
+              INSERT INTO CCTVStorage (id, device_id, disk_number, disk_name, total_space, used_space, free_space, usage_percentage, status, disk_type, created_at, updated_at)
+              VALUES (@id, @device_id, @disk_number, @disk_name, @total_space, @used_space, @free_space, @usage_percentage, @status, @disk_type, @created_at, @updated_at)
+            `);
+          storageAdded++;
+        } catch (stErr) {
+          console.error('[CCTV] Storage save error:', stErr.message);
+        }
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Synced ${channelsAdded} channels and ${storageAdded} storage devices.`,
+      data: { channels: channelsAdded, storage: storageAdded }
+    });
+  } catch (err) {
+    console.error('[CCTV] syncCCTVDevice error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 export const discoverDevice = async (req, res) => {
   try {
     const { ipAddress, port = 80, username, password, isHttps = false } = req.body;
