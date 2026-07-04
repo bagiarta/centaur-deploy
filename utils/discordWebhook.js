@@ -1,4 +1,5 @@
 import { poolPromise } from '../config/db.js';
+import fetch from 'node-fetch';
 
 function getISOTimestamp() {
   return new Date().toISOString();

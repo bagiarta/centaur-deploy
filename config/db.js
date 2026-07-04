@@ -578,8 +578,7 @@ export async function initDb() {
     // UserTasks store columns
     const checkStoreCols = await pool.request().query(`
       SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_NAME = 'UserTasks' AND COLUMN_NAME IN ('store_code', 'store_name') AND 
-      ORDER BY store_code ASC
+      WHERE TABLE_NAME = 'UserTasks' AND COLUMN_NAME IN ('store_code', 'store_name')
     `);
     if (!checkStoreCols.recordset.find(c => c.COLUMN_NAME === 'store_code')) {
       await pool.request().query('ALTER TABLE UserTasks ADD store_code NVARCHAR(50)');

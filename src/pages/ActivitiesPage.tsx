@@ -74,6 +74,47 @@ const getUserDisplayName = (userRecord?: UserOption | null) => {
   return userRecord?.full_name || userRecord?.username || "";
 };
 
+type TruncatedTextProps = {
+  text?: string | null;
+  fallback?: string;
+  maxLength?: number;
+  className?: string;
+  task?: UserTask;
+  onOpenDetails?: (task: UserTask) => void;
+};
+
+function TruncatedText({ text, fallback = "-", maxLength = 100, className, task, onOpenDetails }: TruncatedTextProps) {
+  const rawText = text?.trim();
+  const isOverflow = Boolean(rawText && rawText.length > maxLength);
+  const preview = isOverflow ? `${rawText.slice(0, maxLength).trimEnd()}…` : (rawText || fallback);
+  const canOpen = Boolean(task && onOpenDetails);
+
+  return (
+    <div
+      className={cn(canOpen ? "cursor-pointer" : "", className)}
+      role={canOpen ? "button" : undefined}
+      tabIndex={canOpen ? 0 : undefined}
+      title={isOverflow ? rawText : undefined}
+      onClick={(event) => {
+        if (!canOpen || !task) return;
+        event.stopPropagation();
+        onOpenDetails?.(task);
+      }}
+      onKeyDown={(event) => {
+        if (!canOpen || !task) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenDetails?.(task);
+        }
+      }}
+    >
+      <span className="break-words">{preview}</span>
+      {isOverflow && <span className="ml-1 text-[10px] font-semibold text-primary hover:underline">Details</span>}
+    </div>
+  );
+}
+
 export default function ActivitiesPage() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<UserTask[]>([]);
@@ -92,6 +133,7 @@ export default function ActivitiesPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [manualDateInput, setManualDateInput] = useState(false);
+  const [detailsModal, setDetailsModal] = useState<UserTask | null>(null);
 
   const getTaskOwnerDisplay = (username: string) => {
     const matchedUser = users.find(user => user.username === username || user.id === username);
@@ -183,6 +225,10 @@ export default function ActivitiesPage() {
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+
+  const handleOpenDetails = (task: UserTask) => {
+    setDetailsModal(task);
+  };
 
   const handleOpenModal = (task: UserTask | null = null) => {
     if (task) {
@@ -888,32 +934,32 @@ export default function ActivitiesPage() {
           ) : (
             <>
               {/* TABLE VIEW (Hidden on Mobile) */}
-              <div className={cn("overflow-x-auto", viewMode === "grid" ? "hidden" : "hidden sm:block")}>
-                <table className="w-full text-left border-collapse">
+              <div className={cn("overflow-x-auto border-b border-border", viewMode === "grid" ? "hidden" : "hidden sm:block")}>
+                <table className="w-full min-w-[860px] table-fixed border-collapse text-left" style={{ tableLayout: "fixed" }}>
                 <thead>
                   <tr className="bg-surface-raised/30 border-b border-border">
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Status</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Task Name</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Task Detail</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Store</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Priority</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Started</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider text-center">Age</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Target</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider">Reason</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider text-center">Duration</th>
-                    <th className="px-5 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-wider text-right">Actions</th>
+                    <th className="w-[70px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider align-top whitespace-nowrap">Status</th>
+                    <th className="w-[140px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider align-top whitespace-nowrap">Task Name</th>
+                    <th className="w-[160px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider align-top whitespace-nowrap">Task Detail</th>
+                    <th className="w-[100px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider align-top whitespace-nowrap">Store</th>
+                    <th className="w-[80px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider align-top whitespace-nowrap">Priority</th>
+                    <th className="w-[95px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider align-top whitespace-nowrap">Started</th>
+                    <th className="w-[60px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider text-center align-top whitespace-nowrap">Age</th>
+                    <th className="w-[95px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider align-top whitespace-nowrap">Target</th>
+                    <th className="w-[120px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider align-top whitespace-nowrap">Reason</th>
+                    <th className="w-[70px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider text-center align-top whitespace-nowrap">Duration</th>
+                    <th className="w-[72px] px-2 py-2 text-[10px] font-bold text-foreground-muted uppercase tracking-wider text-right align-top whitespace-nowrap sticky right-0 z-10 bg-surface-raised/30">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredTasks.map((task) => (
-                    <tr key={task.id} className="hover:bg-surface/40 transition-colors group">
-                      <td className="px-5 py-4">
+                    <tr key={task.id} className="hover:bg-surface/40 transition-colors group align-top cursor-pointer" onClick={() => handleOpenDetails(task)}>
+                      <td className="px-2 py-2.5 align-top">
                         <StatusBadge status={task.status.toLowerCase().replace(" ", "")} size="xs" />
                       </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
+                      <td className="px-2 py-2 align-top">
                         <div className="flex flex-col gap-1">
-                          <span className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{task.title}</span>
+                          <span className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors break-words line-clamp-2">{task.title}</span>
                           <div className="flex gap-1">
                             <span className={cn(
                               "text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider",
@@ -927,23 +973,37 @@ export default function ActivitiesPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-4 max-w-xs">
+                      <td className="px-2 py-2 align-top max-w-[160px]">
                         <div className="flex flex-col gap-1">
-                          <span className="text-xs text-foreground-muted line-clamp-1" title={task.description}>{task.description || "-"}</span>
+                          <TruncatedText
+                            text={task.description}
+                            fallback="-"
+                            maxLength={70}
+                            task={task}
+                            onOpenDetails={handleOpenDetails}
+                            className="text-xs text-foreground-muted leading-relaxed"
+                          />
                           {task.solving_notes && (
-                            <div className="mt-1 flex gap-1 items-center text-[10px] text-success font-medium">
-                              <CheckCircle className="w-3 h-3" />
-                              <span className="line-clamp-1">{task.solving_notes}</span>
+                            <div className="mt-1 flex gap-1 items-start text-[10px] text-success font-medium">
+                              <CheckCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                              <TruncatedText
+                                text={task.solving_notes}
+                                fallback=""
+                                maxLength={50}
+                                task={task}
+                                onOpenDetails={handleOpenDetails}
+                                className="text-[10px] text-success font-medium"
+                              />
                             </div>
                           )}
                         </div>
                       </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
+                      <td className="px-2 py-2 align-top whitespace-normal break-words">
                         <span className="text-xs text-foreground-muted">
                           {task.store_name || task.store_code || "-"}
                         </span>
                       </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
+                      <td className="px-2 py-2 align-top whitespace-nowrap">
                         <span className={cn(
                           "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
                           task.priority === "Critical" ? "bg-danger/15 text-danger" :
@@ -954,23 +1014,23 @@ export default function ActivitiesPage() {
                           {task.priority || "Normal"}
                         </span>
                       </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
+                      <td className="px-2 py-2.5 align-top whitespace-nowrap">
                         <div className="flex items-center gap-1.5 text-xs text-foreground">
-                          <Plus className="w-3 h-3 text-primary/50" />
+                          <Plus className="w-3 h-3 text-primary/50 shrink-0" />
                           <span>{format(new Date(task.start_date || task.created_at), "dd/MM/yy HH:mm")}</span>
                         </div>
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-2 py-2 align-top text-center whitespace-nowrap">
                         {(task.status !== 'Completed' && task.category !== 'Training') ? (
                           <span className="text-xs font-mono text-primary font-bold">{calculateDuration(task.start_date || task.created_at)}</span>
                         ) : (
                           <span className="text-xs text-foreground-muted">-</span>
                         )}
                       </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
+                      <td className="px-2 py-2.5 align-top whitespace-nowrap">
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-1.5 text-xs">
-                            <Target className="w-3 h-3 text-warning/50" />
+                            <Target className="w-3 h-3 text-warning/50 shrink-0" />
                             <span className={cn(
                               task.target_date && new Date(task.target_date) < new Date() && task.status !== 'Completed' ? "text-danger font-bold" : "text-foreground"
                             )}>
@@ -984,7 +1044,7 @@ export default function ActivitiesPage() {
                                 ? "text-success"
                                 : "text-primary"
                             )}>
-                              <Award className="w-3 h-3" />
+                              <Award className="w-3 h-3 shrink-0" />
                               <span>Done: {format(new Date(task.actual_completion_date), "dd/MM/yy HH:mm")}</span>
                               {(task.target_date && new Date(task.target_date).getTime() - new Date(task.actual_completion_date).getTime() > 3600000) && (
                                 <span className="bg-success/20 text-success px-1.5 py-0.5 rounded text-[9px] uppercase tracking-tighter">Early</span>
@@ -993,24 +1053,32 @@ export default function ActivitiesPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-5 py-4 min-w-[120px] max-w-[200px]">
-                        <span className="text-xs text-foreground-muted italic line-clamp-2 leading-relaxed">
-                          {task.reason || "-"}
-                        </span>
+                      <td className="px-2 py-2 align-top min-w-[120px] max-w-[120px]">
+                        <TruncatedText
+                          text={task.reason}
+                          fallback="-"
+                          maxLength={55}
+                          task={task}
+                          onOpenDetails={handleOpenDetails}
+                          className="text-xs text-foreground-muted italic leading-relaxed"
+                        />
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-2 py-2 align-top text-center whitespace-nowrap">
                         {task.status === 'Completed' ? (
                           <span className="text-xs font-mono text-success font-bold">{task.duration || "-"}</span>
                         ) : (
                           <span className="text-xs text-foreground-muted">-</span>
                         )}
                       </td>
-                      <td className="px-5 py-4 text-right">
+                      <td className="px-2 py-2 align-top text-right sticky right-0 z-10 bg-surface/95 backdrop-blur-sm shadow-[inset_1px_0_0_rgba(0,0,0,0.04)]">
                         <div className="flex justify-end gap-2">
                           {user?.id === task.user_id && (
                             <button
-                              onClick={() => handleOpenModal(task)}
-                              className="p-1.5 hover:bg-primary/10 text-foreground-muted hover:text-primary rounded-lg transition-colors"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleOpenModal(task);
+                              }}
+                              className="p-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition-colors shadow-sm border border-blue-200"
                               title="Edit"
                             >
                               <Edit3 className="w-4 h-4" />
@@ -1018,8 +1086,11 @@ export default function ActivitiesPage() {
                           )}
                           {(user?.id === task.user_id || user?.is_admin) && (
                             <button
-                              onClick={() => handleDelete(task.id)}
-                              className="p-1.5 hover:bg-danger/10 text-foreground-muted hover:text-danger rounded-lg transition-colors"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDelete(task.id);
+                              }}
+                              className="p-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors shadow-sm border border-red-200"
                               title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1037,24 +1108,52 @@ export default function ActivitiesPage() {
               <div className={cn(viewMode === "table" ? "block sm:hidden" : "block")}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 sm:p-5">
                   {filteredTasks.map((task) => (
-                <div key={task.id} className="bg-surface/30 border border-border rounded-xl p-5 hover:border-primary/30 transition-all group">
+                <div key={task.id} className="bg-surface/30 border border-border rounded-xl p-4 hover:border-primary/30 transition-all group cursor-pointer" onClick={() => handleOpenDetails(task)}>
                   <div className="flex justify-between items-start mb-4">
                     <StatusBadge status={task.status.toLowerCase().replace(" ", "")} />
-                    <div className="flex gap-1">
+                    <div className="flex gap-2">
                       {user?.id === task.user_id && (
-                        <button onClick={() => handleOpenModal(task)} className="p-1 text-foreground-muted hover:text-primary">
+                        <button 
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenModal(task);
+                          }} 
+                          className="p-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition-colors shadow-sm border border-blue-200"
+                          title="Edit"
+                        >
                           <Edit3 className="w-4 h-4" />
                         </button>
                       )}
                       {(user?.id === task.user_id || user?.is_admin) && (
-                        <button onClick={() => handleDelete(task.id)} className="p-1 text-foreground-muted hover:text-danger">
+                        <button 
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDelete(task.id);
+                          }} 
+                          className="p-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors shadow-sm border border-red-200"
+                          title="Delete"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}
                     </div>
                   </div>
-                  <h3 className="text-sm font-bold text-foreground mb-2">{task.title}</h3>
-                  <p className="text-xs text-foreground-muted mb-4 line-clamp-2">{task.description || "No description provided."}</p>
+                  <TruncatedText
+                    text={task.title}
+                    fallback="Untitled task"
+                    maxLength={36}
+                    task={task}
+                    onOpenDetails={handleOpenDetails}
+                    className="text-sm font-bold text-foreground mb-2"
+                  />
+                  <TruncatedText
+                    text={task.description}
+                    fallback="No description provided."
+                    maxLength={90}
+                    task={task}
+                    onOpenDetails={handleOpenDetails}
+                    className="text-xs text-foreground-muted mb-4"
+                  />
 
                   <div className="flex flex-wrap gap-2 mb-4">
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface-raised text-foreground-muted border border-border/50">
@@ -1086,13 +1185,27 @@ export default function ActivitiesPage() {
                         {task.reason && (
                           <div className="space-y-0.5">
                             <span className="text-[9px] font-bold text-warning uppercase">Reason</span>
-                            <p className="text-[10px] text-foreground-muted italic line-clamp-2 leading-relaxed">{task.reason}</p>
+                            <TruncatedText
+                              text={task.reason}
+                              fallback=""
+                              maxLength={70}
+                              task={task}
+                              onOpenDetails={handleOpenDetails}
+                              className="text-[10px] text-foreground-muted italic leading-relaxed"
+                            />
                           </div>
                         )}
                         {task.solving_notes && (
                           <div className="space-y-0.5 border-t border-border/30 pt-1.5">
                             <span className="text-[9px] font-bold text-success uppercase">Solution Note</span>
-                            <p className="text-[10px] text-foreground-muted italic line-clamp-2 leading-relaxed">{task.solving_notes}</p>
+                            <TruncatedText
+                              text={task.solving_notes}
+                              fallback=""
+                              maxLength={70}
+                              task={task}
+                              onOpenDetails={handleOpenDetails}
+                              className="text-[10px] text-foreground-muted italic leading-relaxed"
+                            />
                           </div>
                         )}
                       </div>
@@ -1149,6 +1262,73 @@ export default function ActivitiesPage() {
           )}
         </div>
       </SectionCard>
+
+      {detailsModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setDetailsModal(null)} />
+          <div className="relative w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-surface/50">
+              <div>
+                <h3 className="text-lg font-bold text-foreground">{detailsModal.title}</h3>
+                <p className="text-xs text-foreground-muted">Full task details</p>
+              </div>
+              <button onClick={() => setDetailsModal(null)} className="p-2 hover:bg-surface rounded-full transition-colors">
+                <X className="w-5 h-5 text-foreground-muted" />
+              </button>
+            </div>
+            <div className="p-6 max-h-[75vh] overflow-y-auto space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <span className="text-[10px] px-2.5 py-1 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider">{detailsModal.category || "General"}</span>
+                <span className="text-[10px] px-2.5 py-1 rounded-full bg-surface-raised text-foreground-muted font-bold uppercase tracking-wider">{detailsModal.status}</span>
+                <span className="text-[10px] px-2.5 py-1 rounded-full bg-warning/10 text-warning font-bold uppercase tracking-wider">{detailsModal.priority || "Normal"}</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-foreground-muted mb-1">Store</p>
+                  <p className="font-semibold text-foreground">{detailsModal.store_name || detailsModal.store_code || "-"}</p>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-foreground-muted mb-1">Owner</p>
+                  <p className="font-semibold text-foreground">{getTaskOwnerDisplay(detailsModal.username)}</p>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-foreground-muted mb-1">Started</p>
+                  <p className="font-semibold text-foreground">{format(new Date(detailsModal.start_date || detailsModal.created_at), "dd/MM/yy HH:mm")}</p>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-foreground-muted mb-1">Target</p>
+                  <p className="font-semibold text-foreground">{detailsModal.target_date ? format(new Date(detailsModal.target_date), "dd/MM/yy HH:mm") : "-"}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/60 bg-surface/40 p-4">
+                <p className="text-[10px] uppercase tracking-wider text-foreground-muted mb-2">Description</p>
+                <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{detailsModal.description || "-"}</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-xl border border-border/60 bg-surface/40 p-4">
+                  <p className="text-[10px] uppercase tracking-wider text-warning mb-2">Reason</p>
+                  <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{detailsModal.reason || "-"}</p>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-surface/40 p-4">
+                  <p className="text-[10px] uppercase tracking-wider text-success mb-2">Solution Notes</p>
+                  <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{detailsModal.solving_notes || "-"}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/60 bg-surface/40 p-4">
+                <p className="text-[10px] uppercase tracking-wider text-foreground-muted mb-2">Additional Info</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  <div><span className="text-foreground-muted">Duration:</span> <span className="font-semibold text-foreground">{detailsModal.duration || "-"}</span></div>
+                  <div><span className="text-foreground-muted">Completed:</span> <span className="font-semibold text-foreground">{detailsModal.actual_completion_date ? format(new Date(detailsModal.actual_completion_date), "dd/MM/yy HH:mm") : "-"}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal / Form */}
       {isModalOpen && (

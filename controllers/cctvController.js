@@ -94,6 +94,20 @@ export const getAllCCTVDevices = async (req, res) => {
       if (device.updated_at) device.updated_at = convertToServerTime(device.updated_at);
     });
     
+    // Fetch channels for all devices
+    for (const device of result.recordset) {
+      try {
+        const channelsResult = await pool.request()
+          .input('deviceId', sql.NVarChar, device.id)
+          .query(`SELECT * FROM CCTVChannels WHERE device_id = @deviceId AND is_enabled = 1 ORDER BY channel_number`);
+        
+        device.channels = channelsResult.recordset;
+      } catch (chErr) {
+        console.error(`[CCTV] Error fetching channels for device ${device.id}:`, chErr.message);
+        device.channels = [];
+      }
+    }
+    
     // Try to get location names from CRM Pool
     try {
       const crmPool = await getCrmPool();
@@ -323,14 +337,30 @@ export const createCCTVDevice = async (req, res) => {
       
       for (const channel of discoveredData.channels) {
         const channelId = `${id}-ch${channel.id}`;
-        const channelNumber = parseInt(channel.id) || 1;
-        const channelName = `Channel ${channelNumber}`;
-        const channelStatus = (channel.online === 'true' || channel.status === 'online') ? 'online' : 'offline';
-        const isEnabled = true;
+        const channelNumber = parseInt(channel.channel_number || channel.id) || 1;
+        const channelName = channel.channel_name || channel.name || `Channel ${channelNumber}`;
+        
+        // Handle different status formats from different endpoints
+        let channelStatus = 'offline';
+        if (channel.status === 'online') {
+          channelStatus = 'online';
+        } else if (channel.online === 'true') {
+          channelStatus = 'online';
+        } else if (channel.is_enabled === true) {
+          channelStatus = 'online';
+        }
+        
+        const isEnabled = channel.is_enabled !== false; // Default true unless explicitly false
         const cameraIP = channel.ipAddress || null;
         
-        // Store camera IP in channel_settings as JSON
-        const channelSettings = cameraIP ? JSON.stringify({ camera_ip: cameraIP, protocol: channel.proxyProtocol }) : null;
+        // Store additional channel info in channel_settings as JSON
+        const settings = {
+          camera_ip: cameraIP,
+          protocol: channel.protocol || channel.proxyProtocol || channel.transport || null,
+          codec: channel.codec || channel.videoCodecType || null,
+          resolution: channel.resolution || null
+        };
+        const channelSettings = JSON.stringify(settings);
         
         try {
           await pool.request()
@@ -347,6 +377,8 @@ export const createCCTVDevice = async (req, res) => {
               INSERT INTO CCTVChannels (id, device_id, channel_number, channel_name, status, is_enabled, channel_settings, created_at, updated_at)
               VALUES (@id, @device_id, @channel_number, @channel_name, @status, @is_enabled, @channel_settings, @created_at, @updated_at)
             `);
+          
+          console.log(`[CCTV] Saved channel ${channelNumber}: ${channelName}`);
         } catch (chErr) {
           // If duplicate, try update instead
           if (chErr.message.includes('duplicate') || chErr.message.includes('unique')) {
@@ -364,7 +396,10 @@ export const createCCTVDevice = async (req, res) => {
                     channel_settings = @channel_settings, updated_at = @updated_at
                 WHERE device_id = @device_id AND channel_number = @channel_number
               `);
+            
+            console.log(`[CCTV] Updated channel ${channelNumber}: ${channelName}`);
           } else {
+            console.error(`[CCTV] Error saving channel ${channelNumber}:`, chErr.message);
             throw chErr;
           }
         }
@@ -836,12 +871,30 @@ export const syncCCTVDevice = async (req, res) => {
         
       for (const channel of discoveredData.channels) {
         const channelId = `${id}-ch${channel.id}`;
-        const channelNumber = parseInt(channel.id) || 1;
-        const channelName = `Channel ${channelNumber}`;
-        const channelStatus = (channel.online === 'true' || channel.status === 'online') ? 'online' : 'offline';
-        const isEnabled = true;
+        const channelNumber = parseInt(channel.channel_number || channel.id) || 1;
+        const channelName = channel.channel_name || channel.name || `Channel ${channelNumber}`;
+        
+        // Handle different status formats from different endpoints
+        let channelStatus = 'offline';
+        if (channel.status === 'online') {
+          channelStatus = 'online';
+        } else if (channel.online === 'true') {
+          channelStatus = 'online';
+        } else if (channel.is_enabled === true) {
+          channelStatus = 'online';
+        }
+        
+        const isEnabled = channel.is_enabled !== false; // Default true unless explicitly false
         const cameraIP = channel.ipAddress || null;
-        const channelSettings = cameraIP ? JSON.stringify({ camera_ip: cameraIP, protocol: channel.proxyProtocol }) : null;
+        
+        // Store additional channel info in channel_settings as JSON
+        const settings = {
+          camera_ip: cameraIP,
+          protocol: channel.protocol || channel.proxyProtocol || channel.transport || null,
+          codec: channel.codec || channel.videoCodecType || null,
+          resolution: channel.resolution || null
+        };
+        const channelSettings = JSON.stringify(settings);
         
         try {
           await pool.request()
@@ -864,13 +917,14 @@ export const syncCCTVDevice = async (req, res) => {
             await pool.request()
               .input('device_id', sql.NVarChar, id)
               .input('channel_number', sql.Int, channelNumber)
+              .input('channel_name', sql.NVarChar, channelName)
               .input('status', sql.NVarChar, channelStatus)
               .input('is_enabled', sql.Bit, isEnabled)
               .input('channel_settings', sql.NVarChar, channelSettings)
               .input('updated_at', sql.DateTime, now)
               .query(`
                 UPDATE CCTVChannels 
-                SET status = @status, is_enabled = @is_enabled, 
+                SET channel_name = @channel_name, status = @status, is_enabled = @is_enabled, 
                     channel_settings = @channel_settings, updated_at = @updated_at
                 WHERE device_id = @device_id AND channel_number = @channel_number
               `);
@@ -1039,6 +1093,12 @@ export const triggerPollNow = async (req, res) => {
           `);
       }
     }
+    
+    console.log('[CCTV] ===== POLLING COMPLETED =====');
+    console.log(`[CCTV] Results: ${successCount} online, ${failedCount} offline`);
+    
+    // Manual poll from UI does NOT send notifications
+    // Notifications are only sent by scheduled cron job (1 minute after polling)
     
     res.json({
       success: true,
