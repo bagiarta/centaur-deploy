@@ -40,7 +40,8 @@ import {
   Clock,
   Database,
   TrendingUp,
-  Search
+  Search,
+  ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -71,6 +72,7 @@ interface CCTVChannel {
   id: string;
   channel_number: number;
   channel_name: string;
+  channel_settings?: string;
   status: string;
   is_enabled: boolean;
 }
@@ -151,6 +153,7 @@ export default function CCTVMonitoringPage() {
   const [discoveredData, setDiscoveredData] = useState<any>(null);
   const [selectedDevice, setSelectedDevice] = useState<CCTVDevice | null>(null);
   const [deviceToDelete, setDeviceToDelete] = useState<CCTVDevice | null>(null);
+  const [showOfflineChannels, setShowOfflineChannels] = useState(true); // Default expanded
   
   const [formData, setFormData] = useState<DeviceFormData>({
     ipAddress: '',
@@ -699,7 +702,7 @@ export default function CCTVMonitoringPage() {
               </CardHeader>
               <CardContent className="relative z-10">
                 <div className="text-4xl font-bold">
-                  {dashboard.storage.error_disks + dashboard.devices.error_devices}
+                  {dashboard.storage.error_disks + dashboard.devices.error_devices + dashboard.channels.offline_channels}
                 </div>
                 <p className="text-sm text-orange-100 mt-3 bg-white/10 px-2 py-1 rounded-md inline-block">
                   Requiring immediate attention
@@ -707,6 +710,115 @@ export default function CCTVMonitoringPage() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* Offline Channels Section */}
+        {dashboard && dashboard.channels.offline_channels > 0 && (
+          <Card className="border-0 shadow-xl bg-gradient-to-br from-red-50 to-orange-50">
+            <CardHeader 
+              className="border-b border-red-100 cursor-pointer hover:bg-red-100/50 transition-colors"
+              onClick={() => setShowOfflineChannels(!showOfflineChannels)}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <CardTitle className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <AlertTriangle className="w-6 h-6 text-red-600" />
+                    Offline Channels Alert
+                    <ChevronRight className={cn(
+                      "w-5 h-5 text-gray-500 transition-transform duration-200",
+                      showOfflineChannels && "rotate-90"
+                    )} />
+                  </CardTitle>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {dashboard.channels.offline_channels} channel(s) currently offline - {showOfflineChannels ? 'Click to hide' : 'Click to view details'}
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            
+            {showOfflineChannels && (
+              <CardContent className="pt-4 animate-in slide-in-from-top duration-300">
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {devices
+                    .filter(device => device.channels && device.channels.some((ch: CCTVChannel) => 
+                      ch.status === 'offline' || ch.status === 'video_loss' || ch.status === 'no_signal'
+                    ))
+                    .map(device => {
+                      const offlineChannels = device.channels?.filter((ch: CCTVChannel) => 
+                        ch.status === 'offline' || ch.status === 'video_loss' || ch.status === 'no_signal'
+                      ) || [];
+                      return offlineChannels.map((channel: CCTVChannel) => (
+                        <button
+                          key={`${device.id}-${channel.id}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log('Clicked offline channel:', channel.channel_name, 'from device:', device.name);
+                            handleViewDevice(device);
+                          }}
+                          className="p-4 bg-white rounded-lg border-2 border-red-200 hover:border-red-400 hover:shadow-lg transition-all cursor-pointer group text-left w-full"
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <div className="p-2 bg-red-100 rounded-lg group-hover:bg-red-200 transition-colors">
+                                <Video className="w-4 h-4 text-red-600" />
+                              </div>
+                              <div>
+                                <p className="font-bold text-gray-800 text-sm">{channel.channel_name}</p>
+                                <p className="text-xs text-gray-500">Channel #{channel.channel_number}</p>
+                              </div>
+                            </div>
+                            <Badge variant="secondary" className={
+                              channel.status === 'video_loss' ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                              channel.status === 'no_signal' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+                              'bg-red-100 text-red-700 border-red-200'
+                            }>
+                              {channel.status === 'video_loss' ? 'Video Loss' :
+                               channel.status === 'no_signal' ? 'No Signal' :
+                               'Offline'}
+                            </Badge>
+                          </div>
+                          
+                          <div className="space-y-2 text-xs">
+                            <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                              <Monitor className="w-3 h-3 text-gray-500" />
+                              <span className="text-gray-700 font-medium">{device.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                              <Activity className="w-3 h-3 text-gray-500" />
+                              <span className="text-gray-600 font-mono">{device.ip_address}</span>
+                            </div>
+                            {(() => {
+                              try {
+                                const settings = channel.channel_settings ? JSON.parse(channel.channel_settings) : null;
+                                if (settings?.camera_ip) {
+                                  return (
+                                    <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                                      <Signal className="w-3 h-3 text-gray-500" />
+                                      <span className="text-gray-600 font-mono">{settings.camera_ip}</span>
+                                    </div>
+                                  );
+                                }
+                              } catch (e) {
+                                return null;
+                              }
+                              return null;
+                            })()}
+                          </div>
+                          
+                          <div className="mt-3 pt-3 border-t border-gray-100">
+                            <div className="flex items-center gap-1 text-xs text-blue-600 font-medium group-hover:text-blue-700">
+                              <Eye className="w-3 h-3" />
+                              <span>Click to view device details</span>
+                            </div>
+                          </div>
+                        </button>
+                      ));
+                    })}
+                </div>
+              </CardContent>
+            )}
+          </Card>
         )}
 
       <div className="mb-6 space-y-4">
@@ -836,6 +948,54 @@ export default function CCTVMonitoringPage() {
                         </span>
                       </div>
                       
+                      {/* Channels Status */}
+                      {device.channels && device.channels.length > 0 && (
+                        <div className="p-3 bg-white/60 backdrop-blur-sm rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Video className="w-4 h-4 text-indigo-500" />
+                              <span className="text-sm font-medium text-gray-700">Channels</span>
+                            </div>
+                            <span className="text-sm font-bold text-gray-800">
+                              {device.channels.length}
+                            </span>
+                          </div>
+                          {(() => {
+                            const onlineCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'online').length;
+                            const offlineCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'offline').length;
+                            const videoLossCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'video_loss').length;
+                            const noSignalCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'no_signal').length;
+                            
+                            return (
+                              <div className="space-y-1 mt-2">
+                                <div className="flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded text-xs">
+                                  <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                  <span className="text-emerald-700 font-medium">{onlineCount} Online</span>
+                                </div>
+                                {offlineCount > 0 && (
+                                  <div className="flex items-center gap-1 bg-red-50 px-2 py-1 rounded text-xs">
+                                    <XCircle className="w-3 h-3 text-red-600" />
+                                    <span className="text-red-700 font-medium">{offlineCount} Offline</span>
+                                  </div>
+                                )}
+                                {videoLossCount > 0 && (
+                                  <div className="flex items-center gap-1 bg-orange-50 px-2 py-1 rounded text-xs">
+                                    <AlertTriangle className="w-3 h-3 text-orange-600" />
+                                    <span className="text-orange-700 font-medium">{videoLossCount} Video Loss</span>
+                                  </div>
+                                )}
+                                {noSignalCount > 0 && (
+                                  <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded text-xs">
+                                    <AlertTriangle className="w-3 h-3 text-yellow-600" />
+                                    <span className="text-yellow-700 font-medium">{noSignalCount} No Signal</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                      
                       {/* Last Seen */}
                       {device.last_seen && (
                         <div className="flex items-center gap-2 p-3 bg-white/60 backdrop-blur-sm rounded-lg">
@@ -891,21 +1051,83 @@ export default function CCTVMonitoringPage() {
                 >
                   <div className="h-2 bg-gradient-to-r from-emerald-400 to-green-500"></div>
                   <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-emerald-100 rounded-lg">
-                        <Monitor className="w-5 h-5 text-emerald-600" />
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-emerald-100 rounded-lg">
+                          <Monitor className="w-5 h-5 text-emerald-600" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-lg">{device.name}</CardTitle>
+                          <p className="text-sm text-gray-500">{device.vendor} • {device.device_type}</p>
+                        </div>
                       </div>
-                      <div>
-                        <CardTitle className="text-lg">{device.name}</CardTitle>
-                        <p className="text-sm text-gray-500">{device.ip_address}:{device.port}</p>
-                      </div>
+                      <Badge className="bg-emerald-500 text-white">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Online
+                      </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <Badge className="bg-emerald-500 text-white">
-                      <CheckCircle className="w-3 h-3 mr-1" />
-                      Online
-                    </Badge>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center gap-2 p-2 bg-white/60 rounded-lg text-sm">
+                      <Activity className="w-4 h-4 text-purple-500" />
+                      <span className="font-mono text-gray-700">{device.ip_address}:{device.port}</span>
+                    </div>
+                    
+                    {/* Channels Status */}
+                    {device.channels && device.channels.length > 0 && (
+                      <div className="p-3 bg-white/60 backdrop-blur-sm rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Video className="w-4 h-4 text-indigo-500" />
+                            <span className="text-sm font-medium text-gray-700">Channels</span>
+                          </div>
+                          <span className="text-sm font-bold text-gray-800">{device.channels.length}</span>
+                        </div>
+                        {(() => {
+                          const onlineCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'online').length;
+                          const offlineCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'offline').length;
+                          const videoLossCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'video_loss').length;
+                          const noSignalCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'no_signal').length;
+                          
+                          return (
+                            <div className="space-y-1 mt-2">
+                              <div className="flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded text-xs">
+                                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                <span className="text-emerald-700 font-medium">{onlineCount} Online</span>
+                              </div>
+                              {offlineCount > 0 && (
+                                <div className="flex items-center gap-1 bg-red-50 px-2 py-1 rounded text-xs">
+                                  <XCircle className="w-3 h-3 text-red-600" />
+                                  <span className="text-red-700 font-medium">{offlineCount} Offline</span>
+                                </div>
+                              )}
+                              {videoLossCount > 0 && (
+                                <div className="flex items-center gap-1 bg-orange-50 px-2 py-1 rounded text-xs">
+                                  <AlertTriangle className="w-3 h-3 text-orange-600" />
+                                  <span className="text-orange-700 font-medium">{videoLossCount} Video Loss</span>
+                                </div>
+                              )}
+                              {noSignalCount > 0 && (
+                                <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded text-xs">
+                                  <AlertTriangle className="w-3 h-3 text-yellow-600" />
+                                  <span className="text-yellow-700 font-medium">{noSignalCount} No Signal</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-2 mt-4 pt-3 border-t border-gray-200">
+                      <Button size="sm" variant="outline" className="flex-1 bg-white hover:bg-blue-50 border-blue-200 text-blue-600" onClick={() => handleViewDevice(device)}>
+                        <Eye className="w-4 h-4 mr-1" />
+                        View
+                      </Button>
+                      <Button size="sm" variant="ghost" className="hover:bg-blue-50 text-blue-600" onClick={() => handleEditDevice(device)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -921,21 +1143,83 @@ export default function CCTVMonitoringPage() {
                 >
                   <div className="h-2 bg-gradient-to-r from-gray-400 to-slate-500"></div>
                   <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-gray-200 rounded-lg">
-                        <Monitor className="w-5 h-5 text-gray-600" />
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-gray-200 rounded-lg">
+                          <Monitor className="w-5 h-5 text-gray-600" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-lg">{device.name}</CardTitle>
+                          <p className="text-sm text-gray-500">{device.vendor} • {device.device_type}</p>
+                        </div>
                       </div>
-                      <div>
-                        <CardTitle className="text-lg">{device.name}</CardTitle>
-                        <p className="text-sm text-gray-500">{device.ip_address}:{device.port}</p>
-                      </div>
+                      <Badge variant="secondary" className="bg-gray-300 text-gray-700">
+                        <XCircle className="w-3 h-3 mr-1" />
+                        Offline
+                      </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <Badge variant="secondary" className="bg-gray-300 text-gray-700">
-                      <XCircle className="w-3 h-3 mr-1" />
-                      Offline
-                    </Badge>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center gap-2 p-2 bg-white/60 rounded-lg text-sm">
+                      <Activity className="w-4 h-4 text-purple-500" />
+                      <span className="font-mono text-gray-700">{device.ip_address}:{device.port}</span>
+                    </div>
+                    
+                    {/* Channels Status */}
+                    {device.channels && device.channels.length > 0 && (
+                      <div className="p-3 bg-white/60 backdrop-blur-sm rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Video className="w-4 h-4 text-indigo-500" />
+                            <span className="text-sm font-medium text-gray-700">Channels</span>
+                          </div>
+                          <span className="text-sm font-bold text-gray-800">{device.channels.length}</span>
+                        </div>
+                        {(() => {
+                          const onlineCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'online').length;
+                          const offlineCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'offline').length;
+                          const videoLossCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'video_loss').length;
+                          const noSignalCount = device.channels.filter((ch: CCTVChannel) => ch.status === 'no_signal').length;
+                          
+                          return (
+                            <div className="space-y-1 mt-2">
+                              <div className="flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded text-xs">
+                                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                <span className="text-emerald-700 font-medium">{onlineCount} Online</span>
+                              </div>
+                              {offlineCount > 0 && (
+                                <div className="flex items-center gap-1 bg-red-50 px-2 py-1 rounded text-xs">
+                                  <XCircle className="w-3 h-3 text-red-600" />
+                                  <span className="text-red-700 font-medium">{offlineCount} Offline</span>
+                                </div>
+                              )}
+                              {videoLossCount > 0 && (
+                                <div className="flex items-center gap-1 bg-orange-50 px-2 py-1 rounded text-xs">
+                                  <AlertTriangle className="w-3 h-3 text-orange-600" />
+                                  <span className="text-orange-700 font-medium">{videoLossCount} Video Loss</span>
+                                </div>
+                              )}
+                              {noSignalCount > 0 && (
+                                <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded text-xs">
+                                  <AlertTriangle className="w-3 h-3 text-yellow-600" />
+                                  <span className="text-yellow-700 font-medium">{noSignalCount} No Signal</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-2 mt-4 pt-3 border-t border-gray-200">
+                      <Button size="sm" variant="outline" className="flex-1 bg-white hover:bg-blue-50 border-blue-200 text-blue-600" onClick={() => handleViewDevice(device)}>
+                        <Eye className="w-4 h-4 mr-1" />
+                        View
+                      </Button>
+                      <Button size="sm" variant="ghost" className="hover:bg-blue-50 text-blue-600" onClick={() => handleEditDevice(device)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -1344,20 +1628,67 @@ export default function CCTVMonitoringPage() {
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                        {selectedDevice.channels.map(channel => (
-                          <div key={channel.id} className="flex items-center justify-between p-3 border rounded-lg bg-card">
-                            <div className="flex items-center gap-3">
-                              <div className={cn("w-2 h-2 rounded-full", channel.status === 'online' ? "bg-emerald-500" : (channel.status === 'recording' ? "bg-red-500 animate-pulse" : "bg-gray-400"))} />
-                              <div>
-                                <p className="text-sm font-semibold">CH {channel.channel_number}: {channel.channel_name || 'Camera'}</p>
-                                <p className="text-xs text-muted-foreground capitalize">{channel.status}</p>
+                        {selectedDevice.channels.map(channel => {
+                          // Parse channel settings to get camera IP and other info
+                          let cameraIP = 'No IP';
+                          let resolution = null;
+                          let codec = null;
+                          
+                          if (channel.channel_settings) {
+                            try {
+                              const settings = JSON.parse(channel.channel_settings);
+                              cameraIP = settings.camera_ip || 'No IP';
+                              resolution = settings.resolution || null;
+                              codec = settings.codec || null;
+                            } catch (e) {
+                              // Invalid JSON, use default
+                            }
+                          }
+                          
+                          return (
+                            <div key={channel.id} className={cn(
+                              "flex flex-col p-3 border rounded-lg transition-colors",
+                              channel.status === 'offline' 
+                                ? "bg-red-50 border-red-200 hover:bg-red-100" 
+                                : "bg-card hover:bg-accent/5"
+                            )}>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-3">
+                                  <div className={cn("w-2 h-2 rounded-full", channel.status === 'online' ? "bg-emerald-500" : (channel.status === 'recording' ? "bg-red-500 animate-pulse" : "bg-gray-400"))} />
+                                  <div>
+                                    <p className="text-sm font-semibold">CH {channel.channel_number}: {channel.channel_name || 'Camera'}</p>
+                                    <p className="text-xs text-muted-foreground capitalize">{channel.status}</p>
+                                  </div>
+                                </div>
+                                {channel.status === 'offline' ? (
+                                  <Badge variant="destructive" className="text-xs">Offline</Badge>
+                                ) : !channel.is_enabled ? (
+                                  <Badge variant="outline" className="text-xs text-muted-foreground">Disabled</Badge>
+                                ) : null}
+                              </div>
+                              
+                              {/* Device Name - Always shown */}
+                              <div className="flex items-center gap-2 mb-1 pl-5 text-xs">
+                                <Monitor className="w-3 h-3 text-blue-500" />
+                                <span className="font-medium text-blue-600">{selectedDevice.name}</span>
+                              </div>
+                              
+                              {/* Camera IP and Details */}
+                              <div className="flex flex-col gap-1 pl-5 text-xs">
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <Activity className="w-3 h-3" />
+                                  <span className="font-mono">{cameraIP}</span>
+                                </div>
+                                {(resolution || codec) && (
+                                  <div className="flex items-center gap-2 text-muted-foreground">
+                                    {resolution && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{resolution}</span>}
+                                    {codec && <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">{codec}</span>}
+                                  </div>
+                                )}
                               </div>
                             </div>
-                            {!channel.is_enabled && (
-                              <Badge variant="outline" className="text-xs text-muted-foreground">Disabled</Badge>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </TabsContent>

@@ -225,6 +225,58 @@ export async function getChannelStatus(ip, port, username, password, isHttps) {
 }
 
 /**
+ * Get Hybrid/Streaming Channel Info
+ * Endpoint: /ISAPI/Streaming/channels
+ * Used for Hybrid devices that support both analog and IP cameras
+ */
+export async function getStreamingChannels(ip, port, username, password, isHttps) {
+  const result = await makeISAPIRequest(ip, port, username, password, '/ISAPI/Streaming/channels', isHttps);
+  
+  if (!result.success) {
+    return { success: false, error: result.error };
+  }
+
+  const xml = result.data;
+  console.log('[HIKVISION] Streaming Channel XML (first 1000 chars):', xml.substring(0, 1000));
+
+  const channels = [];
+  const channelRegex = /<StreamingChannel[^>]*>([\s\S]*?)<\/StreamingChannel>/gi;
+  const channelMatches = xml.match(channelRegex);
+
+  console.log(`[HIKVISION] Found ${channelMatches ? channelMatches.length : 0} streaming channel matches`);
+
+  if (channelMatches) {
+    channelMatches.forEach((channelXml, index) => {
+      const id = parseXMLValue(channelXml, 'id') || String(index + 1);
+      const channelName = parseXMLValue(channelXml, 'channelName') || `Channel ${id}`;
+      const enabled = parseXMLValue(channelXml, 'enabled');
+      const transport = parseXMLValue(channelXml, 'Transport');
+      
+      // Extract video info if available
+      const videoCodecType = parseXMLValue(channelXml, 'videoCodecType');
+      const videoResolutionWidth = parseXMLValue(channelXml, 'videoResolutionWidth');
+      const videoResolutionHeight = parseXMLValue(channelXml, 'videoResolutionHeight');
+      
+      channels.push({
+        id,
+        channel_number: parseInt(id),
+        channel_name: channelName,
+        status: enabled === 'true' ? 'online' : 'offline',
+        is_enabled: enabled === 'true',
+        transport: transport || null,
+        codec: videoCodecType || null,
+        resolution: videoResolutionWidth && videoResolutionHeight ? 
+          `${videoResolutionWidth}x${videoResolutionHeight}` : null
+      });
+    });
+  }
+
+  console.log(`[HIKVISION] Parsed ${channels.length} streaming channels`);
+  return { success: channels.length > 0, data: channels };
+}
+
+
+/**
  * Get DVR Analog Channel Info
  * Endpoint: /ISAPI/System/Video/inputs/channels
  * Used for DVR devices (analog cameras) instead of NVR IP cameras
@@ -436,10 +488,18 @@ export async function autoDiscoverDevice(ip, port, username, password, isHttps) 
     results.errors.push(`Device info: ${deviceResult.error}`);
   }
 
-  // 2. Get channel info - use DVR endpoint for DVR, NVR endpoint for NVR
+  // 2. Get channel info - use appropriate endpoint based on device type
   const deviceType = (results.device?.deviceType || '').toUpperCase();
   const deviceName = (results.device?.deviceName || '').toLowerCase();
-  const isDVR = deviceType.includes('DVR') || deviceName.includes('embedded net dvr');
+  const deviceModel = (results.device?.deviceModel || '').toUpperCase();
+  
+  // Detect device category
+  const isNVR = deviceType.includes('NVR') || deviceName.includes('network video recorder');
+  const isDVR = deviceType.includes('DVR') || deviceName.includes('embedded net dvr') || 
+                deviceName.includes('digital video recorder');
+  
+  // If not explicitly NVR or DVR, treat as Hybrid (supports both analog and IP)
+  const isHybrid = !isNVR && !isDVR;
 
   if (isDVR) {
     console.log('[HIKVISION] Device is DVR - using analog channel endpoint /ISAPI/System/Video/inputs/channels');
@@ -449,18 +509,42 @@ export async function autoDiscoverDevice(ip, port, username, password, isHttps) 
     } else {
       results.errors.push(`DVR channel info: ${dvrChannelResult.error}`);
     }
-  } else {
-    // NVR (or unknown): use InputProxy endpoint for IP cameras
-    console.log('[HIKVISION] Device is NVR (or unknown) - using InputProxy channel endpoint');
+  } else if (isNVR) {
+    // NVR: use InputProxy endpoint for IP cameras
+    console.log('[HIKVISION] Device is NVR - using InputProxy channel endpoint');
     const channelResult = await getChannelStatus(ip, port, username, password, isHttps);
     if (channelResult.success) {
       results.channels = channelResult.data;
     } else {
-      results.errors.push(`Channel status: ${channelResult.error}`);
+      results.errors.push(`NVR channel status: ${channelResult.error}`);
       // Try alternative NVR endpoint
       const channelDetailsResult = await getChannelDetails(ip, port, username, password, isHttps);
       if (channelDetailsResult.success) {
         results.channels = channelDetailsResult.data;
+      }
+    }
+  } else {
+    // Hybrid or Unknown: use streaming channel endpoint (most flexible)
+    console.log('[HIKVISION] Device is HYBRID or Unknown type - using streaming channel endpoint /ISAPI/Streaming/channels');
+    const hybridChannelResult = await getStreamingChannels(ip, port, username, password, isHttps);
+    if (hybridChannelResult.success) {
+      results.channels = hybridChannelResult.data;
+    } else {
+      results.errors.push(`Hybrid channel info: ${hybridChannelResult.error}`);
+      console.log('[HIKVISION] Streaming endpoint failed, trying fallback endpoints...');
+      
+      // Fallback 1: Try DVR analog endpoint
+      const dvrChannelResult = await getDVRChannels(ip, port, username, password, isHttps);
+      if (dvrChannelResult.success) {
+        results.channels = dvrChannelResult.data;
+        console.log('[HIKVISION] Successfully used DVR analog endpoint as fallback');
+      } else {
+        // Fallback 2: Try NVR IP camera endpoint
+        const channelResult = await getChannelStatus(ip, port, username, password, isHttps);
+        if (channelResult.success) {
+          results.channels = channelResult.data;
+          console.log('[HIKVISION] Successfully used NVR InputProxy endpoint as fallback');
+        }
       }
     }
   }
@@ -502,6 +586,7 @@ export default {
   getSystemTime,
   getChannelStatus,
   getChannelDetails,
+  getStreamingChannels,
   getDVRChannels,
   getStorageDetection,
   getHDDInfo
