@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Monitor, Package, Rocket, Download, ClipboardList,
   Terminal, History, Settings, ChevronLeft, ChevronRight,
   Server, Shield, Bell, User, Activity, Users, Database, Scale,
-  UserCog, ShieldCheck, LogOut, Bot, BookMarked, Globe, Menu, X, Search,
+  UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
   UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw,Wrench,
   Video,
 } from "lucide-react";
@@ -227,6 +227,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const handleUnread = (e: Event) => {
+      const customEvent = e as CustomEvent<number>;
+      setChatUnreadCount(customEvent.detail || 0);
+    };
+    window.addEventListener('chat-unread-updated', handleUnread);
+    return () => window.removeEventListener('chat-unread-updated', handleUnread);
+  }, []);
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev =>
@@ -591,6 +601,47 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <LogOut className="w-4 h-4" />
             {!collapsed && <span>Logout</span>}
           </button>
+          {hasPermission("assistant") && (
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('toggle-smart-assistant'))}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-xs font-bold transition-all mt-1.5 shadow-md",
+                "bg-blue-600 text-white hover:bg-blue-500 border border-blue-700",
+                collapsed && "justify-center px-2"
+              )}
+            >
+              <Bot className="w-4 h-4 text-white shrink-0 animate-pulse" />
+              {!collapsed && (
+                <>
+                  <span className="truncate flex-1 text-left">AI Assistant</span>
+                  <span className="px-1.5 py-0.5 bg-white/20 text-white border border-white/30 text-[9px] rounded-md font-extrabold">AI</span>
+                </>
+              )}
+            </button>
+          )}
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('toggle-chat-widget'))}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-xs font-bold transition-all mt-1.5 relative shadow-md",
+              "bg-amber-600 text-white hover:bg-amber-500 border border-amber-700",
+              collapsed && "justify-center px-2"
+            )}
+          >
+            <MessageCircle className="w-4 h-4 text-white shrink-0" />
+            {!collapsed && (
+              <>
+                <span className="truncate flex-1 text-left">Messages</span>
+                {chatUnreadCount > 0 && (
+                  <span className="px-2 py-0.5 bg-danger text-white text-[10px] rounded-full font-extrabold shadow-md animate-pulse">
+                    {chatUnreadCount > 9 ? '9+' : chatUnreadCount}
+                  </span>
+                )}
+              </>
+            )}
+            {collapsed && chatUnreadCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-danger rounded-full animate-pulse" />
+            )}
+          </button>
         </div>
       </aside>
 
@@ -778,6 +829,32 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </button>
               <button onClick={() => { setMobileMenuOpen(false); handleLogout(); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-danger-foreground font-semibold rounded-lg bg-danger hover:bg-danger/90 transition-colors shadow-lg">
                 <LogOut className="w-5 h-5" /> <span>Sign Out</span>
+              </button>
+              {hasPermission("assistant") && (
+                <button
+                  onClick={() => { setMobileMenuOpen(false); window.dispatchEvent(new CustomEvent('toggle-smart-assistant')); }}
+                  className="w-full flex items-center justify-between gap-2 px-4 py-3 font-bold rounded-lg shadow-md mt-1.5 bg-blue-600 hover:bg-blue-500 text-white border border-blue-700"
+                >
+                  <div className="flex items-center gap-2">
+                    <Bot className="w-5 h-5 text-white animate-pulse" />
+                    <span>AI Assistant</span>
+                  </div>
+                  <span className="px-1.5 py-0.5 bg-white/20 text-white border border-white/30 text-[10px] rounded-md font-extrabold">AI</span>
+                </button>
+              )}
+              <button
+                onClick={() => { setMobileMenuOpen(false); window.dispatchEvent(new CustomEvent('toggle-chat-widget')); }}
+                className="w-full flex items-center justify-between gap-2 px-4 py-3 font-bold rounded-lg shadow-md mt-1.5 bg-amber-600 hover:bg-amber-500 text-white border border-amber-700"
+              >
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="w-5 h-5 text-white" />
+                  <span>Messages</span>
+                </div>
+                {chatUnreadCount > 0 && (
+                  <span className="px-2.5 py-0.5 bg-danger text-white text-[10px] rounded-full font-bold">
+                    {chatUnreadCount > 9 ? '9+' : chatUnreadCount}
+                  </span>
+                )}
               </button>
             </div>
           </div>

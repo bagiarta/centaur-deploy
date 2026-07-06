@@ -3060,6 +3060,81 @@ app.post('/api/assistant-keywords/test', async (req, res) => {
   }
 });
 
+app.post('/api/assistant-keywords/run', async (req, res) => {
+  const { keywordId, parameters, targetHost, confirm } = req.body;
+
+  try {
+    const pool = await poolPromise;
+    const user = await getRequestUser(req, pool);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized: user not found.' });
+    }
+
+    const perms = user.menu_permissions || '[]';
+    const hasAssistantAccess = user.is_admin || perms === '*' || perms.includes('assistant');
+    if (!hasAssistantAccess) {
+      return res.status(403).json({ error: 'Access denied: assistant permissions required.' });
+    }
+
+    // Fetch the keyword
+    const kwRes = await pool.request()
+      .input('id', sql.NVarChar, keywordId)
+      .query('SELECT * FROM AssistantKeywords WHERE id = @id');
+    
+    const keyword = kwRes.recordset[0];
+    if (!keyword) {
+      return res.status(404).json({ error: 'Keyword not found.' });
+    }
+
+    if (!keyword.is_enabled) {
+      return res.status(400).json({ error: 'Keyword is currently disabled.' });
+    }
+
+    if (keyword.requires_admin && !user.is_admin) {
+      return res.status(403).json({ error: `Access denied: Keyword '${keyword.keyword}' is restricted to administrators only.` });
+    }
+
+    if (keyword.requires_confirmation && !confirm) {
+      return res.status(400).json({ error: `Keyword '${keyword.keyword}' requires confirmation before running.` });
+    }
+
+    const runtimeKeyword = {
+      ...keyword,
+      target_host: sanitizeKeywordTargetHost(targetHost || keyword.target_host),
+      parameter_keys: parseKeywordParameterKeys(keyword.parameter_keys)
+    };
+
+    // Construct the args object from parameters
+    const args = { ...parameters };
+    if (runtimeKeyword.target_host) {
+      args.host = runtimeKeyword.target_host;
+    }
+    if (confirm) {
+      args.confirm = 'yes';
+    }
+
+    // Log action to ActivityLog
+    await pool.request()
+      .input('time', sql.NVarChar, new Date().toLocaleString())
+      .input('u', sql.NVarChar, user.username || user.id)
+      .input('act', sql.NVarChar, `Run Keyword Action: ${keyword.keyword}`)
+      .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @u, @act)");
+
+    // Execute
+    const result = runtimeKeyword.action_type === 'workflow'
+      ? await executeWorkflowKeyword(pool, runtimeKeyword, args)
+      : await executeKeywordSql(pool, runtimeKeyword, args);
+
+    res.json({
+      success: true,
+      text: result.text,
+      sources: result.sources || []
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/notification-settings', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -4591,7 +4666,15 @@ async function executeKeywordSql(pool, keyword, args) {
     return {
       handled: true,
       text: buildMissingParameterPrompt(keyword, caseInsensitiveMissingParameters, args),
-      sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Missing required parameters' }]
+      sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Missing required parameters' }],
+      form: {
+        keywordId: keyword.id,
+        keyword: keyword.keyword,
+        description: keyword.description || '',
+        parameter_keys: caseInsensitiveMissingParameters,
+        requires_confirmation: keyword.requires_confirmation === true || keyword.requires_confirmation === 1,
+        target_host: keyword.target_host || ''
+      }
     };
   }
 
@@ -4725,45 +4808,14 @@ function formatKeywordHelpList(keywords) {
   }
 
   const lines = keywords.map((keyword) => {
-    const params = parseKeywordParameterKeys(keyword.parameter_keys);
-    const hostMode = sanitizeKeywordTargetHost(keyword.target_host) ? `host tetap: ${sanitizeKeywordTargetHost(keyword.target_host)}` : 'host dinamis: pakai host=HOSTNAME';
-    const paramLabel = params.length > 0 ? ` | params: ${params.join(', ')}` : '';
-    const flags = [
-      keyword.requires_admin ? 'admin' : null,
-      keyword.requires_confirmation ? 'confirm=yes' : null,
-    ].filter(Boolean).join(', ');
-
-    return `- \`${keyword.keyword}\` (${keyword.action_type})${paramLabel} | ${hostMode}${flags ? ` | ${flags}` : ''}\n  ${keyword.description || 'Tanpa deskripsi.'}`;
+    return `- \`${keyword.keyword}\` : ${keyword.description || 'Tanpa deskripsi.'}`;
   });
 
-  return `Berikut keyword yang tersedia:\n\n${lines.join('\n\n')}\n\nKetik \`help nama-keyword\` untuk melihat detail satu keyword.`;
+  return `Berikut keyword yang tersedia:\n\n${lines.join('\n')}`;
 }
 
 function formatKeywordHelpDetail(keyword) {
-  const params = parseKeywordParameterKeys(keyword.parameter_keys);
-  const hostMode = sanitizeKeywordTargetHost(keyword.target_host) ? `Host tetap: \`${sanitizeKeywordTargetHost(keyword.target_host)}\`` : 'Host dinamis: gunakan `host=HOSTNAME` atau `hostname=HOSTNAME` saat runtime.';
-  const exampleArgs = [];
-
-  if (!sanitizeKeywordTargetHost(keyword.target_host)) {
-    exampleArgs.push('host=HOSTNAME');
-  }
-  params.forEach((param) => exampleArgs.push(`${param}=...`));
-  if (keyword.requires_confirmation) {
-    exampleArgs.push('confirm=yes');
-  }
-
-  return [
-    `Keyword: \`${keyword.keyword}\``,
-    `Tipe: ${keyword.action_type}`,
-    keyword.description ? `Deskripsi: ${keyword.description}` : null,
-    hostMode,
-    params.length > 0 ? `Parameter SQL: ${params.join(', ')}` : 'Parameter SQL: tidak ada',
-    keyword.requires_admin ? 'Akses: admin only' : 'Akses: sesuai izin assistant',
-    keyword.requires_confirmation ? 'Konfirmasi: wajib `confirm=yes`' : 'Konfirmasi: tidak wajib',
-    '',
-    'Contoh pakai:',
-    `\`${keyword.keyword}${exampleArgs.length ? ` ${exampleArgs.join(' ')}` : ''}\``,
-  ].filter(Boolean).join('\n');
+  return `Keyword: \`${keyword.keyword}\`\nDeskripsi: ${keyword.description || 'Tanpa deskripsi.'}`;
 }
 
 async function resolveAssistantKeyword(pool, currUser, prompt) {
@@ -4818,7 +4870,15 @@ async function resolveAssistantKeyword(pool, currUser, prompt) {
     return {
       handled: true,
       text: `Keyword \`${matchedKeyword.keyword}\` membutuhkan konfirmasi sebelum dieksekusi. Kirim ulang dengan format:\n\n\`${prompt.trim()} confirm=yes\``,
-      sources: [{ type: 'keyword', label: matchedKeyword.keyword, detail: 'Confirmation required' }]
+      sources: [{ type: 'keyword', label: matchedKeyword.keyword, detail: 'Confirmation required' }],
+      form: {
+        keywordId: matchedKeyword.id,
+        keyword: matchedKeyword.keyword,
+        description: matchedKeyword.description || '',
+        parameter_keys: parseKeywordParameterKeys(matchedKeyword.parameter_keys),
+        requires_confirmation: true,
+        target_host: matchedKeyword.target_host || ''
+      }
     };
   }
 
@@ -4879,6 +4939,7 @@ app.post('/api/chat', async (req, res) => {
       return res.json({
         text: keywordResult.text,
         sources: keywordResult.sources || [],
+        form: keywordResult.form || null,
         meta: {
           toolsUsed: ['assistant-keyword']
         }

@@ -6,12 +6,21 @@ import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import pepiLogo from '@/assets/pepi-logo.png';
+import { toast } from 'sonner';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   sources?: AssistantSource[];
+  form?: {
+    keywordId: string;
+    keyword: string;
+    description: string;
+    parameter_keys: string[];
+    requires_confirmation: boolean;
+    target_host: string;
+  } | null;
 }
 
 interface AssistantSource {
@@ -51,6 +60,13 @@ export function SmartAssistantWidget() {
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isOpen]);
+
+  // Listen for external toggle event (e.g. from Sidebar)
+  useEffect(() => {
+    const handleToggle = () => setIsOpen(prev => !prev);
+    window.addEventListener('toggle-smart-assistant', handleToggle);
+    return () => window.removeEventListener('toggle-smart-assistant', handleToggle);
+  }, []);
 
   // Accessibility Check based on Permissions
   if (!hasPermission("assistant")) return null;
@@ -96,7 +112,8 @@ export function SmartAssistantWidget() {
           id: Date.now().toString(),
           role: 'assistant',
           text: data.text,
-          sources: Array.isArray(data.sources) ? data.sources : []
+          sources: Array.isArray(data.sources) ? data.sources : [],
+          form: data.form || null
         }
       ]);
     } catch (err: any) {
@@ -106,13 +123,29 @@ export function SmartAssistantWidget() {
     }
   };
 
+  const handleFormSuccess = (msgId: string, resultText: string, sources: any[]) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id === msgId) {
+        return {
+          ...m,
+          text: resultText,
+          sources: sources,
+          form: null
+        };
+      }
+      return m;
+    }));
+  };
+
+  if (!isOpen) return null;
+
   return (
     <motion.div 
       drag
       dragControls={dragControls}
       dragListener={false}
       dragMomentum={false}
-      className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[9999] flex flex-col items-end pointer-events-auto"
+      className="fixed bottom-20 md:bottom-6 left-4 md:left-[260px] z-[9999] flex flex-col items-start pointer-events-auto"
     >
 
       {isOpen && (
@@ -172,7 +205,7 @@ export function SmartAssistantWidget() {
                     <div className="space-y-3">
                       <div className="prose prose-sm dark:prose-invert max-w-none">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.text}
+                          {msg.form ? "Silakan lengkapi form di bawah untuk melanjutkan" : msg.text}
                         </ReactMarkdown>
                       </div>
                       {msg.sources && msg.sources.length > 0 && (
@@ -187,6 +220,14 @@ export function SmartAssistantWidget() {
                             </div>
                           ))}
                         </div>
+                      )}
+                      {msg.form && (
+                        <AssistantKeywordForm
+                          msgId={msg.id}
+                          formInfo={msg.form}
+                          userKey={userKey || ""}
+                          onSuccess={(resultText, sources) => handleFormSuccess(msg.id, resultText, sources)}
+                        />
                       )}
                     </div>
                   )}
@@ -227,29 +268,172 @@ export function SmartAssistantWidget() {
           </div>
         </div>
       )}
+    </motion.div>
+  );
+}
 
-      {/* Floating Button */}
-      {!isOpen && (
-        <motion.button
-          onClick={() => setIsOpen(true)}
-          onPointerDown={(e) => dragControls.start(e)}
-          style={{ touchAction: 'none' }}
-          className="h-14 w-14 rounded-full bg-white hover:bg-zinc-50 shadow-xl flex items-center justify-center transform hover:scale-105 transition-all shadow-blue-500/30 overflow-hidden border-2 border-zinc-100 opacity-60 hover:opacity-100 cursor-move"
-        >
-          <img
-            src={pepiLogo}
-            alt="Pepi"
-            draggable={false}
-            className="h-full w-full object-contain p-1 pointer-events-none"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none';
-              e.currentTarget.parentElement?.querySelector('.fallback-bot-btn')?.classList.remove('hidden');
-            }}
-          />
-          <Bot size={28} className="fallback-bot-btn hidden text-blue-600 pointer-events-none" />
-        </motion.button>
+function AssistantKeywordForm({ 
+  msgId,
+  formInfo, 
+  userKey,
+  onSuccess 
+}: { 
+  msgId: string;
+  formInfo: {
+    keywordId: string;
+    keyword: string;
+    description: string;
+    parameter_keys: string[];
+    requires_confirmation: boolean;
+    target_host: string;
+  };
+  userKey: string;
+  onSuccess: (resultText: string, sources: any[]) => void;
+}) {
+  const [params, setParams] = useState<Record<string, string>>({});
+  const [targetHost, setTargetHost] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [devicesList, setDevicesList] = useState<any[]>([]);
+  const [devicesLoading, setDevicesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!formInfo.target_host) {
+      setDevicesLoading(true);
+      fetch('/api/devices')
+        .then(res => res.json())
+        .then(data => {
+          const filtered = (data || []).filter((dev: any) => {
+            const groupIds = Array.isArray(dev.group_ids)
+              ? dev.group_ids
+              : (dev.group_ids || '').split(',').map((s: string) => s.trim());
+            return groupIds.includes('g2') || groupIds.includes('g3') || dev.status === 'offline';
+          });
+          setDevicesList(filtered);
+        })
+        .catch(err => console.error(err))
+        .finally(() => setDevicesLoading(false));
+    }
+  }, [formInfo.target_host]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const missing = formInfo.parameter_keys.filter(key => !params[key]?.trim());
+    if (missing.length > 0) {
+      toast.error(`Please fill in all parameters: ${missing.join(", ")}`);
+      return;
+    }
+
+    if (!formInfo.target_host && !targetHost) {
+      toast.error("Please select a target host.");
+      return;
+    }
+
+    if (formInfo.requires_confirmation && !confirm) {
+      toast.error("Please check the confirmation box.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/assistant-keywords/run', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': userKey
+        },
+        body: JSON.stringify({
+          keywordId: formInfo.keywordId,
+          parameters: params,
+          targetHost: targetHost || undefined,
+          confirm
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Execution failed.");
+      }
+
+      onSuccess(data.text || "Execution finished successfully.", data.sources || []);
+    } catch (err: any) {
+      toast.error(err.message);
+      onSuccess(`**Error:** ${err.message}`, []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 p-3 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2.5 text-left text-zinc-800 dark:text-zinc-200 pointer-events-auto">
+      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Execute Keyword Action</p>
+      
+      {!formInfo.target_host && (
+        <div className="space-y-1">
+          <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Target Host</label>
+          {devicesLoading ? (
+            <div className="flex items-center gap-1 text-[10px] text-zinc-400">
+              <Loader2 className="w-2.5 h-2.5 animate-spin" />
+              <span>Loading devices...</span>
+            </div>
+          ) : (
+            <select
+              value={targetHost}
+              onChange={(e) => setTargetHost(e.target.value)}
+              className="w-full bg-white dark:bg-zinc-850 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:border-blue-500 text-black dark:text-white"
+            >
+              <option value="">-- Select Host Device --</option>
+              {devicesList.map(dev => (
+                <option key={dev.id} value={dev.hostname}>{dev.hostname} ({dev.ip})</option>
+              ))}
+            </select>
+          )}
+        </div>
       )}
 
-    </motion.div>
+      {formInfo.parameter_keys.length > 0 && (
+        <div className="space-y-2">
+          {formInfo.parameter_keys.map(key => {
+            const isDate = key.toLowerCase().includes("date") || key.toLowerCase().includes("tanggal");
+            return (
+              <div key={key} className="space-y-1">
+                <label className="text-[9px] font-semibold text-zinc-500 block">{key}</label>
+                <input
+                  type={isDate ? "date" : "text"}
+                  placeholder={`Enter ${key}`}
+                  value={params[key] || ""}
+                  onChange={(e) => setParams({ ...params, [key]: e.target.value })}
+                  className="w-full bg-white dark:bg-zinc-850 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:border-blue-500 text-black dark:text-white"
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {formInfo.requires_confirmation && (
+        <label className="flex items-center gap-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg cursor-pointer">
+          <input
+            type="checkbox"
+            checked={confirm}
+            onChange={(e) => setConfirm(e.target.checked)}
+            className="w-3.5 h-3.5 accent-red-600 rounded cursor-pointer"
+          />
+          <div className="text-[9px] text-red-600 dark:text-red-400 font-bold select-none">
+            I confirm to execute this action
+          </div>
+        </label>
+      )}
+
+      <button
+        type="submit"
+        disabled={loading}
+        className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all shadow-md"
+      >
+        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send size={11} />}
+        Run Action
+      </button>
+    </form>
   );
 }

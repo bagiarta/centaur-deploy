@@ -119,6 +119,23 @@ export default function ChatWidget() {
   useEffect(() => { loadConversations(); }, [loadConversations]);
 
   useEffect(() => {
+    window.dispatchEvent(new CustomEvent('chat-unread-updated', { detail: totalUnread }));
+  }, [totalUnread]);
+
+  // Listen for external toggle event (e.g. from Sidebar)
+  useEffect(() => {
+    const handleToggle = () => {
+      setIsOpen(prev => {
+        const next = !prev;
+        if (next) loadConversations();
+        return next;
+      });
+    };
+    window.addEventListener('toggle-chat-widget', handleToggle);
+    return () => window.removeEventListener('toggle-chat-widget', handleToggle);
+  }, [loadConversations]);
+
+  useEffect(() => {
     if (isOpen) return;
     const interval = setInterval(async () => {
       if (!user) return;
@@ -270,7 +287,7 @@ export default function ChatWidget() {
 
   // ─── Render ────────────────────────────────────────────────────────
   return (
-    <div className="fixed bottom-20 md:bottom-6 right-20 md:right-[5.5rem] z-[999] flex flex-col items-end gap-3">
+    <>
       {/* Hidden file input */}
       <input
         ref={fileInputRef} type="file" hidden
@@ -278,257 +295,243 @@ export default function ChatWidget() {
         onChange={handleFileSelect}
       />
 
-      {/* Chat Panel */}
       {isOpen && (
-        <div className="w-80 sm:w-96 bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-zoom-in" style={{ height: '520px' }}>
+        <div className="fixed bottom-20 md:bottom-6 left-4 md:left-[260px] z-[999] flex flex-col items-start gap-3 pointer-events-auto">
+          {/* Chat Panel */}
+          <div className="w-80 sm:w-96 bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-zoom-in" style={{ height: '520px' }}>
 
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-primary/20 to-info/10 border-b border-border shrink-0">
-            {view === 'chat' ? (
-              <button onClick={() => { setView('list'); setActiveConvo(null); clearAttach(); }}
-                className="flex items-center gap-2 text-sm font-bold text-foreground">
-                <ChevronLeft className="w-4 h-4" />
-                <span className="truncate max-w-[150px]">{activeConvo?.participants_name || activeConvo?.name || 'Chat'}</span>
-              </button>
-            ) : view === 'newchat' ? (
-              <button onClick={() => setView('list')} className="flex items-center gap-2 text-sm font-bold text-foreground">
-                <ChevronLeft className="w-4 h-4" /> New Message
-              </button>
-            ) : (
-              <span className="text-sm font-bold text-foreground flex items-center gap-2">
-                <MessageCircle className="w-4 h-4 text-primary" /> Messages
-              </span>
-            )}
-            <div className="flex items-center gap-1.5">
-              {view === 'list' && (
-                <button onClick={() => { setView('newchat'); loadAllUsers(); }}
-                  className="p-1.5 rounded-lg hover:bg-primary/10 text-foreground-muted hover:text-primary transition-colors" title="New message">
-                  <Plus className="w-4 h-4" />
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-primary/20 to-info/10 border-b border-border shrink-0">
+              {view === 'chat' ? (
+                <button onClick={() => { setView('list'); setActiveConvo(null); clearAttach(); }}
+                  className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <ChevronLeft className="w-4 h-4" />
+                  <span className="truncate max-w-[150px]">{activeConvo?.participants_name || activeConvo?.name || 'Chat'}</span>
                 </button>
-              )}
-              <button onClick={() => setSoundEnabled(p => !p)}
-                className="p-1.5 rounded-lg hover:bg-primary/10 text-foreground-muted hover:text-primary transition-colors"
-                title={soundEnabled ? 'Mute' : 'Unmute'}>
-                {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-              </button>
-              <button onClick={() => setIsOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-danger/10 text-foreground-muted hover:text-danger transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Conversation List */}
-          {view === 'list' && (
-            <div className="flex-1 overflow-y-auto divide-y divide-border/50">
-              {conversations.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center gap-3 text-foreground-muted p-6">
-                  <MessageCircle className="w-12 h-12 opacity-20" />
-                  <p className="text-sm font-medium text-center">No conversations yet.<br />Start a new message!</p>
-                </div>
+              ) : view === 'newchat' ? (
+                <button onClick={() => setView('list')} className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <ChevronLeft className="w-4 h-4" /> New Message
+                </button>
               ) : (
-                conversations.map(convo => (
-                  <button key={convo.id} onClick={() => openConversation(convo)}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface/60 transition-colors text-left">
-                    <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0 text-primary font-bold text-sm">
-                      {convo.type === 'group' ? <Users className="w-5 h-5" /> : (convo.participants_name?.[0] || '?').toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className={cn("text-sm font-semibold truncate", convo.unread_count > 0 ? "text-foreground" : "text-foreground-muted")}>
-                          {convo.name || convo.participants_name || 'Chat'}
-                        </span>
-                        <span className="text-[10px] text-foreground-muted shrink-0 ml-2">
-                          {convo.last_message_at ? format(new Date(convo.last_message_at), 'HH:mm') : ''}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <span className="text-[11px] text-foreground-muted truncate">{convo.last_message || 'No messages yet'}</span>
-                        {convo.unread_count > 0 && (
-                          <span className="ml-2 bg-primary text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center shrink-0">
-                            {convo.unread_count}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                ))
+                <span className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <MessageCircle className="w-4 h-4 text-primary" /> Messages
+                </span>
               )}
-            </div>
-          )}
-
-          {/* New Chat / Group */}
-          {view === 'newchat' && (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-3 border-b border-border">
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-foreground-muted" />
-                  <input type="text" placeholder="Search users..." value={userSearch} onChange={e => setUserSearch(e.target.value)}
-                    className="w-full bg-surface border border-border rounded-xl py-2 pl-9 pr-3 text-xs focus:outline-none focus:border-primary" />
-                </div>
-                {selectedNewUsers.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {selectedNewUsers.map(u => (
-                      <span key={u.id} className="bg-primary/10 text-primary text-[10px] px-2 py-1 rounded-full flex items-center gap-1 font-medium">
-                        {u.full_name}
-                        <button onClick={() => setSelectedNewUsers(prev => prev.filter(x => x.id !== u.id))}><X className="w-2.5 h-2.5" /></button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {selectedNewUsers.length > 1 && (
-                  <input type="text" placeholder="Group name (optional)" value={groupName} onChange={e => setGroupName(e.target.value)}
-                    className="w-full mt-2 bg-surface border border-border rounded-xl py-2 px-3 text-xs focus:outline-none focus:border-primary" />
-                )}
-              </div>
-              <div className="flex-1 overflow-y-auto divide-y divide-border/50">
-                {allUsers.filter(u => u.full_name.toLowerCase().includes(userSearch.toLowerCase())).map(u => (
-                  <button key={u.id}
-                    onClick={() => setSelectedNewUsers(prev => prev.find(x => x.id === u.id) ? prev.filter(x => x.id !== u.id) : [...prev, u])}
-                    className={cn("w-full flex items-center gap-3 px-4 py-3 hover:bg-surface/60 transition-colors text-left",
-                      selectedNewUsers.find(x => x.id === u.id) ? "bg-primary/10" : "")}>
-                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm shrink-0">
-                      {(u.full_name?.[0] || '?').toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">{u.full_name}</p>
-                      <p className="text-[10px] text-foreground-muted">@{u.username}</p>
-                    </div>
+              <div className="flex items-center gap-1.5">
+                {view === 'list' && (
+                  <button onClick={() => { setView('newchat'); loadAllUsers(); }}
+                    className="p-1.5 rounded-lg hover:bg-primary/10 text-foreground-muted hover:text-primary transition-colors" title="New message">
+                    <Plus className="w-4 h-4" />
                   </button>
-                ))}
-              </div>
-              <div className="p-3 border-t border-border">
-                <button onClick={startNewChat} disabled={selectedNewUsers.length === 0}
-                  className="w-full py-2 bg-primary text-white rounded-xl text-xs font-bold disabled:opacity-40 hover:bg-primary/90 transition-all">
-                  {selectedNewUsers.length > 1 ? 'Create Group' : 'Start Chat'}
+                )}
+                <button onClick={() => setSoundEnabled(p => !p)}
+                  className="p-1.5 rounded-lg hover:bg-primary/10 text-foreground-muted hover:text-primary transition-colors"
+                  title={soundEnabled ? 'Mute' : 'Unmute'}>
+                  {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                </button>
+                <button onClick={() => setIsOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-danger/10 text-foreground-muted hover:text-danger transition-colors">
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
-          )}
 
-          {/* Chat View */}
-          {view === 'chat' && (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {messages.map((msg, i) => {
-                  const isMine = msg.sender_id === user.id;
-                  const showName = !isMine && (i === 0 || messages[i - 1].sender_id !== msg.sender_id);
-                  const hasContent = msg.content?.trim();
-                  const hasAttach = msg.attachment_url;
-                  const isDeleted = msg.content === '🚫 Pesan ini telah dihapus';
-                  return (
-                    <div key={msg.id} className={cn("flex flex-col relative group/msg", isMine ? "items-end" : "items-start")}>
-                      {showName && <span className="text-[9px] text-foreground-muted font-medium mb-0.5 ml-2">{msg.full_name}</span>}
-                      <div className="flex items-center gap-1 w-full" style={{ justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
-                        {isMine && !isDeleted && (
-                          <button onClick={() => handleDeleteMessage(msg)} className="opacity-0 group-hover/msg:opacity-100 p-1.5 text-danger hover:bg-danger/10 rounded-full transition-all shrink-0" title="Hapus pesan">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        <div className={cn(
-                          "max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed break-words shadow-sm",
-                          isMine ? "bg-primary text-white rounded-br-sm" : "bg-surface-raised text-foreground rounded-bl-sm border border-border",
-                          isDeleted && "italic opacity-70"
-                        )}>
-                          {hasContent && <p>{msg.content}</p>}
-                          {hasAttach && !isDeleted && (
-                            <AttachmentBubble
-                              url={msg.attachment_url!}
-                              name={msg.attachment_name}
-                              type={msg.attachment_type}
-                              isMine={isMine}
-                            />
+            {/* Conversation List */}
+            {view === 'list' && (
+              <div className="flex-1 overflow-y-auto divide-y divide-border/50">
+                {conversations.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center gap-3 text-foreground-muted p-6">
+                    <MessageCircle className="w-12 h-12 opacity-20" />
+                    <p className="text-sm font-medium text-center">No conversations yet.<br />Start a new message!</p>
+                  </div>
+                ) : (
+                  conversations.map(convo => (
+                    <button key={convo.id} onClick={() => openConversation(convo)}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface/60 transition-colors text-left">
+                      <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0 text-primary font-bold text-sm">
+                        {convo.type === 'group' ? <Users className="w-5 h-5" /> : (convo.participants_name?.[0] || '?').toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className={cn("text-sm font-semibold truncate", convo.unread_count > 0 ? "text-foreground" : "text-foreground-muted")}>
+                            {convo.name || convo.participants_name || 'Chat'}
+                          </span>
+                          <span className="text-[10px] text-foreground-muted shrink-0 ml-2">
+                            {convo.last_message_at ? format(new Date(convo.last_message_at), 'HH:mm') : ''}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <span className="text-[11px] text-foreground-muted truncate">{convo.last_message || 'No messages yet'}</span>
+                          {convo.unread_count > 0 && (
+                            <span className="ml-2 bg-primary text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center shrink-0">
+                              {convo.unread_count}
+                            </span>
                           )}
                         </div>
                       </div>
-                      <span className="text-[9px] text-foreground-muted mt-0.5 mx-2">{format(new Date(msg.created_at), 'HH:mm')}</span>
-                    </div>
-                  );
-                })}
-                <div ref={messagesEndRef} />
+                    </button>
+                  ))
+                )}
               </div>
+            )}
 
-              {/* Attachment preview strip */}
-              {attachFile && (
-                <div className="px-3 pb-1 shrink-0">
-                  <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-xl px-3 py-2">
-                    {attachPreview
-                      ? <img src={attachPreview} alt="preview" className="w-10 h-10 rounded-lg object-cover shrink-0 border border-primary/30" />
-                      : <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0"><FileText className="w-5 h-5 text-primary" /></div>
-                    }
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-foreground truncate">{attachFile.name}</p>
-                      <p className="text-[10px] text-foreground-muted">{formatFileSize(attachFile.size)}</p>
+            {/* New Chat / Group */}
+            {view === 'newchat' && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="p-3 border-b border-border">
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-foreground-muted" />
+                    <input type="text" placeholder="Search users..." value={userSearch} onChange={e => setUserSearch(e.target.value)}
+                      className="w-full bg-surface border border-border rounded-xl py-2 pl-9 pr-3 text-xs focus:outline-none focus:border-primary" />
+                  </div>
+                  {selectedNewUsers.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {selectedNewUsers.map(u => (
+                        <span key={u.id} className="bg-primary/10 text-primary text-[10px] px-2 py-1 rounded-full flex items-center gap-1 font-medium">
+                          {u.full_name}
+                          <button onClick={() => setSelectedNewUsers(prev => prev.filter(x => x.id !== u.id))}><X className="w-2.5 h-2.5" /></button>
+                        </span>
+                      ))}
                     </div>
-                    <button onClick={clearAttach} className="p-1 hover:bg-danger/10 rounded-lg text-foreground-muted hover:text-danger transition-colors shrink-0">
-                      <X className="w-3.5 h-3.5" />
+                  )}
+                  {selectedNewUsers.length > 1 && (
+                    <input type="text" placeholder="Group name (optional)" value={groupName} onChange={e => setGroupName(e.target.value)}
+                      className="w-full mt-2 bg-surface border border-border rounded-xl py-2 px-3 text-xs focus:outline-none focus:border-primary" />
+                  )}
+                </div>
+                <div className="flex-1 overflow-y-auto divide-y divide-border/50">
+                  {allUsers.filter(u => u.full_name.toLowerCase().includes(userSearch.toLowerCase())).map(u => (
+                    <button key={u.id}
+                      onClick={() => setSelectedNewUsers(prev => prev.find(x => x.id === u.id) ? prev.filter(x => x.id !== u.id) : [...prev, u])}
+                      className={cn("w-full flex items-center gap-3 px-4 py-3 hover:bg-surface/60 transition-colors text-left",
+                        selectedNewUsers.find(x => x.id === u.id) ? "bg-primary/10" : "")}>
+                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                        {(u.full_name?.[0] || '?').toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{u.full_name}</p>
+                        <p className="text-[10px] text-foreground-muted">@{u.username}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="p-3 border-t border-border">
+                  <button onClick={startNewChat} disabled={selectedNewUsers.length === 0}
+                    className="w-full py-2 bg-primary text-white rounded-xl text-xs font-bold disabled:opacity-40 hover:bg-primary/90 transition-all">
+                    {selectedNewUsers.length > 1 ? 'Create Group' : 'Start Chat'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Chat View */}
+            {view === 'chat' && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  {messages.map((msg, i) => {
+                    const isMine = msg.sender_id === user.id;
+                    const showName = !isMine && (i === 0 || messages[i - 1].sender_id !== msg.sender_id);
+                    const hasContent = msg.content?.trim();
+                    const hasAttach = msg.attachment_url;
+                    const isDeleted = msg.content === '🚫 Pesan ini telah dihapus';
+                    return (
+                      <div key={msg.id} className={cn("flex flex-col relative group/msg", isMine ? "items-end" : "items-start")}>
+                        {showName && <span className="text-[9px] text-foreground-muted font-medium mb-0.5 ml-2">{msg.full_name}</span>}
+                        <div className="flex items-center gap-1 w-full" style={{ justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
+                          {isMine && !isDeleted && (
+                            <button onClick={() => handleDeleteMessage(msg)} className="opacity-0 group-hover/msg:opacity-100 p-1.5 text-danger hover:bg-danger/10 rounded-full transition-all shrink-0" title="Hapus pesan">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <div className={cn(
+                            "max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed break-words shadow-sm",
+                            isMine ? "bg-primary text-white rounded-br-sm" : "bg-surface-raised text-foreground rounded-bl-sm border border-border",
+                            isDeleted && "italic opacity-70"
+                          )}>
+                            {hasContent && <p>{msg.content}</p>}
+                            {hasAttach && !isDeleted && (
+                              <AttachmentBubble
+                                url={msg.attachment_url!}
+                                name={msg.attachment_name}
+                                type={msg.attachment_type}
+                                isMine={isMine}
+                              />
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[9px] text-foreground-muted mt-0.5 mx-2">{format(new Date(msg.created_at), 'HH:mm')}</span>
+                      </div>
+                    );
+                  })}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Attachment preview strip */}
+                {attachFile && (
+                  <div className="px-3 pb-1 shrink-0">
+                    <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-xl px-3 py-2">
+                      {attachPreview
+                        ? <img src={attachPreview} alt="preview" className="w-10 h-10 rounded-lg object-cover shrink-0 border border-primary/30" />
+                        : <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0"><FileText className="w-5 h-5 text-primary" /></div>
+                      }
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-foreground truncate">{attachFile.name}</p>
+                        <p className="text-[10px] text-foreground-muted">{formatFileSize(attachFile.size)}</p>
+                      </div>
+                      <button onClick={clearAttach} className="p-1 hover:bg-danger/10 rounded-lg text-foreground-muted hover:text-danger transition-colors shrink-0">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Input */}
+                <div className="p-3 border-t border-border shrink-0">
+                  <div className="flex items-center gap-2 bg-surface-raised rounded-xl border border-border px-2 py-1.5 focus-within:border-primary transition-colors">
+                    {/* Attach button */}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                      className="w-7 h-7 flex items-center justify-center text-foreground-muted hover:text-primary transition-colors shrink-0"
+                      title="Attach file"
+                    >
+                      {attachFile
+                        ? <ImageIcon className="w-4 h-4 text-primary" />
+                        : <Paperclip className="w-4 h-4" />
+                      }
+                    </button>
+
+                    <input
+                      type="text"
+                      value={inputText}
+                      onChange={e => setInputText(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                      placeholder={attachFile ? "Add a caption..." : "Type a message..."}
+                      className="flex-1 bg-transparent text-xs outline-none text-foreground placeholder:text-foreground-muted"
+                    />
+
+                    <button
+                      onClick={sendMessage}
+                      disabled={(!inputText.trim() && !attachFile) || isUploading}
+                      className="w-7 h-7 bg-primary rounded-full flex items-center justify-center disabled:opacity-30 hover:bg-primary/90 transition-all shrink-0"
+                    >
+                      {isUploading
+                        ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        : <Send className="w-3.5 h-3.5 text-white" />
+                      }
                     </button>
                   </div>
+                  <p className="text-[9px] text-foreground-muted mt-1 text-center opacity-60">
+                    Max 10MB · Images, Docs, EXE, RPT, Archives
+                  </p>
                 </div>
-              )}
-
-              {/* Input */}
-              <div className="p-3 border-t border-border shrink-0">
-                <div className="flex items-center gap-2 bg-surface-raised rounded-xl border border-border px-2 py-1.5 focus-within:border-primary transition-colors">
-                  {/* Attach button */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploading}
-                    className="w-7 h-7 flex items-center justify-center text-foreground-muted hover:text-primary transition-colors shrink-0"
-                    title="Attach file"
-                  >
-                    {attachFile
-                      ? <ImageIcon className="w-4 h-4 text-primary" />
-                      : <Paperclip className="w-4 h-4" />
-                    }
-                  </button>
-
-                  <input
-                    type="text"
-                    value={inputText}
-                    onChange={e => setInputText(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                    placeholder={attachFile ? "Add a caption..." : "Type a message..."}
-                    className="flex-1 bg-transparent text-xs outline-none text-foreground placeholder:text-foreground-muted"
-                  />
-
-                  <button
-                    onClick={sendMessage}
-                    disabled={(!inputText.trim() && !attachFile) || isUploading}
-                    className="w-7 h-7 bg-primary rounded-full flex items-center justify-center disabled:opacity-30 hover:bg-primary/90 transition-all shrink-0"
-                  >
-                    {isUploading
-                      ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      : <Send className="w-3.5 h-3.5 text-white" />
-                    }
-                  </button>
-                </div>
-                <p className="text-[9px] text-foreground-muted mt-1 text-center opacity-60">
-                  Max 10MB · Images, Docs, EXE, RPT, Archives
-                </p>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
-
-      {/* Floating Toggle Button */}
-      <button
-        onClick={() => { setIsOpen(p => !p); if (!isOpen) loadConversations(); }}
-        className={cn(
-          "w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 relative",
-          "bg-gradient-to-br from-primary to-info text-white"
-        )}
-      >
-        {isOpen ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
-        {!isOpen && totalUnread > 0 && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-danger text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-md animate-pulse">
-            {totalUnread > 9 ? '9+' : totalUnread}
-          </span>
-        )}
-      </button>
-    </div>
+    </>
   );
 }

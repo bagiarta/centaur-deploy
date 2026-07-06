@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Server, Shield, Download, Package, Bell, Send, CheckCircle, AlertCircle, RefreshCw, Palette, Layout, Sidebar as SidebarIcon, Chrome, RotateCcw, Bot, Save, Trash2, PencilLine, Eye, Calendar, Edit2, Phone, Users, ShieldCheck } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Server, Shield, Download, Package, Bell, Send, CheckCircle, AlertCircle, RefreshCw, Palette, Layout, Sidebar as SidebarIcon, Chrome, RotateCcw, Bot, Save, Trash2, PencilLine, Eye, Calendar, Edit2, Phone, Users, ShieldCheck, Play, X } from "lucide-react";
 import { PageHeader, SectionCard } from "@/components/ui-enterprise";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const DOWNLOADS = [
   {
@@ -234,6 +237,7 @@ const applyThemePreview = (theme: ThemeSettings) => {
 export default function SettingsPage() {
   const { user } = useAuth();
   const userKey = user?.id || user?.username;
+  const [activeTab, setActiveTab] = useState<"system" | "appearance" | "notifications" | "assistant">("system");
   const [notifSettings, setNotifSettings] = useState({
     webhook_url: "",
     whatsapp_token: "",
@@ -265,6 +269,17 @@ export default function SettingsPage() {
   const [keywordTestInput, setKeywordTestInput] = useState("");
   const [keywordTesting, setKeywordTesting] = useState(false);
   const [keywordTestResult, setKeywordTestResult] = useState("");
+  
+  // Keyword Action Execution States
+  const [activeRunKeyword, setActiveRunKeyword] = useState<AssistantKeyword | null>(null);
+  const [runParameters, setRunParameters] = useState<Record<string, string>>({});
+  const [runTargetHost, setRunTargetHost] = useState("");
+  const [runConfirm, setRunConfirm] = useState(false);
+  const [runResultText, setRunResultText] = useState("");
+  const [runResultSources, setRunResultSources] = useState<any[]>([]);
+  const [runLoading, setRunLoading] = useState(false);
+  const [devicesList, setDevicesList] = useState<any[]>([]);
+  const [devicesLoading, setDevicesLoading] = useState(false);
 
   // --- NOTIFICATION SCHEDULER ---
   interface NotifSchedule {
@@ -632,6 +647,90 @@ export default function SettingsPage() {
     }
   };
 
+  const handleTriggerKeywordRun = async (keyword: AssistantKeyword) => {
+    setActiveRunKeyword(keyword);
+    setRunParameters({});
+    setRunTargetHost("");
+    setRunConfirm(false);
+    setRunResultText("");
+    setRunResultSources([]);
+    
+    if (!keyword.target_host) {
+      setDevicesLoading(true);
+      try {
+        const res = await fetch("/api/devices");
+        if (res.ok) {
+          const data = await res.json();
+          const filtered = (data || []).filter((dev: any) => {
+            const groupIds = Array.isArray(dev.group_ids)
+              ? dev.group_ids
+              : (dev.group_ids || '').split(',').map((s: string) => s.trim());
+            return groupIds.includes('g2') || groupIds.includes('g3') || dev.status === 'offline';
+          });
+          setDevicesList(filtered);
+        }
+      } catch (err) {
+        console.error("Failed to load devices for run", err);
+      } finally {
+        setDevicesLoading(false);
+      }
+    }
+  };
+
+  const handleExecuteKeywordDirect = async () => {
+    if (!activeRunKeyword) return;
+    
+    const missing = activeRunKeyword.parameter_keys.filter(key => !runParameters[key]?.trim());
+    if (missing.length > 0) {
+      toast.error(`Please fill in all parameters: ${missing.join(", ")}`);
+      return;
+    }
+    
+    if (!activeRunKeyword.target_host && !runTargetHost) {
+      toast.error("Please select a target host.");
+      return;
+    }
+
+    if (activeRunKeyword.requires_confirmation && !runConfirm) {
+      toast.error("Please check the confirmation box.");
+      return;
+    }
+
+    setRunLoading(true);
+    setRunResultText("");
+    setRunResultSources([]);
+    
+    try {
+      const response = await fetch('/api/assistant-keywords/run', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': userKey || ''
+        },
+        body: JSON.stringify({
+          keywordId: activeRunKeyword.id,
+          parameters: runParameters,
+          targetHost: runTargetHost || undefined,
+          confirm: runConfirm
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to execute keyword.");
+      }
+
+      setRunResultText(data.text || "No output returned.");
+      setRunResultSources(data.sources || []);
+      toast.success("Keyword executed successfully!");
+    } catch (error: any) {
+      toast.error(error.message || "Execution failed.");
+      setRunResultText(`Error: ${error.message}`);
+    } finally {
+      setRunLoading(false);
+    }
+  };
+
   useEffect(() => {
     async function fetchSettings() {
       try {
@@ -783,9 +882,38 @@ export default function SettingsPage() {
         subtitle="Download installer packages and configure server settings"
       />
 
-      {/* Download Packages */}
-      <div>
-        <h2 className="text-sm font-bold text-foreground mb-3 uppercase tracking-wider">📦 Installer Packages</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-[240px,1fr] gap-8 items-start">
+        {/* Sidebar Sub-menu */}
+        <div className="flex flex-col gap-1.5 p-2 bg-surface/50 border border-border rounded-2xl shrink-0">
+          {[
+            { id: "system", label: "General & System", icon: <Server size={16} /> },
+            { id: "appearance", label: "Appearance & Theme", icon: <Palette size={16} /> },
+            { id: "notifications", label: "Notifications & Alerts", icon: <Bell size={16} /> },
+            { id: "assistant", label: "Assistant & Keywords", icon: <Bot size={16} /> },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-left",
+                activeTab === tab.id
+                  ? "bg-primary text-primary-foreground shadow-glow"
+                  : "text-foreground-muted hover:bg-surface-raised hover:text-foreground"
+              )}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Panels */}
+        <div className="space-y-6 min-w-0">
+          {activeTab === "system" && (
+            <div className="space-y-6 animate-fade-in">
+              {/* Download Packages */}
+              <div>
+                <h2 className="text-sm font-bold text-foreground mb-3 uppercase tracking-wider">📦 Installer Packages</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {DOWNLOADS.map(pkg => (
             <div key={pkg.name} className={`card-enterprise p-5 border ${pkg.border} flex flex-col`}>
@@ -849,6 +977,12 @@ export default function SettingsPage() {
           </button>
         </div>
       </SectionCard>
+            </div>
+          )}
+
+          {activeTab === "notifications" && (
+            <div className="space-y-6 animate-fade-in">
+              {/* Notification Settings */}
 
       {/* Notification Settings */}
       <SectionCard title="Notification & Alerting System">
@@ -1201,8 +1335,12 @@ export default function SettingsPage() {
           </button>
         </div>
       </SectionCard>
+            </div>
+          )}
 
-      {/* Agent Auto-Update Global Configuration */}
+          {activeTab === "system" && (
+            <div className="space-y-6 animate-fade-in">
+              {/* Agent Auto-Update Global Configuration */}
       <SectionCard title="Agent Auto-Update Global Configuration">
         <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
@@ -1247,10 +1385,13 @@ export default function SettingsPage() {
           </button>
         </div>
       </SectionCard>
+            </div>
+          )}
 
-      {user?.is_admin && (
-        <SectionCard
-          title="AI Assistant Keyword Manager"
+          {activeTab === "assistant" && user?.is_admin && (
+            <div className="space-y-6 animate-fade-in">
+              <SectionCard
+                title="AI Assistant Keyword Manager"
           subtitle="Create managed keywords that run approved queries, procedures, or workflow lookups"
           actions={
             <div className="flex items-center gap-3">
@@ -1464,13 +1605,22 @@ export default function SettingsPage() {
                         </div>
                         <p className="text-xs text-foreground-muted mt-1">{selectedKeyword.description || "No description"}</p>
                       </div>
-                      <button
-                        onClick={() => handleEditKeyword(selectedKeyword)}
-                        className="p-2 rounded-md border border-border hover:bg-background transition-colors"
-                        title="Edit keyword"
-                      >
-                        <PencilLine className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleTriggerKeywordRun(selectedKeyword)}
+                          className="px-2.5 py-1.5 rounded-md border border-success/30 bg-success/5 text-success hover:bg-success/15 transition-colors text-xs font-bold flex items-center gap-1"
+                          title="Run Keyword Action"
+                        >
+                          <Play className="w-3.5 h-3.5" /> Run Action
+                        </button>
+                        <button
+                          onClick={() => handleEditKeyword(selectedKeyword)}
+                          className="p-2 rounded-md border border-border hover:bg-background transition-colors"
+                          title="Edit keyword"
+                        >
+                          <PencilLine className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] text-foreground-subtle">
@@ -1523,6 +1673,13 @@ export default function SettingsPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <button
+                            onClick={() => handleTriggerKeywordRun(keyword)}
+                            className="p-2 rounded-md border border-success/30 text-success hover:bg-success/10 transition-colors"
+                            title="Run Action"
+                          >
+                            <Play className="w-4 h-4" />
+                          </button>
+                          <button
                             onClick={() => setSelectedKeywordId((current) => current === keyword.id ? null : keyword.id)}
                             className={`
                               p-2 rounded-md border transition-colors
@@ -1548,11 +1705,14 @@ export default function SettingsPage() {
             </div>
           </div>
         </SectionCard>
-      )}
+      </div>
+    )}
 
-      {/* Theme Customizer */}
-      <SectionCard 
-        title="Theme & UI Customization" 
+          {activeTab === "appearance" && (
+            <div className="space-y-6 animate-fade-in">
+              {/* Theme Customizer */}
+              <SectionCard 
+                title="Theme & UI Customization" 
         subtitle="Manage sidebar, background, and brand identity colors"
         actions={
           <div className="flex items-center gap-3">
@@ -1845,6 +2005,164 @@ export default function SettingsPage() {
           </div>
         </div>
       </SectionCard>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Keyword Direct Run Modal ────────────────────── */}
+      {activeRunKeyword && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in" 
+            onClick={() => setActiveRunKeyword(null)} 
+          />
+          
+          <div className="relative w-full max-w-2xl bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-border flex items-center justify-between bg-primary/5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-success/15 flex items-center justify-center text-success">
+                  <Play className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-foreground">Run Keyword: {activeRunKeyword.keyword}</h3>
+                  <p className="text-xs text-foreground-muted">{activeRunKeyword.description || "No description provided."}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setActiveRunKeyword(null)} 
+                className="p-2 hover:bg-surface-raised rounded-full transition-colors text-foreground-muted"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
+              {!activeRunKeyword.target_host && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-foreground-muted uppercase tracking-wider block">Target Host</label>
+                  {devicesLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-foreground-subtle">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Loading devices...</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={runTargetHost}
+                      onChange={(e) => setRunTargetHost(e.target.value)}
+                      className="w-full bg-background border border-border rounded-xl p-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-foreground"
+                    >
+                      <option value="">-- Select Target Device Host --</option>
+                      {devicesList.map(dev => (
+                        <option key={dev.id} value={dev.hostname}>
+                          {dev.hostname} ({dev.ip})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="text-[10px] text-foreground-subtle mt-1">This keyword requires a database host configuration to run against.</p>
+                </div>
+              )}
+
+              {activeRunKeyword.parameter_keys.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <label className="text-xs font-bold text-foreground-muted uppercase tracking-wider block">Required Parameters</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {activeRunKeyword.parameter_keys.map((key) => {
+                      const isDate = key.toLowerCase().includes("date") || key.toLowerCase().includes("tanggal");
+                      return (
+                        <div key={key} className="space-y-1.5">
+                          <label className="text-xs font-semibold text-foreground-muted ml-1">{key}</label>
+                          <input
+                            type={isDate ? "date" : "text"}
+                            required
+                            placeholder={`Enter ${key}`}
+                            value={runParameters[key] || ""}
+                            onChange={(e) => setRunParameters({
+                              ...runParameters,
+                              [key]: e.target.value
+                            })}
+                            className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-foreground"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {activeRunKeyword.requires_confirmation && (
+                <div className="pt-2">
+                  <label className="flex items-center gap-3 p-3 bg-danger/5 border border-danger/20 rounded-xl cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={runConfirm}
+                      onChange={(e) => setRunConfirm(e.target.checked)}
+                      className="w-4 h-4 accent-danger rounded cursor-pointer"
+                    />
+                    <div>
+                      <p className="text-sm font-bold text-danger">Confirmation Required</p>
+                      <p className="text-[11px] text-danger/80">I confirm that I want to execute this action.</p>
+                    </div>
+                  </label>
+                </div>
+              )}
+
+              <div className="pt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setActiveRunKeyword(null)}
+                  className="flex-1 px-4 py-3 rounded-xl border border-border font-bold text-sm hover:bg-surface-raised transition-all text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteKeywordDirect}
+                  disabled={runLoading}
+                  className="flex-[2] bg-success text-success-foreground py-3 rounded-xl font-bold text-sm shadow-glow flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50"
+                >
+                  {runLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  Execute Action
+                </button>
+              </div>
+
+              {(runResultText || runLoading) && (
+                <div className="pt-4 border-t border-border space-y-2">
+                  <h4 className="text-xs font-bold text-foreground-muted uppercase tracking-wider">Result Output</h4>
+                  {runLoading ? (
+                    <div className="p-8 rounded-xl bg-background border border-border flex flex-col items-center justify-center gap-3">
+                      <RefreshCw className="w-8 h-8 animate-spin text-primary" />
+                      <p className="text-xs text-foreground-muted">Running query on target host...</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-border bg-background p-4 overflow-x-auto max-h-60 overflow-y-auto">
+                      <div className="prose prose-sm dark:prose-invert max-w-none text-xs font-mono text-foreground">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {runResultText}
+                        </ReactMarkdown>
+                      </div>
+                      {runResultSources.length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-3 mt-3 border-t border-border">
+                          {runResultSources.map((source, index) => (
+                            <span
+                              key={`${source.type}-${index}`}
+                              className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary uppercase"
+                              title={source.detail}
+                            >
+                              {source.label || source.type}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      , document.body)}
     </div>
   );
 }
