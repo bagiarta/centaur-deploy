@@ -5786,12 +5786,12 @@ export async function startBackgroundTasks() {
   detectorLoop();
   logCleanupLoop();
 
-  // ── ABC Analysis Daily Sync (Every day at 05:00 AM) ──
-  cron.schedule('0 5 * * *', () => {
+  // ── ABC Analysis Daily Sync (Every day at 07:00 AM) ──
+  cron.schedule('0 7 * * *', () => {
     console.log('[CRON] Running scheduled ABC Analysis sync...');
     runAbcSync();
   });
-  console.log('📊 ABC Analysis daily sync scheduled at 05:00');
+  console.log('📊 ABC Analysis daily sync scheduled at 07:00');
 }
 
 // ── Manual trigger for ABC Analysis Sync ──────────────────────

@@ -1057,20 +1057,46 @@ export default function TicketsPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-2">Linked Groups</label>
-                      <select
-                        multiple
-                        className="w-full h-32 bg-surface/95 border border-border rounded-lg p-2 text-xs focus:outline-none"
-                        value={manageTargetsData.selected_group_ids}
-                        onChange={(e) => {
-                          const values = Array.from(e.target.selectedOptions, option => option.value);
-                          setManageTargetsData(prev => ({ ...prev, selected_group_ids: values }));
-                        }}
-                      >
-                        {groups.map(g => (
-                          <option key={g.id} value={g.id}>{g.name} ({g.device_count})</option>
-                        ))}
-                      </select>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted">Linked Groups</label>
+                        {manageTargetsData.selected_group_ids.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setManageTargetsData(prev => ({ ...prev, selected_group_ids: [] }))}
+                            className="text-[10px] text-danger hover:underline font-bold uppercase transition-all"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+                      <div className="w-full h-32 bg-surface/95 border border-border rounded-lg p-2 text-xs overflow-y-auto space-y-1">
+                        {groups.map(g => {
+                          const isChecked = manageTargetsData.selected_group_ids.includes(g.id);
+                          return (
+                            <label key={g.id} className="flex items-center gap-2 cursor-pointer hover:bg-surface-raised p-1 rounded transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setManageTargetsData(prev => ({
+                                      ...prev,
+                                      selected_group_ids: [...prev.selected_group_ids, g.id]
+                                    }));
+                                  } else {
+                                    setManageTargetsData(prev => ({
+                                      ...prev,
+                                      selected_group_ids: prev.selected_group_ids.filter(id => id !== g.id)
+                                    }));
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 rounded text-primary border-border focus:ring-primary cursor-pointer shrink-0"
+                              />
+                              <span className="truncate text-foreground font-medium">{g.name} ({g.device_count})</span>
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-bold uppercase tracking-wider text-foreground-muted mb-2">Notice</span>
