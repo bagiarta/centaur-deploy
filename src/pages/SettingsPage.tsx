@@ -269,7 +269,7 @@ export default function SettingsPage() {
   const [keywordTestInput, setKeywordTestInput] = useState("");
   const [keywordTesting, setKeywordTesting] = useState(false);
   const [keywordTestResult, setKeywordTestResult] = useState("");
-  
+
   // Keyword Action Execution States
   const [activeRunKeyword, setActiveRunKeyword] = useState<AssistantKeyword | null>(null);
   const [runParameters, setRunParameters] = useState<Record<string, string>>({});
@@ -294,7 +294,7 @@ export default function SettingsPage() {
   }
 
   const [schedules, setSchedules] = useState<NotifSchedule[]>([]);
-  const [notifTypes, setNotifTypes] = useState<{id: string, label: string}[]>([]);
+  const [notifTypes, setNotifTypes] = useState<{ id: string, label: string }[]>([]);
   const [schLoading, setSchLoading] = useState(false);
   const [schSaving, setSchSaving] = useState(false);
   const [schForm, setSchForm] = useState<Partial<NotifSchedule>>({
@@ -370,14 +370,14 @@ export default function SettingsPage() {
       });
       if (res.ok) {
         toast.success(editingSchId ? "Schedule updated!" : "Schedule created!");
-        setSchForm({ 
-          name: "", 
-          notif_type: "daily_report", 
-          schedule_time: "08:00", 
+        setSchForm({
+          name: "",
+          notif_type: "daily_report",
+          schedule_time: "08:00",
           schedule_day: "Daily",
-          whatsapp_target: "", 
-          whatsapp_group: "", 
-          is_enabled: true 
+          whatsapp_target: "",
+          whatsapp_group: "",
+          is_enabled: true
         });
         setEditingSchId(null);
         fetchSchedules();
@@ -487,13 +487,13 @@ export default function SettingsPage() {
       setAssistantKeywords(
         Array.isArray(data)
           ? data.map((item) => ({
-              ...item,
-              target_host: sanitizeKeywordTargetHost(item.target_host || ""),
-              parameter_keys: normalizeKeywordParameters(Array.isArray(item.parameter_keys) ? item.parameter_keys : []),
-              requires_admin: item.requires_admin === true || item.requires_admin === 1,
-              requires_confirmation: item.requires_confirmation === true || item.requires_confirmation === 1,
-              is_enabled: item.is_enabled === true || item.is_enabled === 1,
-            }))
+            ...item,
+            target_host: sanitizeKeywordTargetHost(item.target_host || ""),
+            parameter_keys: normalizeKeywordParameters(Array.isArray(item.parameter_keys) ? item.parameter_keys : []),
+            requires_admin: item.requires_admin === true || item.requires_admin === 1,
+            requires_confirmation: item.requires_confirmation === true || item.requires_confirmation === 1,
+            is_enabled: item.is_enabled === true || item.is_enabled === 1,
+          }))
           : []
       );
     } catch (error: any) {
@@ -654,7 +654,7 @@ export default function SettingsPage() {
     setRunConfirm(false);
     setRunResultText("");
     setRunResultSources([]);
-    
+
     if (!keyword.target_host) {
       setDevicesLoading(true);
       try {
@@ -679,13 +679,13 @@ export default function SettingsPage() {
 
   const handleExecuteKeywordDirect = async () => {
     if (!activeRunKeyword) return;
-    
+
     const missing = activeRunKeyword.parameter_keys.filter(key => !runParameters[key]?.trim());
     if (missing.length > 0) {
       toast.error(`Please fill in all parameters: ${missing.join(", ")}`);
       return;
     }
-    
+
     if (!activeRunKeyword.target_host && !runTargetHost) {
       toast.error("Please select a target host.");
       return;
@@ -699,7 +699,7 @@ export default function SettingsPage() {
     setRunLoading(true);
     setRunResultText("");
     setRunResultSources([]);
-    
+
     try {
       const response = await fetch('/api/assistant-keywords/run', {
         method: 'POST',
@@ -739,7 +739,7 @@ export default function SettingsPage() {
           fetch('/api/agent/config'),
           fetch('/api/theme')
         ]);
-        
+
         if (notifRes.ok) {
           const data = await notifRes.json();
           if (data && typeof data === 'object') {
@@ -914,69 +914,69 @@ export default function SettingsPage() {
               {/* Download Packages */}
               <div>
                 <h2 className="text-sm font-bold text-foreground mb-3 uppercase tracking-wider">📦 Installer Packages</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {DOWNLOADS.map(pkg => (
-            <div key={pkg.name} className={`card-enterprise p-5 border ${pkg.border} flex flex-col`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className={`flex items-center justify-center w-11 h-11 rounded-xl ${pkg.bg} ${pkg.color}`}>
-                  {pkg.icon}
-                </div>
-                <div>
-                  <p className="font-bold text-foreground text-sm">{pkg.name}</p>
-                  <p className="text-xs text-foreground-muted font-mono">v{pkg.version} · {pkg.size}</p>
-                </div>
-              </div>
-              <p className="text-xs text-foreground-muted leading-relaxed mb-4 flex-1">{pkg.description}</p>
-              <div className="mb-4">
-                <p className="text-[10px] text-foreground-subtle uppercase tracking-wider font-semibold mb-1.5">Requirements</p>
-                <ul className="space-y-0.5">
-                  {pkg.reqs.map(r => (
-                    <li key={r} className="flex items-start gap-1.5 text-xs text-foreground-muted">
-                      <span className="text-foreground-subtle shrink-0 mt-0.5">·</span>
-                      {r}
-                    </li>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {DOWNLOADS.map(pkg => (
+                    <div key={pkg.name} className={`card-enterprise p-5 border ${pkg.border} flex flex-col`}>
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={`flex items-center justify-center w-11 h-11 rounded-xl ${pkg.bg} ${pkg.color}`}>
+                          {pkg.icon}
+                        </div>
+                        <div>
+                          <p className="font-bold text-foreground text-sm">{pkg.name}</p>
+                          <p className="text-xs text-foreground-muted font-mono">v{pkg.version} · {pkg.size}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-foreground-muted leading-relaxed mb-4 flex-1">{pkg.description}</p>
+                      <div className="mb-4">
+                        <p className="text-[10px] text-foreground-subtle uppercase tracking-wider font-semibold mb-1.5">Requirements</p>
+                        <ul className="space-y-0.5">
+                          {pkg.reqs.map(r => (
+                            <li key={r} className="flex items-start gap-1.5 text-xs text-foreground-muted">
+                              <span className="text-foreground-subtle shrink-0 mt-0.5">·</span>
+                              {r}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <a
+                        href={`/${pkg.file}`}
+                        download
+                        className={`w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-semibold transition-all ${pkg.color} ${pkg.bg} border ${pkg.border} hover:brightness-125`}
+                      >
+                        <Download className="w-4 h-4" />
+                        Download {pkg.file.split(".").pop()?.toUpperCase()}
+                      </a>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
-              <a 
-                href={`/${pkg.file}`}
-                download
-                className={`w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-semibold transition-all ${pkg.color} ${pkg.bg} border ${pkg.border} hover:brightness-125`}
-              >
-                <Download className="w-4 h-4" />
-                Download {pkg.file.split(".").pop()?.toUpperCase()}
-              </a>
-            </div>
-          ))}
-        </div>
-      </div>
 
-      {/* Server Config */}
-      <SectionCard title="Server Configuration">
-        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[
-            { label: "Server IP",                value: "192.168.85.30" },
-            { label: "Server Port",              value: "3001" },
-            { label: "Agent Poll Interval (sec)", value: "30" },
-            { label: "Package Repository Path",   value: "F:\\PepiUpdater\\Repo" },
-            { label: "Max Parallel Deployments",  value: "20" },
-            { label: "Log Retention (days)",       value: "180" },
-          ].map(cfg => (
-            <div key={cfg.label}>
-              <label className="text-xs text-foreground-muted mb-1 block">{cfg.label}</label>
-              <input
-                defaultValue={cfg.value}
-                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
-          ))}
-        </div>
-        <div className="px-5 pb-5">
-          <button className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors font-semibold shadow-glow">
-            Save Configuration
-          </button>
-        </div>
-      </SectionCard>
+              {/* Server Config */}
+              <SectionCard title="Server Configuration">
+                <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[
+                    { label: "Server IP", value: "192.168.85.30" },
+                    { label: "Server Port", value: "3001" },
+                    { label: "Agent Poll Interval (sec)", value: "30" },
+                    { label: "Package Repository Path", value: "F:\\PepiUpdater\\Repo" },
+                    { label: "Max Parallel Deployments", value: "20" },
+                    { label: "Log Retention (days)", value: "180" },
+                  ].map(cfg => (
+                    <div key={cfg.label}>
+                      <label className="text-xs text-foreground-muted mb-1 block">{cfg.label}</label>
+                      <input
+                        defaultValue={cfg.value}
+                        className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="px-5 pb-5">
+                  <button className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors font-semibold shadow-glow">
+                    Save Configuration
+                  </button>
+                </div>
+              </SectionCard>
             </div>
           )}
 
@@ -984,407 +984,407 @@ export default function SettingsPage() {
             <div className="space-y-6 animate-fade-in">
               {/* Notification Settings */}
 
-      {/* Notification Settings */}
-      <SectionCard title="Notification & Alerting System">
-        <div className="p-5 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Discord/Slack */}
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Discord / Slack Webhook</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="https://discord.com/api/webhooks/..."
-                    value={notifSettings.webhook_url}
-                    onChange={(e) => setNotifSettings({...notifSettings, webhook_url: e.target.value.trim()})}
-                    className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <button 
-                    onClick={handleTestNotif}
-                    disabled={testing}
-                    className="px-4 py-2 text-xs font-bold bg-surface-raised border border-border rounded-md hover:bg-surface-overlay transition-all flex items-center gap-2"
+              {/* Notification Settings */}
+              <SectionCard title="Notification & Alerting System">
+                <div className="p-5 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Discord/Slack */}
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Discord / Slack Webhook</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="https://discord.com/api/webhooks/..."
+                            value={notifSettings.webhook_url}
+                            onChange={(e) => setNotifSettings({ ...notifSettings, webhook_url: e.target.value.trim() })}
+                            className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                          <button
+                            onClick={handleTestNotif}
+                            disabled={testing}
+                            className="px-4 py-2 text-xs font-bold bg-surface-raised border border-border rounded-md hover:bg-surface-overlay transition-all flex items-center gap-2"
+                          >
+                            {testing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                            Test
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-foreground-subtle mt-1.5 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" /> Sent to Discord/Slack when alerts are triggered.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* WhatsApp Fonnte */}
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 gap-4">
+                        <div>
+                          <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">WhatsApp API Token (Fonnte)</label>
+                          <input
+                            type="password"
+                            placeholder="Enter Fonnte API Token"
+                            value={notifSettings.whatsapp_token}
+                            onChange={(e) => setNotifSettings({ ...notifSettings, whatsapp_token: e.target.value.trim() })}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Target Phone Number</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="e.g. 08123456789"
+                              value={notifSettings.whatsapp_target}
+                              onChange={(e) => setNotifSettings({ ...notifSettings, whatsapp_target: e.target.value.trim() })}
+                              className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Target Group Name/ID (Optional)</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="e.g. My Alert Group"
+                              value={notifSettings.whatsapp_group}
+                              onChange={(e) => setNotifSettings({ ...notifSettings, whatsapp_group: e.target.value.trim() })}
+                              className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                            />
+                            <button
+                              onClick={handleTestWhatsapp}
+                              disabled={testingWa}
+                              className="px-4 py-2 text-xs font-bold bg-surface-raised border border-border rounded-md hover:bg-surface-overlay transition-all flex items-center gap-2"
+                            >
+                              {testingWa ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                              Test
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-foreground-subtle mt-1.5 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" /> Fonnte API will send notifications to this number and/or group.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Notification Schedule Manager */}
+                    <div className="md:col-span-2 mt-6 p-5 bg-surface-raised border border-border rounded-2xl space-y-6">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                            <Calendar className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">📅 Notification Schedule Manager</h3>
+                            <p className="text-[11px] text-foreground-muted mt-0.5">Manage automated reports and their delivery schedules to specific WhatsApp groups.</p>
+                          </div>
+                        </div>
+                        {schLoading && <RefreshCw className="w-4 h-4 text-primary animate-spin" />}
+                      </div>
+
+                      {/* Schedule Form */}
+                      <div className="p-4 bg-background/50 border border-border rounded-xl space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Plan Name</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Daily CRM Group Finance"
+                              value={schForm.name}
+                              onChange={(e) => setSchForm({ ...schForm, name: e.target.value })}
+                              className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Report Type</label>
+                            <select
+                              value={schForm.notif_type}
+                              onChange={(e) => setSchForm({ ...schForm, notif_type: e.target.value })}
+                              className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground outline-none"
+                            >
+                              <option value="">-- Select Report Type --</option>
+                              {notifTypes.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Schedule Time (HH:MM)</label>
+                            <input
+                              type="time"
+                              value={schForm.schedule_time}
+                              onChange={(e) => setSchForm({ ...schForm, schedule_time: e.target.value })}
+                              className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Schedule Day</label>
+                            <select
+                              value={schForm.schedule_day}
+                              onChange={(e) => setSchForm({ ...schForm, schedule_day: e.target.value })}
+                              className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground outline-none"
+                            >
+                              {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-2 pt-5">
+                            <input
+                              type="checkbox"
+                              id="sch_enabled"
+                              checked={schForm.is_enabled === true || schForm.is_enabled === 1}
+                              onChange={(e) => setSchForm({ ...schForm, is_enabled: e.target.checked })}
+                              className="w-4 h-4 accent-primary"
+                            />
+                            <label htmlFor="sch_enabled" className="text-[10px] font-bold text-foreground uppercase cursor-pointer">Enabled</label>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">WhatsApp Target (Phone)</label>
+                            <input
+                              type="text"
+                              placeholder="081..."
+                              value={schForm.whatsapp_target}
+                              onChange={(e) => setSchForm({ ...schForm, whatsapp_target: e.target.value })}
+                              className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">WhatsApp Group (ID/Name)</label>
+                            <input
+                              type="text"
+                              placeholder="IT Alerts Group"
+                              value={schForm.whatsapp_group}
+                              onChange={(e) => setSchForm({ ...schForm, whatsapp_group: e.target.value })}
+                              className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground"
+                            />
+                          </div>
+                          <div className="flex items-end gap-2">
+                            <button
+                              onClick={handleSaveSchedule}
+                              disabled={schSaving}
+                              className="flex-1 px-4 py-2 text-xs font-bold bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-glow"
+                            >
+                              {schSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                              {editingSchId ? "Update Plan" : "Add New Plan"}
+                            </button>
+                            {editingSchId && (
+                              <button
+                                onClick={() => {
+                                  setEditingSchId(null);
+                                  setSchForm({
+                                    name: "",
+                                    notif_type: "daily_report",
+                                    schedule_time: "08:00",
+                                    schedule_day: "Daily",
+                                    whatsapp_target: "",
+                                    whatsapp_group: "",
+                                    is_enabled: true
+                                  });
+                                }}
+                                className="px-4 py-2 text-xs font-bold bg-surface-raised border border-border rounded-md hover:bg-surface-overlay"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Schedule List Table */}
+                      <div className="overflow-hidden border border-border rounded-xl">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-background/50 border-b border-border">
+                            <tr>
+                              <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted">Plan Name</th>
+                              <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-center">Day</th>
+                              <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-center">Time</th>
+                              <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted">Destination</th>
+                              <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-center">Status</th>
+                              <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/50">
+                            {schedules.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-8 text-center text-foreground-subtle italic">No schedules defined. Add your first plan above.</td>
+                              </tr>
+                            ) : (
+                              schedules.map(sch => (
+                                <tr key={sch.id} className="hover:bg-primary/5 transition-colors group">
+                                  <td className="px-4 py-3 font-bold text-foreground">
+                                    {sch.name}
+                                    <p className="text-[10px] text-foreground-muted font-normal mt-0.5">{notifTypes.find(t => t.id === sch.notif_type)?.label || sch.notif_type}</p>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-bold text-[10px]">{sch.schedule_day || 'Daily'}</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-center font-mono font-bold text-primary">{sch.schedule_time}</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-col gap-0.5">
+                                      {sch.whatsapp_target && <span className="text-foreground font-medium flex items-center gap-1.5"><Phone className="w-3 h-3 text-foreground-muted" /> {sch.whatsapp_target}</span>}
+                                      {sch.whatsapp_group && <span className="text-foreground font-medium flex items-center gap-1.5"><Users className="w-3 h-3 text-foreground-muted" /> {sch.whatsapp_group}</span>}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <button
+                                      onClick={() => handleToggleSchStatus(sch)}
+                                      className={cn(
+                                        "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all hover:scale-105 active:scale-95",
+                                        (sch.is_enabled === 1 || sch.is_enabled === true) ? "bg-success/10 text-success" : "bg-foreground-subtle/10 text-foreground-subtle"
+                                      )}
+                                    >
+                                      {(sch.is_enabled === 1 || sch.is_enabled === true) ? "Active" : "Disabled"}
+                                    </button>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <button onClick={() => handleEditSch(sch)} className="p-1.5 rounded-md text-foreground-muted hover:bg-primary/10 hover:text-primary transition-colors">
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button onClick={() => handleDeleteSch(sch.id)} className="p-1.5 rounded-md text-foreground-muted hover:bg-danger/10 hover:text-danger transition-colors">
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 pt-2">
+                    <div className="flex items-start gap-3 p-3 bg-surface-raised border border-border rounded-xl">
+                      <div className="p-2 rounded-lg bg-danger/10 text-danger mt-0.5">
+                        <AlertCircle className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-sm font-bold text-foreground">Device Offline</p>
+                          <input
+                            type="checkbox"
+                            checked={notifSettings.alert_offline}
+                            onChange={(e) => setNotifSettings({ ...notifSettings, alert_offline: e.target.checked })}
+                            className="w-4 h-4 accent-primary"
+                          />
+                        </div>
+                        <p className="text-[10px] text-foreground-muted leading-tight mb-2">Alert when a device hasn't checked in for a while.</p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-foreground-muted uppercase font-bold">Timeout</span>
+                          <select
+                            value={notifSettings.offline_timeout_mins}
+                            onChange={(e) => setNotifSettings({ ...notifSettings, offline_timeout_mins: parseInt(e.target.value) })}
+                            className="text-[10px] bg-background border border-border rounded px-1 py-0.5 outline-none font-bold"
+                          >
+                            <option value="5">5 min</option>
+                            <option value="10">10 min</option>
+                            <option value="15">15 min</option>
+                            <option value="30">30 min</option>
+                            <option value="60">1 hour</option>
+                            <option value="120">2 hours</option>
+                            <option value="1440">24 hours</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 p-3 bg-surface-raised border border-border rounded-xl">
+                      <div className="p-2 rounded-lg bg-success/10 text-success mt-0.5">
+                        <CheckCircle className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-sm font-bold text-foreground">Deployment Joy</p>
+                          <input
+                            type="checkbox"
+                            checked={notifSettings.alert_deployment_success}
+                            onChange={(e) => setNotifSettings({ ...notifSettings, alert_deployment_success: e.target.checked })}
+                            className="w-4 h-4 accent-primary"
+                          />
+                        </div>
+                        <p className="text-[10px] text-foreground-muted leading-tight">Notify when a deployment completes without any errors.</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 p-3 bg-surface-raised border border-border rounded-xl">
+                      <div className="p-2 rounded-lg bg-warning/10 text-warning mt-0.5">
+                        <Package className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-sm font-bold text-foreground">Deployment Failure</p>
+                          <input
+                            type="checkbox"
+                            checked={notifSettings.alert_deployment_failed}
+                            onChange={(e) => setNotifSettings({ ...notifSettings, alert_deployment_failed: e.target.checked })}
+                            className="w-4 h-4 accent-primary"
+                          />
+                        </div>
+                        <p className="text-[10px] text-foreground-muted leading-tight">Notify if any target fails during a deployment process.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="px-5 pb-5 border-t border-border pt-4 flex justify-between items-center">
+                  <p className="text-[10px] text-foreground-muted italic">System checks for offline devices every 5 minutes.</p>
+                  <button
+                    onClick={handleSaveNotif}
+                    disabled={saving}
+                    className="px-6 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all font-bold shadow-glow flex items-center gap-2"
                   >
-                    {testing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                    Test
+                    {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+                    Save Notification Settings
                   </button>
                 </div>
-                <p className="text-[10px] text-foreground-subtle mt-1.5 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> Sent to Discord/Slack when alerts are triggered.
-                </p>
-              </div>
-            </div>
-
-            {/* WhatsApp Fonnte */}
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">WhatsApp API Token (Fonnte)</label>
-                  <input
-                    type="password"
-                    placeholder="Enter Fonnte API Token"
-                    value={notifSettings.whatsapp_token}
-                    onChange={(e) => setNotifSettings({...notifSettings, whatsapp_token: e.target.value.trim()})}
-                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Target Phone Number</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="e.g. 08123456789"
-                      value={notifSettings.whatsapp_target}
-                      onChange={(e) => setNotifSettings({...notifSettings, whatsapp_target: e.target.value.trim()})}
-                      className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Target Group Name/ID (Optional)</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="e.g. My Alert Group"
-                      value={notifSettings.whatsapp_group}
-                      onChange={(e) => setNotifSettings({...notifSettings, whatsapp_group: e.target.value.trim()})}
-                      className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                    <button 
-                      onClick={handleTestWhatsapp}
-                      disabled={testingWa}
-                      className="px-4 py-2 text-xs font-bold bg-surface-raised border border-border rounded-md hover:bg-surface-overlay transition-all flex items-center gap-2"
-                    >
-                      {testingWa ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                      Test
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-foreground-subtle mt-1.5 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" /> Fonnte API will send notifications to this number and/or group.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Notification Schedule Manager */}
-            <div className="md:col-span-2 mt-6 p-5 bg-surface-raised border border-border rounded-2xl space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                    <Calendar className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">📅 Notification Schedule Manager</h3>
-                    <p className="text-[11px] text-foreground-muted mt-0.5">Manage automated reports and their delivery schedules to specific WhatsApp groups.</p>
-                  </div>
-                </div>
-                {schLoading && <RefreshCw className="w-4 h-4 text-primary animate-spin" />}
-              </div>
-
-              {/* Schedule Form */}
-              <div className="p-4 bg-background/50 border border-border rounded-xl space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Plan Name</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Daily CRM Group Finance"
-                      value={schForm.name}
-                      onChange={(e) => setSchForm({...schForm, name: e.target.value})}
-                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Report Type</label>
-                    <select
-                      value={schForm.notif_type}
-                      onChange={(e) => setSchForm({...schForm, notif_type: e.target.value})}
-                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground outline-none"
-                    >
-                      <option value="">-- Select Report Type --</option>
-                      {notifTypes.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Schedule Time (HH:MM)</label>
-                    <input
-                      type="time"
-                      value={schForm.schedule_time}
-                      onChange={(e) => setSchForm({...schForm, schedule_time: e.target.value})}
-                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">Schedule Day</label>
-                    <select
-                      value={schForm.schedule_day}
-                      onChange={(e) => setSchForm({...schForm, schedule_day: e.target.value})}
-                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground outline-none"
-                    >
-                      {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-2 pt-5">
-                    <input
-                      type="checkbox"
-                      id="sch_enabled"
-                      checked={schForm.is_enabled === true || schForm.is_enabled === 1}
-                      onChange={(e) => setSchForm({...schForm, is_enabled: e.target.checked})}
-                      className="w-4 h-4 accent-primary"
-                    />
-                    <label htmlFor="sch_enabled" className="text-[10px] font-bold text-foreground uppercase cursor-pointer">Enabled</label>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">WhatsApp Target (Phone)</label>
-                    <input
-                      type="text"
-                      placeholder="081..."
-                      value={schForm.whatsapp_target}
-                      onChange={(e) => setSchForm({...schForm, whatsapp_target: e.target.value})}
-                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-foreground-muted mb-1 block uppercase">WhatsApp Group (ID/Name)</label>
-                    <input
-                      type="text"
-                      placeholder="IT Alerts Group"
-                      value={schForm.whatsapp_group}
-                      onChange={(e) => setSchForm({...schForm, whatsapp_group: e.target.value})}
-                      className="w-full px-3 py-2 text-xs bg-background border border-border rounded-md text-foreground"
-                    />
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <button
-                      onClick={handleSaveSchedule}
-                      disabled={schSaving}
-                      className="flex-1 px-4 py-2 text-xs font-bold bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-glow"
-                    >
-                      {schSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                      {editingSchId ? "Update Plan" : "Add New Plan"}
-                    </button>
-                    {editingSchId && (
-                      <button
-                        onClick={() => { 
-                          setEditingSchId(null); 
-                          setSchForm({ 
-                            name: "", 
-                            notif_type: "daily_report", 
-                            schedule_time: "08:00", 
-                            schedule_day: "Daily",
-                            whatsapp_target: "", 
-                            whatsapp_group: "", 
-                            is_enabled: true 
-                          }); 
-                        }}
-                        className="px-4 py-2 text-xs font-bold bg-surface-raised border border-border rounded-md hover:bg-surface-overlay"
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Schedule List Table */}
-              <div className="overflow-hidden border border-border rounded-xl">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-background/50 border-b border-border">
-                    <tr>
-                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted">Plan Name</th>
-                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-center">Day</th>
-                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-center">Time</th>
-                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted">Destination</th>
-                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-center">Status</th>
-                      <th className="px-4 py-3 font-bold uppercase tracking-wider text-foreground-muted text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {schedules.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-foreground-subtle italic">No schedules defined. Add your first plan above.</td>
-                      </tr>
-                    ) : (
-                      schedules.map(sch => (
-                        <tr key={sch.id} className="hover:bg-primary/5 transition-colors group">
-                          <td className="px-4 py-3 font-bold text-foreground">
-                            {sch.name}
-                            <p className="text-[10px] text-foreground-muted font-normal mt-0.5">{notifTypes.find(t => t.id === sch.notif_type)?.label || sch.notif_type}</p>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-bold text-[10px]">{sch.schedule_day || 'Daily'}</span>
-                          </td>
-                          <td className="px-4 py-3 text-center font-mono font-bold text-primary">{sch.schedule_time}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-col gap-0.5">
-                              {sch.whatsapp_target && <span className="text-foreground font-medium flex items-center gap-1.5"><Phone className="w-3 h-3 text-foreground-muted" /> {sch.whatsapp_target}</span>}
-                              {sch.whatsapp_group && <span className="text-foreground font-medium flex items-center gap-1.5"><Users className="w-3 h-3 text-foreground-muted" /> {sch.whatsapp_group}</span>}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <button 
-                              onClick={() => handleToggleSchStatus(sch)}
-                              className={cn(
-                                "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all hover:scale-105 active:scale-95",
-                                (sch.is_enabled === 1 || sch.is_enabled === true) ? "bg-success/10 text-success" : "bg-foreground-subtle/10 text-foreground-subtle"
-                              )}
-                            >
-                              {(sch.is_enabled === 1 || sch.is_enabled === true) ? "Active" : "Disabled"}
-                            </button>
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <button onClick={() => handleEditSch(sch)} className="p-1.5 rounded-md text-foreground-muted hover:bg-primary/10 hover:text-primary transition-colors">
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button onClick={() => handleDeleteSch(sch.id)} className="p-1.5 rounded-md text-foreground-muted hover:bg-danger/10 hover:text-danger transition-colors">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 pt-2">
-            <div className="flex items-start gap-3 p-3 bg-surface-raised border border-border rounded-xl">
-              <div className="p-2 rounded-lg bg-danger/10 text-danger mt-0.5">
-                <AlertCircle className="w-4 h-4" />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-bold text-foreground">Device Offline</p>
-                  <input 
-                    type="checkbox"
-                    checked={notifSettings.alert_offline}
-                    onChange={(e) => setNotifSettings({...notifSettings, alert_offline: e.target.checked})}
-                    className="w-4 h-4 accent-primary"
-                  />
-                </div>
-                <p className="text-[10px] text-foreground-muted leading-tight mb-2">Alert when a device hasn't checked in for a while.</p>
-                <div className="flex items-center gap-2">
-                   <span className="text-[10px] text-foreground-muted uppercase font-bold">Timeout</span>
-                   <select 
-                     value={notifSettings.offline_timeout_mins}
-                     onChange={(e) => setNotifSettings({...notifSettings, offline_timeout_mins: parseInt(e.target.value)})}
-                     className="text-[10px] bg-background border border-border rounded px-1 py-0.5 outline-none font-bold"
-                   >
-                     <option value="5">5 min</option>
-                     <option value="10">10 min</option>
-                     <option value="15">15 min</option>
-                     <option value="30">30 min</option>
-                     <option value="60">1 hour</option>
-                     <option value="120">2 hours</option>
-                     <option value="1440">24 hours</option>
-                   </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 p-3 bg-surface-raised border border-border rounded-xl">
-              <div className="p-2 rounded-lg bg-success/10 text-success mt-0.5">
-                <CheckCircle className="w-4 h-4" />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-bold text-foreground">Deployment Joy</p>
-                  <input 
-                    type="checkbox"
-                    checked={notifSettings.alert_deployment_success}
-                    onChange={(e) => setNotifSettings({...notifSettings, alert_deployment_success: e.target.checked})}
-                    className="w-4 h-4 accent-primary"
-                  />
-                </div>
-                <p className="text-[10px] text-foreground-muted leading-tight">Notify when a deployment completes without any errors.</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 p-3 bg-surface-raised border border-border rounded-xl">
-              <div className="p-2 rounded-lg bg-warning/10 text-warning mt-0.5">
-                <Package className="w-4 h-4" />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-bold text-foreground">Deployment Failure</p>
-                  <input 
-                    type="checkbox"
-                    checked={notifSettings.alert_deployment_failed}
-                    onChange={(e) => setNotifSettings({...notifSettings, alert_deployment_failed: e.target.checked})}
-                    className="w-4 h-4 accent-primary"
-                  />
-                </div>
-                <p className="text-[10px] text-foreground-muted leading-tight">Notify if any target fails during a deployment process.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="px-5 pb-5 border-t border-border pt-4 flex justify-between items-center">
-          <p className="text-[10px] text-foreground-muted italic">System checks for offline devices every 5 minutes.</p>
-          <button 
-            onClick={handleSaveNotif}
-            disabled={saving}
-            className="px-6 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all font-bold shadow-glow flex items-center gap-2"
-          >
-            {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
-            Save Notification Settings
-          </button>
-        </div>
-      </SectionCard>
+              </SectionCard>
             </div>
           )}
 
           {activeTab === "system" && (
             <div className="space-y-6 animate-fade-in">
               {/* Agent Auto-Update Global Configuration */}
-      <SectionCard title="Agent Auto-Update Global Configuration">
-        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Latest Agent Version (Target)</label>
-              <input
-                type="text"
-                placeholder="e.g. 2.5.0"
-                value={agentConfig.LATEST_AGENT_VERSION}
-                onChange={(e) => setAgentConfig({ ...agentConfig, LATEST_AGENT_VERSION: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              <p className="text-[10px] text-foreground-subtle mt-1.5 italic">
-                All agents reporting a lower version will be notified to update.
-              </p>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Agent Update URL (MSI/EXE)</label>
-              <input
-                type="text"
-                placeholder="http://192.168.85.30:3001/public/agent_v25.msi"
-                value={agentConfig.AGENT_UPDATE_URL}
-                onChange={(e) => setAgentConfig({ ...agentConfig, AGENT_UPDATE_URL: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              <p className="text-[10px] text-foreground-subtle mt-1.5 italic">
-                Direct link to download the new agent installer package.
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="px-5 pb-5 border-t border-border pt-4 flex justify-end">
-          <button 
-            onClick={handleSaveAgentConfig}
-            disabled={savingAgent}
-            className="px-6 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all font-bold shadow-glow flex items-center gap-2"
-          >
-            {savingAgent ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
-            Save Agent Configuration
-          </button>
-        </div>
-      </SectionCard>
+              <SectionCard title="Agent Auto-Update Global Configuration">
+                <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Latest Agent Version (Target)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 2.5.0"
+                        value={agentConfig.LATEST_AGENT_VERSION}
+                        onChange={(e) => setAgentConfig({ ...agentConfig, LATEST_AGENT_VERSION: e.target.value })}
+                        className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <p className="text-[10px] text-foreground-subtle mt-1.5 italic">
+                        All agents reporting a lower version will be notified to update.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Agent Update URL (MSI/EXE)</label>
+                      <input
+                        type="text"
+                        placeholder="http://192.168.85.30:3001/public/agent_v25.msi"
+                        value={agentConfig.AGENT_UPDATE_URL}
+                        onChange={(e) => setAgentConfig({ ...agentConfig, AGENT_UPDATE_URL: e.target.value })}
+                        className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <p className="text-[10px] text-foreground-subtle mt-1.5 italic">
+                        Direct link to download the new agent installer package.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="px-5 pb-5 border-t border-border pt-4 flex justify-end">
+                  <button
+                    onClick={handleSaveAgentConfig}
+                    disabled={savingAgent}
+                    className="px-6 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all font-bold shadow-glow flex items-center gap-2"
+                  >
+                    {savingAgent ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                    Save Agent Configuration
+                  </button>
+                </div>
+              </SectionCard>
             </div>
           )}
 
@@ -1392,619 +1392,619 @@ export default function SettingsPage() {
             <div className="space-y-6 animate-fade-in">
               <SectionCard
                 title="AI Assistant Keyword Manager"
-          subtitle="Create managed keywords that run approved queries, procedures, or workflow lookups"
-          actions={
-            <div className="flex items-center gap-3">
-              {keywordsLoading && (
-                <div className="flex items-center gap-1.5 text-xs text-foreground-subtle">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  <span>Refreshing keywords...</span>
-                </div>
-              )}
-              <button
-                onClick={resetKeywordForm}
-                className="flex items-center gap-2 text-xs text-foreground-subtle hover:text-foreground transition-colors"
-              >
-                <RotateCcw className="w-3 h-3" /> Clear Form
-              </button>
-            </div>
-          }
-        >
-          <div className="p-5 space-y-6">
-            <div className="grid grid-cols-1 xl:grid-cols-[1.2fr,0.8fr] gap-6">
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Keyword</label>
-                    <input
-                      type="text"
-                      placeholder="contoh: sales-by-date"
-                      value={keywordForm.keyword}
-                      onChange={(e) => setKeywordForm({ ...keywordForm, keyword: e.target.value })}
-                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Action Type</label>
-                    <select
-                      value={keywordForm.action_type}
-                      onChange={(e) => setKeywordForm({ ...keywordForm, action_type: e.target.value as AssistantKeyword["action_type"] })}
-                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-semibold"
+                subtitle="Create managed keywords that run approved queries, procedures, or workflow lookups"
+                actions={
+                  <div className="flex items-center gap-3">
+                    {keywordsLoading && (
+                      <div className="flex items-center gap-1.5 text-xs text-foreground-subtle">
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        <span>Refreshing keywords...</span>
+                      </div>
+                    )}
+                    <button
+                      onClick={resetKeywordForm}
+                      className="flex items-center gap-2 text-xs text-foreground-subtle hover:text-foreground transition-colors"
                     >
-                      <option value="query">Read-only Query</option>
-                      <option value="procedure">Procedure / Command</option>
-                      <option value="workflow">Workflow Lookup</option>
-                    </select>
+                      <RotateCcw className="w-3 h-3" /> Clear Form
+                    </button>
                   </div>
-                  <div>
-                    <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Target Host (Optional)</label>
-                    <input
-                      type="text"
-                      placeholder={KEYWORD_TARGET_HOST_PLACEHOLDER}
-                      value={keywordForm.target_host}
-                      onChange={(e) => setKeywordForm({ ...keywordForm, target_host: e.target.value })}
-                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Parameters</label>
-                    <input
-                      type="text"
-                      placeholder="tanggal, store, deviceId"
-                      value={keywordParamsInput}
-                      onChange={(e) => setKeywordParamsInput(e.target.value)}
-                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Description</label>
-                  <input
-                    type="text"
-                    placeholder="Penjelasan singkat fungsi keyword ini"
-                    value={keywordForm.description}
-                    onChange={(e) => setKeywordForm({ ...keywordForm, description: e.target.value })}
-                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">
-                    {keywordForm.action_type === "workflow" ? "Workflow Target" : "Script / Command"}
-                  </label>
-                  <textarea
-                    rows={8}
-                    placeholder={
-                      keywordForm.action_type === "workflow"
-                        ? "contoh: restart agent atau id:workflow-123"
-                        : keywordForm.action_type === "procedure"
-                          ? "contoh: EXEC usp_SyncStock @tanggal=@tanggal, @store=@store"
-                          : "contoh: SELECT * FROM Sales WHERE tanggal = @tanggal"
-                    }
-                    value={keywordForm.script_text}
-                    onChange={(e) => setKeywordForm({ ...keywordForm, script_text: e.target.value })}
-                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <label className="flex items-center gap-3 p-3 bg-surface-raised border border-border rounded-xl">
-                    <input
-                      type="checkbox"
-                      checked={keywordForm.requires_admin}
-                      onChange={(e) => setKeywordForm({ ...keywordForm, requires_admin: e.target.checked })}
-                      className="w-4 h-4 accent-primary"
-                    />
-                    <div>
-                      <p className="text-sm font-bold text-foreground">Admin Only</p>
-                      <p className="text-[10px] text-foreground-muted">Batasi keyword untuk admin.</p>
-                    </div>
-                  </label>
-                  <label className="flex items-center gap-3 p-3 bg-surface-raised border border-border rounded-xl">
-                    <input
-                      type="checkbox"
-                      checked={keywordForm.requires_confirmation}
-                      onChange={(e) => setKeywordForm({ ...keywordForm, requires_confirmation: e.target.checked })}
-                      className="w-4 h-4 accent-primary"
-                    />
-                    <div>
-                      <p className="text-sm font-bold text-foreground">Needs Confirm</p>
-                      <p className="text-[10px] text-foreground-muted">User harus tambah `confirm=yes`.</p>
-                    </div>
-                  </label>
-                  <label className="flex items-center gap-3 p-3 bg-surface-raised border border-border rounded-xl">
-                    <input
-                      type="checkbox"
-                      checked={keywordForm.is_enabled}
-                      onChange={(e) => setKeywordForm({ ...keywordForm, is_enabled: e.target.checked })}
-                      className="w-4 h-4 accent-primary"
-                    />
-                    <div>
-                      <p className="text-sm font-bold text-foreground">Enabled</p>
-                      <p className="text-[10px] text-foreground-muted">Matikan tanpa menghapus keyword.</p>
-                    </div>
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-3 pt-2">
-                  <button
-                    onClick={handleSaveKeyword}
-                    disabled={keywordSaving}
-                    className="px-6 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all font-bold shadow-glow flex items-center gap-2"
-                  >
-                    {keywordSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    {keywordForm.id ? "Update Keyword" : "Create Keyword"}
-                  </button>
-                  <button
-                    onClick={handleTestKeyword}
-                    disabled={keywordTesting}
-                    className="px-5 py-2 text-sm bg-surface-raised border border-border text-foreground rounded-md hover:bg-surface-overlay transition-all font-bold flex items-center gap-2"
-                  >
-                    {keywordTesting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
-                    Test Keyword
-                  </button>
-                  <p className="text-[10px] text-foreground-subtle italic">
-                    Gunakan parameter berbasis `@namaParam` di script. `host`/`hostname` otomatis didukung dan tidak perlu ditulis di Parameters.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3">
-                  <div>
-                    <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Test Input</label>
-                    <input
-                      type="text"
-                      placeholder="contoh: host=HOST01 tanggal=2026-03-31"
-                      value={keywordTestInput}
-                      onChange={(e) => setKeywordTestInput(e.target.value)}
-                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                    />
-                    <p className="text-[10px] text-foreground-subtle mt-1.5">
-                      Isi argumen seperti saat dipanggil dari assistant. Jika parameter wajib belum lengkap, test akan memberi tahu apa yang harus diisi.
-                    </p>
-                  </div>
-                  {keywordTestResult && (
-                    <div className="rounded-xl border border-border bg-surface-raised p-3">
-                      <p className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-2">Test Result</p>
-                      <pre className="text-xs text-foreground whitespace-pre-wrap break-words font-mono">{keywordTestResult}</pre>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="p-4 rounded-xl border border-border bg-surface-raised">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Bot className="w-4 h-4 text-primary" />
-                    <p className="text-sm font-bold text-foreground">Cara Pakai</p>
-                  </div>
-                  <div className="space-y-2 text-xs text-foreground-muted leading-relaxed">
-                    <p>1. Tulis keyword seperti `sales-by-date` atau `sync-stock`.</p>
-                    <p>2. Untuk query/procedure, gunakan parameter di script seperti `@tanggal` dan isi field Parameters hanya untuk parameter SQL yang benar-benar dipakai.</p>
-                    <p>3. Jika host banyak, kosongkan Target Host. User tinggal mengetik `host=HOSTNAME` atau `hostname=HOSTNAME` saat runtime.</p>
-                    <p>4. User bisa memanggilnya seperti `sales-by-date host=HOST01 tanggal=2026-03-31`.</p>
-                    <p>5. Jika butuh konfirmasi, user tambahkan `confirm=yes`.</p>
-                    <p>6. Di chat assistant, user bisa mengetik `help` untuk melihat daftar keyword aktif atau `help nama-keyword` untuk detail satu keyword.</p>
-                  </div>
-                </div>
-
-                {selectedKeyword && (
-                  <div className="p-4 rounded-xl border border-border bg-surface-raised space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-bold text-foreground text-sm">{selectedKeyword.keyword}</p>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary uppercase">
-                            {selectedKeyword.action_type}
-                          </span>
-                          {!selectedKeyword.is_enabled && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-danger/10 text-danger uppercase">
-                              disabled
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-foreground-muted mt-1">{selectedKeyword.description || "No description"}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleTriggerKeywordRun(selectedKeyword)}
-                          className="px-2.5 py-1.5 rounded-md border border-success/30 bg-success/5 text-success hover:bg-success/15 transition-colors text-xs font-bold flex items-center gap-1"
-                          title="Run Keyword Action"
-                        >
-                          <Play className="w-3.5 h-3.5" /> Run Action
-                        </button>
-                        <button
-                          onClick={() => handleEditKeyword(selectedKeyword)}
-                          className="p-2 rounded-md border border-border hover:bg-background transition-colors"
-                          title="Edit keyword"
-                        >
-                          <PencilLine className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] text-foreground-subtle">
-                      <div className="rounded-lg border border-border bg-background p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-1">Host</p>
-                        <p>{selectedKeyword.target_host || "dynamic / runtime"}</p>
-                      </div>
-                      <div className="rounded-lg border border-border bg-background p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-1">Parameters</p>
-                        <p>{(selectedKeyword.parameter_keys || []).join(", ") || "-"}</p>
-                      </div>
-                      <div className="rounded-lg border border-border bg-background p-3 md:col-span-2">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-1">Flags</p>
-                        <p>{[selectedKeyword.requires_admin ? "admin" : null, selectedKeyword.requires_confirmation ? "confirm" : null].filter(Boolean).join(", ") || "none"}</p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-2">Script / Command</p>
-                      <pre className="p-3 rounded-lg bg-background text-[11px] text-foreground-muted overflow-x-auto whitespace-pre-wrap break-words font-mono">
-                        {selectedKeyword.script_text}
-                      </pre>
-                    </div>
-
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() => handleDeleteKeyword(selectedKeyword.id)}
-                        disabled={keywordDeletingId === selectedKeyword.id}
-                        className="px-3 py-2 rounded-md border border-danger/20 text-danger hover:bg-danger/10 transition-colors text-xs font-bold flex items-center gap-2"
-                      >
-                        {keywordDeletingId === selectedKeyword.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                        Delete Keyword
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-3 max-h-[18.5rem] overflow-y-auto pr-1">
-                  {assistantKeywords.length === 0 && !keywordsLoading && (
-                    <div className="p-4 rounded-xl border border-dashed border-border text-sm text-foreground-muted bg-surface-raised">
-                      Belum ada keyword assistant yang terdaftar.
-                    </div>
-                  )}
-                  {assistantKeywords.map((keyword) => (
-                    <div key={keyword.id} className="p-4 rounded-xl border border-border bg-background">
-                      <div className="flex items-start justify-between gap-3">
+                }
+              >
+                <div className="p-5 space-y-6">
+                  <div className="grid grid-cols-1 xl:grid-cols-[1.2fr,0.8fr] gap-6">
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <p className="font-bold text-foreground text-sm">{keyword.keyword}</p>
-                          <p className="text-xs text-foreground-muted mt-1">{keyword.description || "No description"}</p>
+                          <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Keyword</label>
+                          <input
+                            type="text"
+                            placeholder="contoh: sales-by-date"
+                            value={keywordForm.keyword}
+                            onChange={(e) => setKeywordForm({ ...keywordForm, keyword: e.target.value })}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                          />
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleTriggerKeywordRun(keyword)}
-                            className="p-2 rounded-md border border-success/30 text-success hover:bg-success/10 transition-colors"
-                            title="Run Action"
+                        <div>
+                          <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Action Type</label>
+                          <select
+                            value={keywordForm.action_type}
+                            onChange={(e) => setKeywordForm({ ...keywordForm, action_type: e.target.value as AssistantKeyword["action_type"] })}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-semibold"
                           >
-                            <Play className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setSelectedKeywordId((current) => current === keyword.id ? null : keyword.id)}
-                            className={`
+                            <option value="query">Read-only Query</option>
+                            <option value="procedure">Procedure / Command</option>
+                            <option value="workflow">Workflow Lookup</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Target Host (Optional)</label>
+                          <input
+                            type="text"
+                            placeholder={KEYWORD_TARGET_HOST_PLACEHOLDER}
+                            value={keywordForm.target_host}
+                            onChange={(e) => setKeywordForm({ ...keywordForm, target_host: e.target.value })}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Parameters</label>
+                          <input
+                            type="text"
+                            placeholder="tanggal, store, deviceId"
+                            value={keywordParamsInput}
+                            onChange={(e) => setKeywordParamsInput(e.target.value)}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Description</label>
+                        <input
+                          type="text"
+                          placeholder="Penjelasan singkat fungsi keyword ini"
+                          value={keywordForm.description}
+                          onChange={(e) => setKeywordForm({ ...keywordForm, description: e.target.value })}
+                          className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">
+                          {keywordForm.action_type === "workflow" ? "Workflow Target" : "Script / Command"}
+                        </label>
+                        <textarea
+                          rows={8}
+                          placeholder={
+                            keywordForm.action_type === "workflow"
+                              ? "contoh: restart agent atau id:workflow-123"
+                              : keywordForm.action_type === "procedure"
+                                ? "contoh: EXEC usp_SyncStock @tanggal=@tanggal, @store=@store"
+                                : "contoh: SELECT * FROM Sales WHERE tanggal = @tanggal"
+                          }
+                          value={keywordForm.script_text}
+                          onChange={(e) => setKeywordForm({ ...keywordForm, script_text: e.target.value })}
+                          className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <label className="flex items-center gap-3 p-3 bg-surface-raised border border-border rounded-xl">
+                          <input
+                            type="checkbox"
+                            checked={keywordForm.requires_admin}
+                            onChange={(e) => setKeywordForm({ ...keywordForm, requires_admin: e.target.checked })}
+                            className="w-4 h-4 accent-primary"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-foreground">Admin Only</p>
+                            <p className="text-[10px] text-foreground-muted">Batasi keyword untuk admin.</p>
+                          </div>
+                        </label>
+                        <label className="flex items-center gap-3 p-3 bg-surface-raised border border-border rounded-xl">
+                          <input
+                            type="checkbox"
+                            checked={keywordForm.requires_confirmation}
+                            onChange={(e) => setKeywordForm({ ...keywordForm, requires_confirmation: e.target.checked })}
+                            className="w-4 h-4 accent-primary"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-foreground">Needs Confirm</p>
+                            <p className="text-[10px] text-foreground-muted">User harus tambah `confirm=yes`.</p>
+                          </div>
+                        </label>
+                        <label className="flex items-center gap-3 p-3 bg-surface-raised border border-border rounded-xl">
+                          <input
+                            type="checkbox"
+                            checked={keywordForm.is_enabled}
+                            onChange={(e) => setKeywordForm({ ...keywordForm, is_enabled: e.target.checked })}
+                            className="w-4 h-4 accent-primary"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-foreground">Enabled</p>
+                            <p className="text-[10px] text-foreground-muted">Matikan tanpa menghapus keyword.</p>
+                          </div>
+                        </label>
+                      </div>
+
+                      <div className="flex items-center gap-3 pt-2">
+                        <button
+                          onClick={handleSaveKeyword}
+                          disabled={keywordSaving}
+                          className="px-6 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all font-bold shadow-glow flex items-center gap-2"
+                        >
+                          {keywordSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                          {keywordForm.id ? "Update Keyword" : "Create Keyword"}
+                        </button>
+                        <button
+                          onClick={handleTestKeyword}
+                          disabled={keywordTesting}
+                          className="px-5 py-2 text-sm bg-surface-raised border border-border text-foreground rounded-md hover:bg-surface-overlay transition-all font-bold flex items-center gap-2"
+                        >
+                          {keywordTesting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
+                          Test Keyword
+                        </button>
+                        <p className="text-[10px] text-foreground-subtle italic">
+                          Gunakan parameter berbasis `@namaParam` di script. `host`/`hostname` otomatis didukung dan tidak perlu ditulis di Parameters.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3">
+                        <div>
+                          <label className="text-xs font-bold text-foreground-muted mb-1.5 block uppercase tracking-wider">Test Input</label>
+                          <input
+                            type="text"
+                            placeholder="contoh: host=HOST01 tanggal=2026-03-31"
+                            value={keywordTestInput}
+                            onChange={(e) => setKeywordTestInput(e.target.value)}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                          />
+                          <p className="text-[10px] text-foreground-subtle mt-1.5">
+                            Isi argumen seperti saat dipanggil dari assistant. Jika parameter wajib belum lengkap, test akan memberi tahu apa yang harus diisi.
+                          </p>
+                        </div>
+                        {keywordTestResult && (
+                          <div className="rounded-xl border border-border bg-surface-raised p-3">
+                            <p className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-2">Test Result</p>
+                            <pre className="text-xs text-foreground whitespace-pre-wrap break-words font-mono">{keywordTestResult}</pre>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="p-4 rounded-xl border border-border bg-surface-raised">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Bot className="w-4 h-4 text-primary" />
+                          <p className="text-sm font-bold text-foreground">how to use</p>
+                        </div>
+                        <div className="space-y-2 text-xs text-foreground-muted leading-relaxed">
+                          <p>1. Tulis keyword seperti `sales-by-date` atau `sync-stock`.</p>
+                          <p>2. Untuk query/procedure, gunakan parameter di script seperti `@tanggal` dan isi field Parameters hanya untuk parameter SQL yang benar-benar dipakai.</p>
+                          <p>3. Jika host banyak, kosongkan Target Host. User tinggal mengetik `host=HOSTNAME` atau `hostname=HOSTNAME` saat runtime.</p>
+                          <p>4. User bisa memanggilnya seperti `sales-by-date host=HOST01 tanggal=2026-03-31`.</p>
+                          <p>5. Jika butuh konfirmasi, user tambahkan `confirm=yes`.</p>
+                          <p>6. Di chat assistant, user bisa mengetik `help` untuk melihat daftar keyword aktif atau `help nama-keyword` untuk detail satu keyword.</p>
+                        </div>
+                      </div>
+
+                      {selectedKeyword && (
+                        <div className="p-4 rounded-xl border border-border bg-surface-raised space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-bold text-foreground text-sm">{selectedKeyword.keyword}</p>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary uppercase">
+                                  {selectedKeyword.action_type}
+                                </span>
+                                {!selectedKeyword.is_enabled && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-danger/10 text-danger uppercase">
+                                    disabled
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-foreground-muted mt-1">{selectedKeyword.description || "No description"}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleTriggerKeywordRun(selectedKeyword)}
+                                className="px-2.5 py-1.5 rounded-md border border-success/30 bg-success/5 text-success hover:bg-success/15 transition-colors text-xs font-bold flex items-center gap-1"
+                                title="Run Keyword Action"
+                              >
+                                <Play className="w-3.5 h-3.5" /> Run Action
+                              </button>
+                              <button
+                                onClick={() => handleEditKeyword(selectedKeyword)}
+                                className="p-2 rounded-md border border-border hover:bg-background transition-colors"
+                                title="Edit keyword"
+                              >
+                                <PencilLine className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] text-foreground-subtle">
+                            <div className="rounded-lg border border-border bg-background p-3">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-1">Host</p>
+                              <p>{selectedKeyword.target_host || "dynamic / runtime"}</p>
+                            </div>
+                            <div className="rounded-lg border border-border bg-background p-3">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-1">Parameters</p>
+                              <p>{(selectedKeyword.parameter_keys || []).join(", ") || "-"}</p>
+                            </div>
+                            <div className="rounded-lg border border-border bg-background p-3 md:col-span-2">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-1">Flags</p>
+                              <p>{[selectedKeyword.requires_admin ? "admin" : null, selectedKeyword.requires_confirmation ? "confirm" : null].filter(Boolean).join(", ") || "none"}</p>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-2">Script / Command</p>
+                            <pre className="p-3 rounded-lg bg-background text-[11px] text-foreground-muted overflow-x-auto whitespace-pre-wrap break-words font-mono">
+                              {selectedKeyword.script_text}
+                            </pre>
+                          </div>
+
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => handleDeleteKeyword(selectedKeyword.id)}
+                              disabled={keywordDeletingId === selectedKeyword.id}
+                              className="px-3 py-2 rounded-md border border-danger/20 text-danger hover:bg-danger/10 transition-colors text-xs font-bold flex items-center gap-2"
+                            >
+                              {keywordDeletingId === selectedKeyword.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              Delete Keyword
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="space-y-3 max-h-[18.5rem] overflow-y-auto pr-1">
+                        {assistantKeywords.length === 0 && !keywordsLoading && (
+                          <div className="p-4 rounded-xl border border-dashed border-border text-sm text-foreground-muted bg-surface-raised">
+                            Belum ada keyword assistant yang terdaftar.
+                          </div>
+                        )}
+                        {assistantKeywords.map((keyword) => (
+                          <div key={keyword.id} className="p-4 rounded-xl border border-border bg-background">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-bold text-foreground text-sm">{keyword.keyword}</p>
+                                <p className="text-xs text-foreground-muted mt-1">{keyword.description || "No description"}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleTriggerKeywordRun(keyword)}
+                                  className="p-2 rounded-md border border-success/30 text-success hover:bg-success/10 transition-colors"
+                                  title="Run Action"
+                                >
+                                  <Play className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setSelectedKeywordId((current) => current === keyword.id ? null : keyword.id)}
+                                  className={`
                               p-2 rounded-md border transition-colors
                               ${selectedKeywordId === keyword.id ? "border-primary/40 text-primary bg-primary/10" : "border-border hover:bg-surface-raised"}
                             `}
-                            title="View details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleEditKeyword(keyword)}
-                            className="p-2 rounded-md border border-border hover:bg-surface-raised transition-colors"
-                            title="Edit keyword"
-                          >
-                            <PencilLine className="w-4 h-4" />
-                          </button>
-                        </div>
+                                  title="View details"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleEditKeyword(keyword)}
+                                  className="p-2 rounded-md border border-border hover:bg-surface-raised transition-colors"
+                                  title="Edit keyword"
+                                >
+                                  <PencilLine className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
+              </SectionCard>
             </div>
-          </div>
-        </SectionCard>
-      </div>
-    )}
+          )}
 
           {activeTab === "appearance" && (
             <div className="space-y-6 animate-fade-in">
               {/* Theme Customizer */}
-              <SectionCard 
-                title="Theme & UI Customization" 
-        subtitle="Manage sidebar, background, and brand identity colors"
-        actions={
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-xs">
-              {themeSyncStatus === "saving" && (
-                <>
-                  <RefreshCw className="w-3 h-3 animate-spin text-primary" />
-                  <span className="text-foreground-subtle">Syncing branding...</span>
-                </>
-              )}
-              {themeSyncStatus === "saved" && (
-                <>
-                  <CheckCircle className="w-3 h-3 text-success" />
-                  <span className="text-foreground-subtle">Synced to server</span>
-                </>
-              )}
-              {themeSyncStatus === "error" && (
-                <>
-                  <AlertCircle className="w-3 h-3 text-danger" />
-                  <span className="text-danger">Sync failed</span>
-                </>
-              )}
-            </div>
-            <button 
-              onClick={resetTheme}
-              className="flex items-center gap-2 text-xs text-foreground-subtle hover:text-foreground transition-colors"
-            >
-              <RotateCcw className="w-3 h-3" /> Reset Default
-            </button>
-          </div>
-        }
-      >
-        <div className="p-5">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {/* Sidebar BG */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1">
-                <SidebarIcon className="w-4 h-4 text-primary" />
-                <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Sidebar Background</label>
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="color" 
-                  value={theme.sidebarBg} 
-                  onChange={e => setTheme({...theme, sidebarBg: e.target.value})}
-                  className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform" 
-                />
-                <input 
-                  type="text" 
-                  value={theme.sidebarBg} 
-                  onChange={e => setTheme({...theme, sidebarBg: e.target.value})}
-                  className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Sidebar Text */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1">
-                <Layout className="w-4 h-4 text-success" />
-                <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Sidebar Text Color</label>
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="color" 
-                  value={theme.sidebarText} 
-                  onChange={e => setTheme({...theme, sidebarText: e.target.value})}
-                  className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform" 
-                />
-                <input 
-                  type="text" 
-                  value={theme.sidebarText} 
-                  onChange={e => setTheme({...theme, sidebarText: e.target.value})}
-                  className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Sidebar Highlight */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1">
-                <Palette className="w-4 h-4 text-warning" />
-                <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Sidebar Highlight</label>
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="color" 
-                  value={theme.sidebarAccent} 
-                  onChange={e => setTheme({...theme, sidebarAccent: e.target.value})}
-                  className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform" 
-                />
-                <input 
-                  type="text" 
-                  value={theme.sidebarAccent} 
-                  onChange={e => setTheme({...theme, sidebarAccent: e.target.value})}
-                  className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Main Background */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1">
-                <Layout className="w-4 h-4 text-info" />
-                <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">App Background</label>
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="color" 
-                  value={theme.mainBg} 
-                  onChange={e => setTheme({...theme, mainBg: e.target.value})}
-                  className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform" 
-                />
-                <input 
-                  type="text" 
-                  value={theme.mainBg} 
-                  onChange={e => setTheme({...theme, mainBg: e.target.value})}
-                  className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Content Text Color */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1">
-                <Send className="w-4 h-4 text-info" />
-                <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Main Text Color</label>
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="color" 
-                  value={theme.contentText} 
-                  onChange={e => setTheme({...theme, contentText: e.target.value})}
-                  className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform" 
-                />
-                <input 
-                  type="text" 
-                  value={theme.contentText} 
-                  onChange={e => setTheme({...theme, contentText: e.target.value})}
-                  className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Card BG */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1">
-                <Server className="w-4 h-4 text-primary" />
-                <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Card Background</label>
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="color" 
-                  value={theme.cardBg} 
-                  onChange={e => setTheme({...theme, cardBg: e.target.value})}
-                  className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform" 
-                />
-                <input 
-                  type="text" 
-                  value={theme.cardBg} 
-                  onChange={e => setTheme({...theme, cardBg: e.target.value})}
-                  className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Primary Brand */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1">
-                <Chrome className="w-4 h-4 text-primary" />
-                <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Brand Identity</label>
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="color" 
-                  value={theme.primaryBrand} 
-                  onChange={e => setTheme({...theme, primaryBrand: e.target.value})}
-                  className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform" 
-                />
-                <input 
-                  type="text" 
-                  value={theme.primaryBrand} 
-                  onChange={e => setTheme({...theme, primaryBrand: e.target.value})}
-                  className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
-                />
-              </div>
-            </div>
-
-            {/* App Logo */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1">
-                <Package className="w-4 h-4 text-success" />
-                <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Application Logo</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm bg-background border border-border border-dashed rounded-md text-foreground-muted cursor-pointer hover:border-primary transition-colors">
-                  <Download className="w-4 h-4" />
-                  <span>{theme.appLogo ? "Logo Uploaded" : "Upload PNG/JPG"}</span>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    className="hidden" 
-                    onChange={e => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => setTheme({...theme, appLogo: reader.result as string});
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                  />
-                </label>
-                {theme.appLogo && (
-                   <button 
-                     onClick={() => setTheme({...theme, appLogo: ""})}
-                     className="p-2 text-danger hover:bg-danger/10 rounded-md transition-colors"
-                     title="Remove Logo"
-                   >
-                     <RotateCcw className="w-4 h-4" />
-                   </button>
-                )}
-              </div>
-            </div>
-
-            {/* Logo Scaling */}
-            <div className="space-y-4">
-               <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Layout className="w-4 h-4 text-primary" />
-                    <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Logo Scaling</label>
+              <SectionCard
+                title="Theme & UI Customization"
+                subtitle="Manage sidebar, background, and brand identity colors"
+                actions={
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 text-xs">
+                      {themeSyncStatus === "saving" && (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin text-primary" />
+                          <span className="text-foreground-subtle">Syncing branding...</span>
+                        </>
+                      )}
+                      {themeSyncStatus === "saved" && (
+                        <>
+                          <CheckCircle className="w-3 h-3 text-success" />
+                          <span className="text-foreground-subtle">Synced to server</span>
+                        </>
+                      )}
+                      {themeSyncStatus === "error" && (
+                        <>
+                          <AlertCircle className="w-3 h-3 text-danger" />
+                          <span className="text-danger">Sync failed</span>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={resetTheme}
+                      className="flex items-center gap-2 text-xs text-foreground-subtle hover:text-foreground transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" /> Reset Default
+                    </button>
                   </div>
-                  <span className="text-xs font-mono font-bold text-primary">{theme.logoSize}px</span>
-               </div>
-               <div className="flex items-center gap-4">
-                  <input 
-                    type="range" 
-                    min="16" 
-                    max="128" 
-                    step="2"
-                    value={theme.logoSize}
-                    onChange={e => setTheme({...theme, logoSize: parseInt(e.target.value)})}
-                    className="flex-1 accent-primary cursor-pointer"
-                  />
-               </div>
-               <div className="p-3 border border-border border-dashed rounded-lg bg-sidebar flex items-center justify-center min-h-[100px] relative overflow-hidden group">
-                  <p className="absolute top-2 left-2 text-[10px] text-foreground-subtle uppercase tracking-widest font-bold">Live Preview</p>
-                  <div 
-                    className="flex items-center justify-center transition-all bg-transparent"
-                    style={{ width: theme.logoSize, height: theme.logoSize }}
-                  >
-                    {theme.appLogo ? (
-                      <img src={theme.appLogo} alt="Preview" className="w-full h-full object-contain" />
-                    ) : (
-                      <Server className="text-sidebar-primary" style={{ width: '60%', height: '60%' }} />
-                    )}
+                }
+              >
+                <div className="p-5">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    {/* Sidebar BG */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <SidebarIcon className="w-4 h-4 text-primary" />
+                        <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Sidebar Background</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={theme.sidebarBg}
+                          onChange={e => setTheme({ ...theme, sidebarBg: e.target.value })}
+                          className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform"
+                        />
+                        <input
+                          type="text"
+                          value={theme.sidebarBg}
+                          onChange={e => setTheme({ ...theme, sidebarBg: e.target.value })}
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Sidebar Text */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Layout className="w-4 h-4 text-success" />
+                        <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Sidebar Text Color</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={theme.sidebarText}
+                          onChange={e => setTheme({ ...theme, sidebarText: e.target.value })}
+                          className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform"
+                        />
+                        <input
+                          type="text"
+                          value={theme.sidebarText}
+                          onChange={e => setTheme({ ...theme, sidebarText: e.target.value })}
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Sidebar Highlight */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Palette className="w-4 h-4 text-warning" />
+                        <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Sidebar Highlight</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={theme.sidebarAccent}
+                          onChange={e => setTheme({ ...theme, sidebarAccent: e.target.value })}
+                          className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform"
+                        />
+                        <input
+                          type="text"
+                          value={theme.sidebarAccent}
+                          onChange={e => setTheme({ ...theme, sidebarAccent: e.target.value })}
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Main Background */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Layout className="w-4 h-4 text-info" />
+                        <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">App Background</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={theme.mainBg}
+                          onChange={e => setTheme({ ...theme, mainBg: e.target.value })}
+                          className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform"
+                        />
+                        <input
+                          type="text"
+                          value={theme.mainBg}
+                          onChange={e => setTheme({ ...theme, mainBg: e.target.value })}
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Content Text Color */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Send className="w-4 h-4 text-info" />
+                        <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Main Text Color</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={theme.contentText}
+                          onChange={e => setTheme({ ...theme, contentText: e.target.value })}
+                          className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform"
+                        />
+                        <input
+                          type="text"
+                          value={theme.contentText}
+                          onChange={e => setTheme({ ...theme, contentText: e.target.value })}
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Card BG */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Server className="w-4 h-4 text-primary" />
+                        <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Card Background</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={theme.cardBg}
+                          onChange={e => setTheme({ ...theme, cardBg: e.target.value })}
+                          className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform"
+                        />
+                        <input
+                          type="text"
+                          value={theme.cardBg}
+                          onChange={e => setTheme({ ...theme, cardBg: e.target.value })}
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Primary Brand */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Chrome className="w-4 h-4 text-primary" />
+                        <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Brand Identity</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={theme.primaryBrand}
+                          onChange={e => setTheme({ ...theme, primaryBrand: e.target.value })}
+                          className="w-12 h-12 rounded-lg cursor-pointer bg-transparent border-none overflow-hidden hover:scale-110 transition-transform"
+                        />
+                        <input
+                          type="text"
+                          value={theme.primaryBrand}
+                          onChange={e => setTheme({ ...theme, primaryBrand: e.target.value })}
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* App Logo */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Package className="w-4 h-4 text-success" />
+                        <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Application Logo</label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm bg-background border border-border border-dashed rounded-md text-foreground-muted cursor-pointer hover:border-primary transition-colors">
+                          <Download className="w-4 h-4" />
+                          <span>{theme.appLogo ? "Logo Uploaded" : "Upload PNG/JPG"}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={e => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => setTheme({ ...theme, appLogo: reader.result as string });
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                        </label>
+                        {theme.appLogo && (
+                          <button
+                            onClick={() => setTheme({ ...theme, appLogo: "" })}
+                            className="p-2 text-danger hover:bg-danger/10 rounded-md transition-colors"
+                            title="Remove Logo"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Logo Scaling */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Layout className="w-4 h-4 text-primary" />
+                          <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Logo Scaling</label>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-primary">{theme.logoSize}px</span>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <input
+                          type="range"
+                          min="16"
+                          max="128"
+                          step="2"
+                          value={theme.logoSize}
+                          onChange={e => setTheme({ ...theme, logoSize: parseInt(e.target.value) })}
+                          className="flex-1 accent-primary cursor-pointer"
+                        />
+                      </div>
+                      <div className="p-3 border border-border border-dashed rounded-lg bg-sidebar flex items-center justify-center min-h-[100px] relative overflow-hidden group">
+                        <p className="absolute top-2 left-2 text-[10px] text-foreground-subtle uppercase tracking-widest font-bold">Live Preview</p>
+                        <div
+                          className="flex items-center justify-center transition-all bg-transparent"
+                          style={{ width: theme.logoSize, height: theme.logoSize }}
+                        >
+                          {theme.appLogo ? (
+                            <img src={theme.appLogo} alt="Preview" className="w-full h-full object-contain" />
+                          ) : (
+                            <Server className="text-sidebar-primary" style={{ width: '60%', height: '60%' }} />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* App Name */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Chrome className="w-4 h-4 text-info" />
+                        <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Application Display Name</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="text"
+                          placeholder="e.g. My Dashboard"
+                          value={theme.appName}
+                          onChange={e => setTheme({ ...theme, appName: e.target.value })}
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-semibold"
+                        />
+                      </div>
+                      <p className="text-[10px] text-foreground-subtle italic">This name appears in the sidebar and browser title.</p>
+                    </div>
                   </div>
-               </div>
-            </div>
 
-            {/* App Name */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1">
-                <Chrome className="w-4 h-4 text-info" />
-                <label className="text-xs font-bold uppercase tracking-wider text-foreground-muted">Application Display Name</label>
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="text" 
-                  placeholder="e.g. My Dashboard"
-                  value={theme.appName} 
-                  onChange={e => setTheme({...theme, appName: e.target.value})}
-                  className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground font-semibold"
-                />
-              </div>
-              <p className="text-[10px] text-foreground-subtle italic">This name appears in the sidebar and browser title.</p>
-            </div>
-          </div>
-
-          <div className="mt-8 p-4 bg-primary/10 border border-primary/20 rounded-xl flex items-start gap-4">
-            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0">
-               <Palette className="w-5 h-5 text-white" />
-            </div>
-            <div>
-               <p className="text-sm font-bold text-foreground">Pro Tip: Dark Presets</p>
-               <p className="text-xs text-foreground-muted leading-relaxed">
-                  For the best experience with the translucent Glassmorphism UI, we recommend keeping backgrounds below 20% lightness. 
-                  Bright colors are best reserved for Highlighting and Accents.
-               </p>
-            </div>
-          </div>
-        </div>
-      </SectionCard>
+                  <div className="mt-8 p-4 bg-primary/10 border border-primary/20 rounded-xl flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0">
+                      <Palette className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-foreground">Pro Tip: Dark Presets</p>
+                      <p className="text-xs text-foreground-muted leading-relaxed">
+                        For the best experience with the translucent Glassmorphism UI, we recommend keeping backgrounds below 20% lightness.
+                        Bright colors are best reserved for Highlighting and Accents.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </SectionCard>
             </div>
           )}
         </div>
@@ -2013,11 +2013,11 @@ export default function SettingsPage() {
       {/* ── Keyword Direct Run Modal ────────────────────── */}
       {activeRunKeyword && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-          <div 
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in" 
-            onClick={() => setActiveRunKeyword(null)} 
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+            onClick={() => setActiveRunKeyword(null)}
           />
-          
+
           <div className="relative w-full max-w-2xl bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
             <div className="p-5 border-b border-border flex items-center justify-between bg-primary/5">
               <div className="flex items-center gap-3">
@@ -2029,8 +2029,8 @@ export default function SettingsPage() {
                   <p className="text-xs text-foreground-muted">{activeRunKeyword.description || "No description provided."}</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setActiveRunKeyword(null)} 
+              <button
+                onClick={() => setActiveRunKeyword(null)}
                 className="p-2 hover:bg-surface-raised rounded-full transition-colors text-foreground-muted"
               >
                 <X className="w-5 h-5" />
@@ -2162,7 +2162,7 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
-      , document.body)}
+        , document.body)}
     </div>
   );
 }
