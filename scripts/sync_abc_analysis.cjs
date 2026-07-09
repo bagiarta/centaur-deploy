@@ -172,7 +172,7 @@ async function runSync(targetDateStr) {
       console.log(`[SYNC] No records to sync for ${targetDate}. Done.`);
       await destPool.close();
       destPool = null;
-      return;
+      return false;
     }
 
     // 5. Ensure Destination Table Exists
@@ -250,9 +250,11 @@ async function runSync(targetDateStr) {
 
     await destPool.close();
     destPool = null;
+    return true;
 
   } catch (err) {
     console.error('[SYNC] ❌ Error during ABC Analysis Sync:', err.message);
+    return false;
   } finally {
     if (sourcePool) {
       try { await sourcePool.close(); } catch (e) { }
