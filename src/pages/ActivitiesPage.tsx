@@ -9,7 +9,7 @@ import {
   Trash2, Edit3, User as UserIcon, MoreVertical, X,
   LayoutGrid, List, MessageSquare, Target, Activity,
   TrendingUp, Award, BarChart3, PieChart as PieChartIcon,
-  Flame, BookOpen
+  Flame, BookOpen, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -134,6 +134,14 @@ export default function ActivitiesPage() {
   const [endDate, setEndDate] = useState("");
   const [manualDateInput, setManualDateInput] = useState(false);
   const [detailsModal, setDetailsModal] = useState<UserTask | null>(null);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, userFilter, categoryFilter, priorityFilter, storeFilter, startDate, endDate]);
 
   const getTaskOwnerDisplay = (username: string) => {
     const matchedUser = users.find(user => user.username === username || user.id === username);
@@ -406,6 +414,12 @@ export default function ActivitiesPage() {
     return matchesSearch && matchesStatus && matchesUser && matchesStore && matchesPriority && matchesStart && matchesEnd && matchesCategory;
   });
 
+  // Pagination calculations
+  const totalItems = filteredTasks.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedTasks = filteredTasks.slice(startIndex, startIndex + itemsPerPage);
+
   const priorityOptions = ["Critical", "Urgent", "High", "Normal", "Low"];
 
   // Advanced Statistics & Competency Logic — all calculated from filteredTasks
@@ -468,17 +482,33 @@ export default function ActivitiesPage() {
       ? "Allocate more time to Automation for long-term efficiency."
       : "Maintain high performance. Explore new R&D opportunities.";
 
-  // Category counts — from filteredTasks
+  // Calculate category counts based on tasks filtered by search, date, status, priority, and store, but excluding category filter.
+  // This allows the list to act as a filter selector where all 6 categories remain visible.
+  const tasksFilteredExceptCategory = tasks.filter(t => {
+    const matchesSearch = t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.username.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === "All" || t.status === statusFilter;
+    const matchesUser = userFilter === "All" || t.username === userFilter;
+    const matchesStore = storeFilter === "All" || t.store_code === storeFilter || t.store_name === storeFilter;
+    const matchesPriority = priorityFilter === "All" || (t.priority || "Normal") === priorityFilter;
+
+    const taskDate = new Date(t.created_at).getTime();
+    const matchesStart = !startDate || taskDate >= new Date(startDate + "T00:00:00").getTime();
+    const matchesEnd = !endDate || taskDate <= new Date(endDate + "T23:59:59").getTime();
+
+    return matchesSearch && matchesStatus && matchesUser && matchesStore && matchesPriority && matchesStart && matchesEnd;
+  });
+
   const categories = ["Bug Fixing", "Automation", "SLA Support", "Improvement", "Training", "General"];
   const categoryData = categories.map(cat => ({
     name: cat,
-    value: filteredTasks.filter(t => t.category === cat).length,
+    value: tasksFilteredExceptCategory.filter(t => t.category === cat).length,
     color: cat === "Bug Fixing" ? "#f43f5e" :
       cat === "Automation" ? "#8b5cf6" :
         cat === "SLA Support" ? "#3b82f6" :
           cat === "Improvement" ? "#10b981" :
             cat === "Training" ? "#e905b7ff" : "#94a3b8"
-  })).filter(d => d.value > 0);
+  }));
   const priorityData = priorityOptions.map(priority => ({
     name: priority,
     value: filteredTasks.filter(t => (t.priority || "Normal") === priority).length,
@@ -707,16 +737,41 @@ export default function ActivitiesPage() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="w-full sm:w-1/2 space-y-3">
-              {categoryData.map((entry, index) => (
-                <div key={index} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: entry.color }} />
-                    <span className="text-xs font-bold text-gray-800 uppercase tracking-tight">{entry.name}</span>
+            <div className="w-full sm:w-1/2 space-y-1.5">
+              {categoryData.map((entry, index) => {
+                const isActive = categoryFilter === entry.name;
+                return (
+                  <div
+                    key={index}
+                    onClick={() => setCategoryFilter(isActive ? "All" : entry.name)}
+                    className={cn(
+                      "flex items-center justify-between p-1.5 rounded-lg cursor-pointer transition-all hover:bg-slate-100 dark:hover:bg-slate-800/50 border",
+                      isActive 
+                        ? "bg-emerald-500/10 dark:bg-emerald-500/20 border-emerald-500/30" 
+                        : "border-transparent"
+                    )}
+                    title={`Filter by ${entry.name}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 rounded-full shadow-sm shrink-0" style={{ backgroundColor: entry.color }} />
+                      <span className={cn(
+                        "text-xs font-bold uppercase tracking-tight transition-colors",
+                        isActive ? "text-emerald-600 dark:text-emerald-400" : "text-gray-800 dark:text-gray-200"
+                      )}>
+                        {entry.name}
+                      </span>
+                    </div>
+                    <span className={cn(
+                      "text-[11px] font-black px-2 py-0.5 rounded-md border transition-colors",
+                      isActive 
+                        ? "bg-emerald-500 text-white border-emerald-500 shadow-sm" 
+                        : "bg-gray-100 text-gray-800 dark:bg-slate-800 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                    )}>
+                      {entry.value}
+                    </span>
                   </div>
-                  <span className="text-sm font-black text-gray-800 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">{entry.value}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -952,7 +1007,7 @@ export default function ActivitiesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filteredTasks.map((task) => (
+                  {paginatedTasks.map((task) => (
                     <tr key={task.id} className="hover:bg-surface/40 transition-colors group align-top cursor-pointer" onClick={() => handleOpenDetails(task)}>
                       <td className="px-2 py-2.5 align-top">
                         <StatusBadge status={task.status.toLowerCase().replace(" ", "")} size="xs" />
@@ -1107,7 +1162,7 @@ export default function ActivitiesPage() {
               {/* GRID VIEW (Shown on Mobile always, or on Desktop if grid mode is selected) */}
               <div className={cn(viewMode === "table" ? "block sm:hidden" : "block")}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 sm:p-5">
-                  {filteredTasks.map((task) => (
+                  {paginatedTasks.map((task) => (
                 <div key={task.id} className="bg-surface/30 border border-border rounded-xl p-4 hover:border-primary/30 transition-all group cursor-pointer" onClick={() => handleOpenDetails(task)}>
                   <div className="flex justify-between items-start mb-4">
                     <StatusBadge status={task.status.toLowerCase().replace(" ", "")} />
@@ -1256,6 +1311,82 @@ export default function ActivitiesPage() {
                   </div>
                 </div>
               ))}
+                </div>
+              </div>
+
+              {/* PAGINATION CONTROLS */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-border bg-surface-raised/20">
+                <div className="flex items-center gap-2 text-xs text-foreground-muted">
+                  <span>Show</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="bg-surface border border-border rounded px-2 py-1 text-xs font-bold focus:outline-none focus:border-primary"
+                  >
+                    {[5, 10, 20, 50, 100].map(val => (
+                      <option key={val} value={val}>{val}</option>
+                    ))}
+                  </select>
+                  <span>entries per page</span>
+                  <span className="mx-2">|</span>
+                  <span>
+                    Showing {totalItems > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + itemsPerPage, totalItems)} of {totalItems} entries
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded-lg border border-border bg-surface hover:bg-surface-raised disabled:opacity-40 disabled:hover:bg-surface transition-all text-foreground-muted hover:text-foreground"
+                    title="Previous Page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  {/* Dynamic page numbers */}
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+                    if (totalPages > 6 && page !== 1 && page !== totalPages && Math.abs(page - currentPage) > 1) {
+                      if (page === 2 && currentPage > 3) {
+                        return <span key="dots-start" className="px-2 text-xs text-foreground-muted">...</span>;
+                      }
+                      if (page === totalPages - 1 && currentPage < totalPages - 2) {
+                        return <span key="dots-end" className="px-2 text-xs text-foreground-muted">...</span>;
+                      }
+                      return null;
+                    }
+
+                    const isCurrent = currentPage === page;
+                    return (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => setCurrentPage(page)}
+                        className={cn(
+                          "w-8 h-8 rounded-lg text-xs font-bold border transition-all flex items-center justify-center",
+                          isCurrent
+                            ? "bg-primary text-white border-primary shadow-lg shadow-primary/25"
+                            : "border-border bg-surface hover:bg-surface-raised text-foreground-muted hover:text-foreground"
+                        )}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded-lg border border-border bg-surface hover:bg-surface-raised disabled:opacity-40 disabled:hover:bg-surface transition-all text-foreground-muted hover:text-foreground"
+                    title="Next Page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             </>

@@ -4698,6 +4698,22 @@ async function executeKeywordSql(pool, keyword, args) {
   const runtimeHost = (args.target_host || args.hostname || args.host || '').toString().trim();
   const resolvedTargetHost = sanitizeKeywordTargetHost(keyword.target_host || runtimeHost || '');
 
+  if (!resolvedTargetHost) {
+    return {
+      handled: true,
+      text: `Keyword \`${keyword.keyword}\` membutuhkan Target Host sebelum dieksekusi. Silakan pilih target host di bawah atau jalankan kembali dengan parameter \`host=HOSTNAME\`.`,
+      sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Target host required' }],
+      form: {
+        keywordId: keyword.id,
+        keyword: keyword.keyword,
+        description: keyword.description || '',
+        parameter_keys: parameterKeys,
+        requires_confirmation: keyword.requires_confirmation === true || keyword.requires_confirmation === 1,
+        target_host: ''
+      }
+    };
+  }
+
   if (resolvedTargetHost) {
     const hostRes = await pool.request()
       .input('name', sql.NVarChar, resolvedTargetHost)

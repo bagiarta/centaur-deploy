@@ -3391,6 +3391,22 @@ async function executeKeywordSql(pool, keyword, args) {
   const runtimeHost = (args.target_host || args.hostname || args.host || '').toString().trim();
   const resolvedTargetHost = sanitizeKeywordTargetHost(keyword.target_host || runtimeHost || '');
 
+  if (!resolvedTargetHost) {
+    return {
+      handled: true,
+      text: `Keyword \`${keyword.keyword}\` membutuhkan Target Host sebelum dieksekusi. Silakan pilih target host di bawah atau jalankan kembali dengan parameter \`host=HOSTNAME\`.`,
+      sources: [{ type: 'keyword', label: keyword.keyword, detail: 'Target host required' }],
+      form: {
+        keywordId: keyword.id,
+        keyword: keyword.keyword,
+        description: keyword.description || '',
+        parameter_keys: parameterKeys,
+        requires_confirmation: keyword.requires_confirmation === true || keyword.requires_confirmation === 1,
+        target_host: ''
+      }
+    };
+  }
+
   if (resolvedTargetHost) {
     const hostRes = await pool.request()
       .input('name', sql.NVarChar, resolvedTargetHost)
@@ -5786,12 +5802,42 @@ export async function startBackgroundTasks() {
   detectorLoop();
   logCleanupLoop();
 
-  // ── ABC Analysis Daily Sync (Every day at 07:00 AM) ──
-  cron.schedule('0 7 * * *', () => {
-    console.log('[CRON] Running scheduled ABC Analysis sync...');
-    runAbcSync();
+  // ── ABC Analysis Check & Sync Loop (Every 5 minutes, active 07:00 AM onwards) ──
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const currentHour = new Date().getHours();
+      if (currentHour < 7) {
+        // Don't sync yet, wait until at least 07:00 AM local time
+        return;
+      }
+
+      const pool = await poolPromise;
+      if (!pool) return;
+
+      // Target date is yesterday (1 day ago)
+      const targetDateObj = new Date(new Date().setDate(new Date().getDate() - 1));
+      const targetDate = targetDateObj.toISOString().slice(0, 10);
+
+      // Check if we already have records for yesterday
+      const checkRes = await pool.request()
+        .input('txnDate', sql.Date, targetDate)
+        .query("SELECT COUNT(*) as count FROM ItemPerformanceABC WHERE TRANSACTION_DATE = @txnDate");
+
+      const count = checkRes.recordset[0]?.count || 0;
+      if (count === 0) {
+        console.log(`[CRON] ABC Analysis data for yesterday (${targetDate}) is empty. Running sync...`);
+        const success = await runAbcSync(targetDate);
+        if (success) {
+          console.log(`[CRON] ABC Analysis sync for ${targetDate} succeeded.`);
+        } else {
+          console.log(`[CRON] ABC Analysis sync for ${targetDate} returned no data or failed. Will retry in 5 minutes.`);
+        }
+      }
+    } catch (err) {
+      console.error('[CRON] Error in ABC Analysis check loop:', err.message);
+    }
   });
-  console.log('📊 ABC Analysis daily sync scheduled at 07:00');
+  console.log('📊 ABC Analysis sync check scheduled every 5 minutes (active starting 07:00 AM)');
 }
 
 // ── Manual trigger for ABC Analysis Sync ──────────────────────

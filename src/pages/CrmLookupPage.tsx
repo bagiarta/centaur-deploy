@@ -35,18 +35,16 @@ export default function CrmLookupPage() {
   };
 
   return (
+    <div className="space-y-6 pb-10">
       <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 p-6 shadow-xl mb-6">
         <div className="absolute inset-0 bg-black/10"></div>
-          <div className="relative z-10 flex items-center gap-4 text-white">
-          <div className="p-3 bg-white/20 rounded-lg"></div>
-    <div className="space-y-6 pb-10">
-      <PageHeader 
-        title="CRM Customer Lookup" 
-        subtitle="Cari detail data pelanggan H2H CRM berdasarkan nomor telepon (MSISDN)"
-      />
+        <div className="relative z-10 flex items-center gap-4 text-white">
+          <PageHeader 
+            title="CRM Customer Lookup" 
+            subtitle="Cari detail data pelanggan H2H CRM berdasarkan nomor telepon (MSISDN)"
+          />
+        </div>
       </div>
-      </div>
-      
 
       <SectionCard>
         <form onSubmit={handleLookup} className="flex flex-col sm:flex-row gap-3">
