@@ -287,6 +287,7 @@ export default function CrmAbcAnalysisPage() {
                   { key: 'ORG_CD', label: 'Org' },
                   { key: 'ITM_CD', label: 'Item Code' },
                   { key: 'ITEM_NAME', label: 'Item Name' },
+                  { key: 'UOM', label: 'UOM' },
                   { key: 'SALES_VALUE', label: 'Sales Value' },
                   { key: 'QTY_SOLD', label: 'Qty' },
                   { key: 'GP_PERCENT', label: 'Margin %' },
@@ -322,12 +323,12 @@ export default function CrmAbcAnalysisPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    <td colSpan={14} className="px-4 py-8 bg-white/5" />
+                    <td colSpan={15} className="px-4 py-8 bg-white/5" />
                   </tr>
                 ))
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="px-4 py-20 text-center text-foreground-muted italic">
+                  <td colSpan={15} className="px-4 py-20 text-center text-foreground-muted italic">
                     No items found for the selected criteria
                   </td>
                 </tr>
@@ -337,6 +338,7 @@ export default function CrmAbcAnalysisPage() {
                   <td className="px-4 py-3 text-xs font-medium text-foreground-muted">{row.ORG_CD}</td>
                   <td className="px-4 py-3 text-xs font-mono text-foreground">{row.ITM_CD}</td>
                   <td className="px-4 py-3 text-xs font-medium text-foreground max-w-[250px] truncate" title={row.ITEM_NAME}>{row.ITEM_NAME}</td>
+                  <td className="px-4 py-3 text-xs font-semibold text-foreground-muted uppercase">{row.UOM || '-'}</td>
                   <td className="px-4 py-3 text-xs font-mono text-success font-bold">{formatValue(row.SALES_VALUE, 'currency')}</td>
                   <td className="px-4 py-3 text-xs font-mono text-foreground-muted">{formatValue(row.QTY_SOLD, 'number')}</td>
                   <td className="px-4 py-3 text-xs font-mono text-primary">{formatValue(row.GP_PERCENT, 'percent')}</td>

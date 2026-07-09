@@ -542,6 +542,39 @@ export default function ScaleManagerPage() {
     }
   };
 
+  const handleResyncJob = async (jobId: string) => {
+    try {
+      toast.info("Triggering job resync...");
+      const res = await fetch(`/api/scales/jobs/${jobId}/resync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      toast.success(data.message || "Resync successfully triggered.");
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleDeleteJob = async (jobId: string) => {
+    if (!confirm("Are you sure you want to delete this scale job log? This will remove its history from the database.")) return;
+    try {
+      const res = await fetch(`/api/scales/jobs/${jobId}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      toast.success(data.message || "Job history deleted successfully.");
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
   const toggleSelectAll = () => {
     if (selectedScales.length === filteredScales.length) {
       setSelectedScales([]);
@@ -1148,12 +1181,13 @@ export default function ScaleManagerPage() {
                   <th className="p-3">Logs & Info</th>
                   <th className="p-3">Timestamp</th>
                   <th className="p-3">Status</th>
+                  <th className="p-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {jobs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-black italic">
+                    <td colSpan={8} className="p-8 text-center text-black italic">
                       No synchronization jobs dispatched.
                     </td>
                   </tr>
@@ -1187,7 +1221,7 @@ export default function ScaleManagerPage() {
                         {job.log}
                       </td>
                       <td className="p-3 font-mono text-[10px] text-black">
-                        {new Date(job.created_at).toLocaleString()}
+                        {job.created_at || '-'}
                       </td>
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider ${
@@ -1197,6 +1231,22 @@ export default function ScaleManagerPage() {
                         }`}>
                           {job.status}
                         </span>
+                      </td>
+                      <td className="p-3 text-right flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => handleResyncJob(job.id)}
+                          className="p-1.5 rounded-lg border border-slate-300 text-black hover:text-black hover:bg-slate-200"
+                          title="Resync this job"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteJob(job.id)}
+                          className="p-1.5 rounded-lg border border-slate-300 text-rose-500 hover:bg-rose-500/10"
+                          title="Delete job log"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </td>
                     </tr>
                   ))

@@ -841,7 +841,7 @@ router.post('/bulk-sync', async (req, res) => {
     // ── Process Digi scales directly from Node.js backend (F25 TCP) ──
     // ── Process Mettler or Digi PC scales via Agent PowerShell ──
     const digiScales = [];
-    const agentByDevice = {};
+    const mettlerByDevice = {};
 
     for (const devId in scalesByDevice) {
       const group = scalesByDevice[devId];
@@ -905,8 +905,8 @@ router.post('/bulk-sync', async (req, res) => {
     }
 
     // ── AGENT: Agent-based FTP or PC Drop (sequential PowerShell script per agent) ──
-    for (const devId in agentByDevice) {
-      const group = agentByDevice[devId];
+    for (const devId in mettlerByDevice) {
+      const group = mettlerByDevice[devId];
       if (group.scales.length === 0) continue;
 
       const execId = `scale-bulk-${uuidv4().substring(0, 8)}`;
@@ -1195,7 +1195,10 @@ router.get('/jobs/history', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
-      SELECT j.*, s.name as scale_name, COALESCE(d.ip, s.ip) as scale_ip
+      SELECT j.id, j.scale_id, j.job_type, j.status, j.progress, j.log, j.payload_path, j.created_by,
+             CONVERT(varchar, j.created_at, 120) as created_at,
+             CONVERT(varchar, j.completed_at, 120) as completed_at,
+             s.name as scale_name, COALESCE(d.ip, s.ip) as scale_ip
       FROM ScaleJobs j
       INNER JOIN Scales s ON j.scale_id = s.id
       LEFT JOIN Devices d ON s.device_id = d.id
@@ -1247,6 +1250,189 @@ router.post('/jobs/:jobId/status', async (req, res) => {
     }
 
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/scales/jobs/:jobId/resync
+router.post('/jobs/:jobId/resync', async (req, res) => {
+  const { jobId } = req.params;
+  try {
+    const pool = await poolPromise;
+    
+    // Fetch the job
+    const jobRes = await pool.request()
+      .input('id', sql.NVarChar, jobId)
+      .query('SELECT * FROM ScaleJobs WHERE id = @id');
+    const job = jobRes.recordset[0];
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    // Fetch the associated scale
+    const scaleRes = await pool.request()
+      .input('scale_id', sql.NVarChar, job.scale_id)
+      .query('SELECT s.*, d.hostname, d.ip as gateway_ip FROM Scales s INNER JOIN Devices d ON s.device_id = d.id WHERE s.id = @scale_id');
+    const scale = scaleRes.recordset[0];
+    if (!scale) return res.status(404).json({ error: 'Associated scale not found' });
+
+    // Fetch items using template if we can trace it, or read the generated file content
+    const targetIp = resolveScaleTargetIp(scale);
+    const fileName = job.payload_path;
+    const isDigi = scale.model && scale.model.toLowerCase().includes('digi');
+    const isDigiF25 = isDigi && scale.port === 4001 && !scale.model.toLowerCase().includes('pc');
+
+    // Update the job to pending status
+    await pool.request()
+      .input('id', sql.NVarChar, jobId)
+      .query("UPDATE ScaleJobs SET status = 'pending', progress = 10, log = 'Resync triggered, initializing...', completed_at = null WHERE id = @id");
+
+    if (isDigiF25) {
+      // For Digi F25 direct sync: read the file, parse it into items, and send
+      (async () => {
+        try {
+          await pool.request()
+            .input('id', sql.NVarChar, jobId)
+            .query("UPDATE ScaleJobs SET status = 'running', progress = 30, log = 'Connecting via F25 TCP (Resync)...' WHERE id = @id");
+
+          const filePath = path.join(SCALES_DIR, fileName);
+          if (!fs.existsSync(filePath)) {
+            throw new Error('Sync payload file not found on server.');
+          }
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const lines = content.split(/\r?\n/).filter(Boolean);
+          
+          // Parse the CSV/TXT lines back into items. 
+          // Assuming format: plu_number;name;price;shelf_life;tare
+          const parsedItems = lines.map(line => {
+            const parts = line.split(/[;,]/);
+            return {
+              plu_number: parseInt(parts[0]) || 0,
+              name: parts[1] || '',
+              price: parseFloat(parts[2]) || 0,
+              shelf_life: parseInt(parts[3]) || 3,
+              tare: parseFloat(parts[4]) || 0
+            };
+          }).filter(item => item.plu_number > 0);
+
+          const result = await sendDigiF25Plu(targetIp, DIGI_CONST.DEFAULT_PORT, parsedItems);
+          if (result.success) {
+            await pool.request()
+              .input('id', sql.NVarChar, jobId)
+              .input('log', sql.NVarChar, `Resync successful. PLU data sent via F25. ${result.sentCount}/${result.total} items acknowledged.`)
+              .query("UPDATE ScaleJobs SET status = 'success', progress = 100, log = @log, completed_at = GETDATE() WHERE id = @id");
+
+            await pool.request()
+              .input('id', sql.NVarChar, scale.id)
+              .query("UPDATE Scales SET status = 'online', last_seen = GETDATE() WHERE id = @id");
+          } else {
+            await pool.request()
+              .input('id', sql.NVarChar, jobId)
+              .input('log', sql.NVarChar, `Resync F25 failed: ${result.errors.join('; ')}`)
+              .query("UPDATE ScaleJobs SET status = 'failed', progress = 0, log = @log, completed_at = GETDATE() WHERE id = @id");
+          }
+        } catch (err) {
+          await pool.request()
+            .input('id', sql.NVarChar, jobId)
+            .input('log', sql.NVarChar, `Resync error: ${err.message}`)
+            .query("UPDATE ScaleJobs SET status = 'failed', progress = 0, log = @log, completed_at = GETDATE() WHERE id = @id");
+        }
+      })().catch(err => console.error('[Scale Resync] error:', err));
+
+      return res.json({ success: true, message: 'Resync triggered via Digi F25 direct connection.' });
+    }
+
+    // For Agent-based sync (Mettler FTP or Digi PC file drop)
+    const serverHost = req.headers.host || '192.168.85.30:3001';
+    const serverUrl = `http://${serverHost}`;
+    const execId = `scale-resync-${uuidv4().substring(0, 8)}`;
+    const cmdId = `cmd-${Date.now()}-scale-resync`;
+
+    const ftpScript = `
+$scaleIp = '${targetIp}';
+$ftpUser = 'admin';
+$ftpPass = 'admin';
+$jobId = '${jobId}';
+$fileName = '${fileName}';
+$downloadUrl = '${serverUrl}/api/scales/download/' + $fileName;
+$localTempFile = "$env:TEMP\\$fileName";
+
+Invoke-RestMethod -Uri "${serverUrl}/api/scales/jobs/$jobId/status" -Method Post -Body (@{status='running'; progress=30; log='Downloading PLU file for resync...'} | ConvertTo-Json) -ContentType "application/json" | Out-Null;
+
+try {
+    $wc = New-Object System.Net.WebClient;
+    $wc.DownloadFile($downloadUrl, $localTempFile);
+
+    Invoke-RestMethod -Uri "${serverUrl}/api/scales/jobs/$jobId/status" -Method Post -Body (@{status='running'; progress=60; log='Uploading file to scale (Resync)...'} | ConvertTo-Json) -ContentType "application/json" | Out-Null;
+
+    if ('${isDigi}' -eq 'true') {
+        $targetDir = "C:\\TWS\\Import";
+        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null;
+        Copy-Item -Path $localTempFile -Destination "$targetDir\\$fileName" -Force;
+    } else {
+        $ftpRequest = [System.Net.FtpWebRequest]::Create("ftp://$scaleIp/import/$fileName");
+        $ftpRequest.Method = [System.Net.WebRequestMethods+Ftp]::UploadFile;
+        $ftpRequest.Credentials = New-Object System.Net.NetworkCredential($ftpUser, $ftpPass);
+        $ftpRequest.Timeout = 10000;
+        $fileBytes = [System.IO.File]::ReadAllBytes($localTempFile);
+        $ftpRequest.ContentLength = $fileBytes.Length;
+        $ftpStream = $ftpRequest.GetRequestStream();
+        $ftpStream.Write($fileBytes, 0, $fileBytes.Length);
+        $ftpStream.Close();
+        $ftpStream.Dispose();
+    }
+
+    Remove-Item $localTempFile -Force -ErrorAction SilentlyContinue;
+    Invoke-RestMethod -Uri "${serverUrl}/api/scales/jobs/$jobId/status" -Method Post -Body (@{status='success'; progress=100; log='PLU data resynchronized successfully.'} | ConvertTo-Json) -ContentType "application/json" | Out-Null;
+} catch {
+    Remove-Item $localTempFile -Force -ErrorAction SilentlyContinue;
+    $errorMsg = $_.Exception.Message;
+    Invoke-RestMethod -Uri "${serverUrl}/api/scales/jobs/$jobId/status" -Method Post -Body (@{status='failed'; progress=0; log="Resync failed: $errorMsg"} | ConvertTo-Json) -ContentType "application/json" | Out-Null;
+}
+`.trim();
+
+    await pool.request()
+      .input('id', sql.NVarChar, cmdId)
+      .input('exec_id', sql.NVarChar, execId)
+      .input('device_id', sql.NVarChar, scale.device_id)
+      .input('hostname', sql.NVarChar, scale.hostname)
+      .input('ip', sql.NVarChar, targetIp || scale.gateway_ip)
+      .input('command', sql.NVarChar, ftpScript)
+      .query(`
+        INSERT INTO PendingCommands (id, exec_id, device_id, hostname, ip, command, status, created_at)
+        VALUES (@id, @exec_id, @device_id, @hostname, @ip, @command, 'pending', GETDATE())
+      `);
+
+    res.json({ success: true, message: 'Resync command dispatched to local agent.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/scales/jobs/:jobId
+router.delete('/jobs/:jobId', async (req, res) => {
+  const { jobId } = req.params;
+  try {
+    const pool = await poolPromise;
+    const jobRes = await pool.request()
+      .input('id', sql.NVarChar, jobId)
+      .query('SELECT payload_path FROM ScaleJobs WHERE id = @id');
+    const job = jobRes.recordset[0];
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    // Delete job record
+    await pool.request()
+      .input('id', sql.NVarChar, jobId)
+      .query('DELETE FROM ScaleJobs WHERE id = @id');
+
+    // Attempt to delete physical file if exists
+    if (job.payload_path) {
+      const filePath = path.join(SCALES_DIR, job.payload_path);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+
+    res.json({ success: true, message: 'Job deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
