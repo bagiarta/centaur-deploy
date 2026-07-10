@@ -27,6 +27,9 @@ import CrmSyncPage from "./pages/CrmSyncPage";
 import ActivitiesPage from "./pages/ActivitiesPage";
 import ScaleManagerPage from "./pages/ScaleManagerPage";
 import CCTVMonitoringPage from "./pages/CCTVMonitoringPage";
+import PMDashboardPage from "./pages/trial/PMDashboardPage";
+import PMSchedulePage from "./pages/trial/PMSchedulePage";
+import PMActionItemsPage from "./pages/trial/PMActionItemsPage";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/LoginPage";
@@ -193,6 +196,27 @@ const App = () => (
               <ProtectedRoute>
                 <AppShell>
                   <CCTVMonitoringPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/trial/support-manager/dashboard" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <PMDashboardPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/trial/support-manager/schedule" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <PMSchedulePage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/trial/support-manager/action-items" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <PMActionItemsPage />
                 </AppShell>
               </ProtectedRoute>
             } />

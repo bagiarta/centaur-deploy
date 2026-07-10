@@ -74,6 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const hasPermission = (menuKey: string) => {
     if (!user) return false;
     if (user.is_admin || user.menu_permissions === "*") return true;
+    if (menuKey.startsWith("sm_") || menuKey === "trial_support_manager") return true;
     try {
       const perms = JSON.parse(user.menu_permissions);
       return Array.isArray(perms) && perms.includes(menuKey);
