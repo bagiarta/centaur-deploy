@@ -1333,7 +1333,7 @@ router.get('/api/users', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
-      SELECT u.id, u.username, u.full_name, u.role_id, u.created_at, r.name as role_name 
+      SELECT u.id, u.username, u.full_name, u.role_id, u.created_at, r.name as role_name, u.division, u.location 
       FROM Users u
       JOIN Roles r ON u.role_id = r.id
     `);
@@ -1344,7 +1344,7 @@ router.get('/api/users', async (req, res) => {
 });
 
 router.post('/api/users', async (req, res) => {
-  const { username, password, full_name, role_id } = req.body;
+  const { username, password, full_name, role_id, division, location } = req.body;
   try {
     const pool = await poolPromise;
     await pool.request()
@@ -1353,10 +1353,22 @@ router.post('/api/users', async (req, res) => {
       .input('password', sql.NVarChar, password)
       .input('full_name', sql.NVarChar, full_name)
       .input('role_id', sql.NVarChar, role_id)
+      .input('division', sql.NVarChar, division || 'IT')
+      .input('location', sql.NVarChar, location || null)
       .query(`
-        INSERT INTO Users (id, username, password_hash, full_name, role_id)
-        VALUES (@id, @username, @password, @full_name, @role_id)
+        INSERT INTO Users (id, username, password_hash, full_name, role_id, division, location)
+        VALUES (@id, @username, @password, @full_name, @role_id, @division, @location)
       `);
+
+    // Log the user creation to ActivityLog
+    const reqUser = await getRequestUser(req, pool);
+    const actor = reqUser ? reqUser.username : 'admin';
+    const actionDesc = `Created user ${username} with division: ${division || 'IT'}, location: ${location || 'Head Office (HO)'}`;
+    await pool.request()
+      .input('actor', sql.NVarChar, actor)
+      .input('action', sql.NVarChar, actionDesc)
+      .query("INSERT INTO ActivityLog (time, [user], action) VALUES (GETDATE(), @actor, @action)");
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1365,12 +1377,19 @@ router.post('/api/users', async (req, res) => {
 
 router.put('/api/users/:id', async (req, res) => {
   const { id } = req.params;
-  const { username, full_name, role_id, password } = req.body;
+  const { username, full_name, role_id, password, division, location } = req.body;
   try {
     const pool = await poolPromise;
+
+    // Fetch old user details for comparison logging
+    const oldUserRes = await pool.request()
+      .input('id', sql.NVarChar, id)
+      .query('SELECT username, division, location FROM Users WHERE id = @id');
+    const oldUser = oldUserRes.recordset[0];
+
     let query = `
       UPDATE Users 
-      SET username = @username, full_name = @full_name, role_id = @role_id
+      SET username = @username, full_name = @full_name, role_id = @role_id, division = @division, location = @location
     `;
     if (password) {
       query += `, password_hash = @password`;
@@ -1381,13 +1400,27 @@ router.put('/api/users/:id', async (req, res) => {
       .input('id', sql.NVarChar, id)
       .input('username', sql.NVarChar, username)
       .input('full_name', sql.NVarChar, full_name)
-      .input('role_id', sql.NVarChar, role_id);
+      .input('role_id', sql.NVarChar, role_id)
+      .input('division', sql.NVarChar, division || 'IT')
+      .input('location', sql.NVarChar, location || null);
 
     if (password) {
       request.input('password', sql.NVarChar, password);
     }
 
     await request.query(query);
+
+    // Log the update to ActivityLog
+    if (oldUser) {
+      const reqUser = await getRequestUser(req, pool);
+      const actor = reqUser ? reqUser.username : 'admin';
+      const actionDesc = `Updated user ${oldUser.username}: division = ${oldUser.division || 'IT'} -> ${division || 'IT'}, location = ${oldUser.location || 'Head Office (HO)'} -> ${location || 'Head Office (HO)'}`;
+      await pool.request()
+        .input('actor', sql.NVarChar, actor)
+        .input('action', sql.NVarChar, actionDesc)
+        .query("INSERT INTO ActivityLog (time, [user], action) VALUES (GETDATE(), @actor, @action)");
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1398,8 +1431,49 @@ router.delete('/api/users/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const pool = await poolPromise;
+    
+    // Get username before delete to log it
+    const userRes = await pool.request()
+      .input('id', sql.NVarChar, id)
+      .query('SELECT username FROM Users WHERE id = @id');
+    const username = userRes.recordset[0]?.username;
+
     await pool.request().input('id', sql.NVarChar, id).query('DELETE FROM Users WHERE id = @id');
+    
+    if (username) {
+      const reqUser = await getRequestUser(req, pool);
+      const actor = reqUser ? reqUser.username : 'admin';
+      await pool.request()
+        .input('actor', sql.NVarChar, actor)
+        .input('action', sql.NVarChar, `Deleted user ${username}`)
+        .query("INSERT INTO ActivityLog (time, [user], action) VALUES (GETDATE(), @actor, @action)");
+    }
+
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/users/:id/history', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = await poolPromise;
+    const userRes = await pool.request()
+      .input('id', sql.NVarChar, id)
+      .query('SELECT username FROM Users WHERE id = @id');
+    const user = userRes.recordset[0];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const result = await pool.request()
+      .input('username', sql.NVarChar, `%${user.username}%`)
+      .query(`
+        SELECT id, time, [user] as actor, action
+        FROM ActivityLog
+        WHERE action LIKE @username
+        ORDER BY id DESC
+      `);
+    res.json(result.recordset);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

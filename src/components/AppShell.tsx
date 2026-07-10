@@ -56,7 +56,18 @@ export const navItems = [
   },
   { id: "reports", to: "/reports", icon: Activity, label: "Reports", group: "main" },
   { id: "devices", to: "/devices", icon: Monitor, label: "Devices", group: "main" },  
-    { id: "workflows", to: "/workflows", icon: BookMarked, label: "Knowledge Base", group: "main" },
+  { id: "workflows", to: "/workflows", icon: BookMarked, label: "Knowledge Base", group: "main" },
+  {
+    id: "trial_support_manager",
+    label: "Support Manager (Trial)",
+    icon: Shield,
+    group: "main",
+    children: [
+      { id: "sm_dashboard", to: "/trial/support-manager/dashboard", icon: LayoutDashboard, label: "PM Dashboard" },
+      { id: "sm_schedule", to: "/trial/support-manager/schedule", icon: ClipboardList, label: "PM Schedule & Checklist" },
+      { id: "sm_actions", to: "/trial/support-manager/action-items", icon: Wrench, label: "Action Items Tracking" },
+    ]
+  },
    
     
  

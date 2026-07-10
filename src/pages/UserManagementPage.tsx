@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Users, UserPlus, Edit2, Trash2, Search, Shield, Save, X, Loader2 } from "lucide-react";
+import { Users, UserPlus, Edit2, Trash2, Search, Shield, Save, X, Loader2, History } from "lucide-react";
 import { PageHeader, SectionCard } from "@/components/ui-enterprise";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,8 @@ interface User {
   role_id: string;
   role_name: string;
   created_at: string;
+  division?: string;
+  location?: string;
 }
 
 interface Role {
@@ -22,11 +24,14 @@ interface Role {
 export default function UserManagementPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [stores, setStores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editingUser, setEditingUser] = useState<Partial<User & { password?: string }> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [locSearch, setLocSearch] = useState("");
+  const [showLocDropdown, setShowLocDropdown] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -35,14 +40,17 @@ export default function UserManagementPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [uRes, rRes] = await Promise.all([
+      const [uRes, rRes, sRes] = await Promise.all([
         fetch("/api/users"),
-        fetch("/api/roles")
+        fetch("/api/roles"),
+        fetch("/api/crm/reports/stores")
       ]);
       const uData = await uRes.json();
       const rData = await rRes.json();
+      const sData = await sRes.json();
       setUsers(uData);
       setRoles(rData);
+      setStores(sData);
     } catch (err) {
       toast.error("Failed to fetch user data");
     } finally {
@@ -51,7 +59,8 @@ export default function UserManagementPage() {
   };
 
   const handleEdit = (user: User | null) => {
-    setEditingUser(user || { username: "", full_name: "", role_id: roles[0]?.id || "", password: "" });
+    setEditingUser(user || { username: "", full_name: "", role_id: roles[0]?.id || "", password: "", division: "IT", location: "" });
+    setLocSearch(user?.location || "");
     setIsEditing(true);
   };
 
@@ -152,6 +161,8 @@ export default function UserManagementPage() {
                   <tr>
                     <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">User</th>
                     <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Role</th>
+                    <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Division</th>
+                    <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Location</th>
                     <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Created</th>
                     <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted text-right">Actions</th>
                   </tr>
@@ -159,14 +170,14 @@ export default function UserManagementPage() {
                 <tbody className="divide-y divide-border">
                   {loading ? (
                     <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-foreground-muted italic">
+                      <td colSpan={6} className="px-4 py-8 text-center text-foreground-muted italic">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
                         Loading users...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-foreground-muted italic">
+                      <td colSpan={6} className="px-4 py-8 text-center text-foreground-muted italic">
                         No users found matching your search.
                       </td>
                     </tr>
@@ -188,6 +199,14 @@ export default function UserManagementPage() {
                           <Shield className="w-3 h-3 text-primary" />
                           {u.role_name}
                         </div>
+                      </td>
+                      <td className="px-4 py-4 text-xs">
+                        <span className="px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-semibold text-[11px]">
+                          {u.division || 'IT'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-xs text-foreground-muted font-medium">
+                        {u.location || 'Head Office (HO)'}
                       </td>
                       <td className="px-4 py-4 text-xs text-foreground-muted">
                         {u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}
@@ -267,6 +286,86 @@ export default function UserManagementPage() {
                     ))}
                   </select>
                 </div>
+                
+                {/* Division Input with Auto-datalist */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground-muted">Division</label>
+                  <input
+                    type="text"
+                    list="divisions-datalist"
+                    value={editingUser?.division || ''}
+                    onChange={(e) => setEditingUser(prev => ({ ...prev!, division: e.target.value }))}
+                    className="w-full bg-background border border-border rounded-lg p-2.5 text-sm outline-none focus:border-primary transition-all text-foreground"
+                    placeholder="e.g. IT, Finance, HR..."
+                  />
+                  <datalist id="divisions-datalist">
+                    {Array.from(new Set(users.map(u => u.division).filter(Boolean))).map(div => (
+                      <option key={div} value={div} />
+                    ))}
+                  </datalist>
+                </div>
+
+                {/* Location Searchable Input */}
+                <div className="space-y-1.5 relative">
+                  <label className="text-xs font-semibold text-foreground-muted">Location (dim_store)</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={locSearch}
+                      placeholder="Type store name or code..."
+                      onChange={(e) => {
+                        setLocSearch(e.target.value);
+                        setShowLocDropdown(true);
+                        setEditingUser(prev => ({ ...prev!, location: e.target.value }));
+                      }}
+                      onFocus={() => setShowLocDropdown(true)}
+                      className="w-full bg-background border border-border rounded-lg p-2.5 text-sm outline-none focus:border-primary transition-all text-foreground"
+                    />
+                    {locSearch && (
+                      <button 
+                        onClick={() => { setLocSearch(""); setEditingUser(prev => ({ ...prev!, location: "" })); }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-surface-overlay text-foreground-muted"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {showLocDropdown && (
+                    <div className="absolute z-50 left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-card border border-border rounded-lg shadow-xl divide-y divide-border">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocSearch("Head Office (HO)");
+                          setEditingUser(prev => ({ ...prev!, location: "Head Office (HO)" }));
+                          setShowLocDropdown(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-primary/10 text-xs text-foreground font-semibold"
+                      >
+                        Head Office (HO)
+                      </button>
+                      {stores
+                        .filter(s => s.org_name.toLowerCase().includes(locSearch.toLowerCase()) || s.org_cd.toLowerCase().includes(locSearch.toLowerCase()))
+                        .slice(0, 30)
+                        .map(store => (
+                          <button
+                            key={store.org_cd}
+                            type="button"
+                            onClick={() => {
+                              setLocSearch(store.org_name);
+                              setEditingUser(prev => ({ ...prev!, location: store.org_name }));
+                              setShowLocDropdown(false);
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-primary/10 text-xs text-foreground flex items-center justify-between"
+                          >
+                            <span>{store.org_name}</span>
+                            <span className="font-mono text-[10px] text-foreground-muted">{store.org_cd}</span>
+                          </button>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
+
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground-muted">
                     {editingUser?.id ? "Reset Password (Leave blank to keep current)" : "Password"}
@@ -277,12 +376,12 @@ export default function UserManagementPage() {
                       type="password"
                       value={editingUser?.password || ""}
                       onChange={(e) => setEditingUser(prev => ({ ...prev!, password: e.target.value }))}
-                      className="w-full bg-background border border-border rounded-lg py-2.5 pl-10 pr-4 text-sm outline-none focus:border-primary transition-all"
+                      className="w-full bg-background border border-border rounded-lg py-2.5 pl-10 pr-4 text-sm outline-none focus:border-primary transition-all text-foreground"
                       placeholder={editingUser?.id ? "Enter new password to reset" : "••••••••"}
                     />
                   </div>
+                  </div>
                 </div>
-              </div>
 
               <div className="mt-8 flex gap-3">
                 <button 

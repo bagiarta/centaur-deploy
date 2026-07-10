@@ -157,6 +157,8 @@ export async function initDb() {
              password_hash NVARCHAR(MAX) NOT NULL,
              full_name NVARCHAR(200),
              role_id NVARCHAR(50),
+             division NVARCHAR(100) DEFAULT 'IT',
+             location NVARCHAR(150) NULL,
              created_at DATETIME DEFAULT GETDATE()
          )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='NotificationSettings' AND xtype='U')
@@ -441,7 +443,61 @@ export async function initDb() {
             created_by NVARCHAR(100),
             created_at DATETIME DEFAULT GETDATE(),
             completed_at DATETIME NULL
-        )`
+        )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Trial_PMSchedules' AND xtype='U')
+       CREATE TABLE Trial_PMSchedules (
+           id NVARCHAR(50) PRIMARY KEY,
+           store_code NVARCHAR(50) NOT NULL,
+           store_name NVARCHAR(250) NOT NULL,
+           scheduled_date DATE NOT NULL,
+           pic_id NVARCHAR(50) NOT NULL,
+           pic_name NVARCHAR(200) NOT NULL,
+           status NVARCHAR(50) DEFAULT 'Scheduled',
+           notes NVARCHAR(MAX),
+           created_at DATETIME DEFAULT GETDATE(),
+           updated_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Trial_PMResults' AND xtype='U')
+       CREATE TABLE Trial_PMResults (
+           id NVARCHAR(50) PRIMARY KEY,
+           schedule_id NVARCHAR(50) NOT NULL,
+           store_code NVARCHAR(50) NOT NULL,
+           store_name NVARCHAR(250) NOT NULL,
+           execution_date DATETIME DEFAULT GETDATE(),
+           pic_id NVARCHAR(50) NOT NULL,
+           pic_name NVARCHAR(200) NOT NULL,
+           overall_status NVARCHAR(50) NOT NULL,
+           general_notes NVARCHAR(MAX),
+           created_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Trial_PMDeviceChecks' AND xtype='U')
+       CREATE TABLE Trial_PMDeviceChecks (
+           id INT IDENTITY(1,1) PRIMARY KEY,
+           result_id NVARCHAR(50) NOT NULL,
+           device_category NVARCHAR(100) NOT NULL,
+           device_name NVARCHAR(200) NOT NULL,
+           cctv_device_id NVARCHAR(50) NULL,
+           status NVARCHAR(50) NOT NULL,
+           issues_found NVARCHAR(MAX),
+           is_recurring BIT DEFAULT 0,
+           created_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Trial_PMActionItems' AND xtype='U')
+       CREATE TABLE Trial_PMActionItems (
+           id INT IDENTITY(1,1) PRIMARY KEY,
+           result_id NVARCHAR(50) NOT NULL,
+           store_code NVARCHAR(50) NOT NULL,
+           device_category NVARCHAR(100) NOT NULL,
+           device_name NVARCHAR(200) NOT NULL,
+           cctv_device_id NVARCHAR(50) NULL,
+           issue_description NVARCHAR(MAX) NOT NULL,
+           action_type NVARCHAR(50) NOT NULL,
+           status NVARCHAR(50) DEFAULT 'Pending',
+           resolution_notes NVARCHAR(MAX),
+           resolved_at DATETIME,
+           created_at DATETIME DEFAULT GETDATE(),
+           updated_at DATETIME DEFAULT GETDATE()
+       )`
     ];
 
     for (let query of tables) {
@@ -457,6 +513,19 @@ export async function initDb() {
         updated_at DATETIME DEFAULT GETDATE()
       )
     `);
+
+    // Ensure Users division and location columns exist
+    const checkUsersCols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'Users' AND COLUMN_NAME IN ('division', 'location')
+    `);
+
+    if (!checkUsersCols.recordset.find(c => c.COLUMN_NAME === 'division')) {
+      await pool.request().query("ALTER TABLE Users ADD division NVARCHAR(100) DEFAULT 'IT'");
+    }
+    if (!checkUsersCols.recordset.find(c => c.COLUMN_NAME === 'location')) {
+      await pool.request().query("ALTER TABLE Users ADD location NVARCHAR(150) NULL");
+    }
 
 
     // Add retry_count and last_error to DeploymentTargets if they don't exist

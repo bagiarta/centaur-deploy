@@ -22,6 +22,7 @@ import pushRoutes from './routes/pushRoutes.js';
 import scaleRoutes from './routes/scaleRoutes.js';
 import cctvRoutes from './routes/cctvRoutes.js';
 import legacyRoutes, { startBackgroundTasks } from './routes/legacyRoutes.js';
+import trialSupportManagerRoutes from './routes/trialSupportManagerRoutes.js';
 import { sendWebPush } from './controllers/pushController.js';
 import { startCCTVPollingJob } from './utils/cctvPollingService.js';
 
@@ -110,6 +111,7 @@ app.post('/api/templates/upload', templateUpload.single('file'), (req, res) => {
 app.use('/api/push', pushRoutes);
 app.use('/api/scales', scaleRoutes);
 app.use('/api/cctv', cctvRoutes);
+app.use('/api/trial/support-manager', trialSupportManagerRoutes);
 
 // Mount all remaining (unmigrated) routes at root to preserve exact paths
 app.use('/', legacyRoutes);
