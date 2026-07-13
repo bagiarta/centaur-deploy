@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   Wrench, CheckCircle, Clock, X, Search, Filter, Loader2, AlertOctagon, 
-  MapPin, User, MessageSquare, AlertCircle, RefreshCw
+  MapPin, User, MessageSquare, AlertCircle, RefreshCw, ChevronDown, ChevronRight
 } from "lucide-react";
 import { PageHeader, SectionCard, StatusBadge } from "@/components/ui-enterprise";
 import { toast } from "sonner";
@@ -36,6 +36,7 @@ export default function PMActionItemsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   // Modal
   const [isResolveOpen, setIsResolveOpen] = useState(false);
@@ -63,6 +64,21 @@ export default function PMActionItemsPage() {
   useEffect(() => {
     fetchActionItems();
   }, [statusFilter]);
+
+  // Auto-expand groups on load (set to false for collapsed by default)
+  useEffect(() => {
+    if (items.length > 0) {
+      setExpandedGroups(prev => {
+        const next = { ...prev };
+        items.forEach(item => {
+          if (next[item.result_id] === undefined) {
+            next[item.result_id] = false;
+          }
+        });
+        return next;
+      });
+    }
+  }, [items]);
 
   const handleOpenResolve = (item: ActionItem) => {
     setActiveItem(item);
@@ -113,6 +129,41 @@ export default function PMActionItemsPage() {
 
     return matchesSearch && matchesCategory;
   });
+
+  // Group items by result_id
+  const groupedGroups = useMemo(() => {
+    const groups: Record<string, {
+      result_id: string;
+      store_name: string;
+      store_code: string;
+      execution_date: string;
+      pic_name: string;
+      items: ActionItem[];
+    }> = {};
+
+    filteredItems.forEach(item => {
+      if (!groups[item.result_id]) {
+        groups[item.result_id] = {
+          result_id: item.result_id,
+          store_name: item.store_name,
+          store_code: item.store_code,
+          execution_date: item.execution_date,
+          pic_name: item.pic_name,
+          items: []
+        };
+      }
+      groups[item.result_id].items.push(item);
+    });
+
+    return Object.values(groups);
+  }, [filteredItems]);
+
+  const toggleGroup = (resultId: string) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [resultId]: !prev[resultId]
+    }));
+  };
 
   const categories = ["All", "PC/POS", "Printer", "CCTV", "Network", "Power", "Scale"];
 
@@ -183,6 +234,35 @@ export default function PMActionItemsPage() {
                 ))}
               </select>
             </div>
+
+            {/* Collapse/Expand All */}
+            <div className="flex items-center gap-1.5 bg-surface-overlay border border-border p-0.5 rounded-lg text-xs">
+              <button
+                onClick={() => {
+                  const next: Record<string, boolean> = {};
+                  groupedGroups.forEach(g => {
+                    next[g.result_id] = true;
+                  });
+                  setExpandedGroups(next);
+                }}
+                className="px-2.5 py-1.5 rounded hover:text-foreground text-foreground-muted font-semibold transition-colors"
+              >
+                Expand All
+              </button>
+              <span className="text-border">|</span>
+              <button
+                onClick={() => {
+                  const next: Record<string, boolean> = {};
+                  groupedGroups.forEach(g => {
+                    next[g.result_id] = false;
+                  });
+                  setExpandedGroups(next);
+                }}
+                className="px-2.5 py-1.5 rounded hover:text-foreground text-foreground-muted font-semibold transition-colors"
+              >
+                Collapse All
+              </button>
+            </div>
           </div>
         </div>
 
@@ -191,13 +271,13 @@ export default function PMActionItemsPage() {
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-border bg-surface-raised">
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Store Location</th>
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Category</th>
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Device Name</th>
+                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted pl-8 w-24">Item ID</th>
+                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted w-32">Category</th>
+                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted w-48">Device Name</th>
                 <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Issue & Action Type</th>
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Reported Info</th>
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted">Status</th>
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted text-right">Actions</th>
+                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted w-40">Reported Info</th>
+                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted w-32">Status</th>
+                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-foreground-muted text-right w-44">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -208,76 +288,130 @@ export default function PMActionItemsPage() {
                     Loading action items...
                   </td>
                 </tr>
-              ) : filteredItems.length === 0 ? (
+              ) : groupedGroups.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-foreground-muted italic">
                     No active action items found. PM results are clean!
                   </td>
                 </tr>
-              ) : filteredItems.map(item => (
-                <tr key={item.id} className="hover:bg-white/5 transition-colors group">
-                  <td className="px-4 py-3.5">
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-sm text-foreground">{item.store_name}</span>
-                      <span className="text-[10px] font-mono text-foreground-muted flex items-center gap-1 mt-0.5">
-                        <MapPin className="w-3 h-3 text-primary" /> {item.store_code}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 text-xs">
-                    <span className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
-                      {item.device_category}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3.5 text-sm font-semibold text-foreground">{item.device_name}</td>
-                  <td className="px-4 py-3.5">
-                    <div className="flex flex-col max-w-xs">
-                      <span className="text-xs text-foreground-subtle bg-surface-raised p-2 rounded-md border border-border/50 truncate" title={item.issue_description}>
-                        {item.issue_description}
-                      </span>
-                      <span className={`text-[10px] font-bold uppercase tracking-wide mt-1.5 ${
-                        item.action_type === "Replacement" ? "text-danger" : "text-warning"
-                      }`}>
-                        Required: {item.action_type}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 text-xs text-foreground-muted">
-                    <div className="flex flex-col gap-1">
-                      <span className="flex items-center gap-1"><User className="w-3 h-3" /> By {item.pic_name}</span>
-                      <span className="flex items-center gap-1 font-mono"><Clock className="w-3 h-3" /> {formatLocalDate(item.execution_date)}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 text-xs">
-                    <StatusBadge status={item.status.toLowerCase()} />
-                    {item.status === "Resolved" && item.resolved_at && (
-                      <span className="text-[9px] text-foreground-muted font-mono block mt-1">
-                        Fixed: {formatLocalDate(item.resolved_at)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3.5 text-right">
-                    {item.status === "Pending" ? (
-                      <button 
-                        onClick={() => handleOpenResolve(item)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-success text-success-foreground rounded-lg text-xs font-bold hover:bg-success/90 transition-all shadow-sm"
-                      >
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        Mark Resolved
-                      </button>
-                    ) : (
-                      <div className="flex flex-col items-end gap-1.5 text-left text-xs bg-success/5 border border-success/15 p-2 rounded-lg">
-                        <span className="font-semibold text-[10px] text-success uppercase tracking-wider flex items-center gap-0.5">
-                          <CheckCircle className="w-3.5 h-3.5" /> Resolved Notes
-                        </span>
-                        <p className="text-[11px] text-foreground-subtle italic max-w-[150px] truncate" title={item.resolution_notes || ""}>
-                          "{item.resolution_notes || "N/A"}"
-                        </p>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              ) : groupedGroups.map(group => {
+                const isExpanded = !!expandedGroups[group.result_id];
+                const pendingCount = group.items.filter(i => i.status === "Pending").length;
+                const resolvedCount = group.items.filter(i => i.status === "Resolved").length;
+
+                return (
+                  <React.Fragment key={group.result_id}>
+                    {/* Group Header Row */}
+                    <tr 
+                      className="bg-surface-raised/80 hover:bg-surface-overlay cursor-pointer select-none border-b border-border transition-colors"
+                      onClick={() => toggleGroup(group.result_id)}
+                    >
+                      <td colSpan={7} className="px-4 py-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-foreground-muted" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-foreground-muted" />
+                            )}
+                            <div className="flex flex-col">
+                              <span className="font-bold text-sm text-foreground">{group.store_name}</span>
+                              <span className="text-[10px] font-mono text-foreground-muted flex items-center gap-1 mt-0.5">
+                                <MapPin className="w-3 h-3 text-primary" /> {group.store_code}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-6 text-xs text-foreground-muted">
+                            <span className="flex items-center gap-1">
+                              <User className="w-3.5 h-3.5" /> By {group.pic_name}
+                            </span>
+                            <span className="flex items-center gap-1 font-mono">
+                              <Clock className="w-3.5 h-3.5" /> {formatLocalDate(group.execution_date)}
+                            </span>
+                            <div className="flex gap-1.5">
+                              {pendingCount > 0 && (
+                                <span className="px-2 py-0.5 rounded-md bg-warning/10 text-warning text-[10px] font-bold border border-warning/20">
+                                  {pendingCount} Pending
+                                </span>
+                              )}
+                              {resolvedCount > 0 && (
+                                <span className="px-2 py-0.5 rounded-md bg-success/10 text-success text-[10px] font-bold border border-success/20">
+                                  {resolvedCount} Resolved
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                    
+                    {/* Detail Rows */}
+                    {isExpanded && group.items.map(item => (
+                      <tr key={item.id} className="hover:bg-white/5 border-b border-border/40 transition-colors group/row">
+                        {/* Indent column showing Item ID */}
+                        <td className="px-4 py-3.5 pl-8 text-xs text-foreground-muted">
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-border" />
+                            <span className="font-mono text-[10px] font-bold">#{item.id}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-xs">
+                          <span className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
+                            {item.device_category}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-sm font-semibold text-foreground">{item.device_name}</td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex flex-col max-w-xs">
+                            <span className="text-xs text-foreground-subtle bg-surface-raised p-2 rounded-md border border-border/50 truncate" title={item.issue_description}>
+                              {item.issue_description}
+                            </span>
+                            <span className={`text-[10px] font-bold uppercase tracking-wide mt-1.5 ${
+                              item.action_type === "Replacement" ? "text-danger" : "text-warning"
+                            }`}>
+                              Required: {item.action_type}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-xs text-foreground-muted">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[10px] font-medium text-foreground-muted">Reported on PM</span>
+                            <span className="font-mono text-[9px]">{formatLocalDate(item.created_at)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-xs">
+                          <StatusBadge status={item.status.toLowerCase()} />
+                          {item.status === "Resolved" && item.resolved_at && (
+                            <span className="text-[9px] text-foreground-muted font-mono block mt-1">
+                              Fixed: {formatLocalDate(item.resolved_at)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          {item.status === "Pending" ? (
+                            <button 
+                              onClick={() => handleOpenResolve(item)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-success text-success-foreground rounded-lg text-xs font-bold hover:bg-success/90 transition-all shadow-sm"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              Mark Resolved
+                            </button>
+                          ) : (
+                            <div className="flex flex-col items-end gap-1.5 text-left text-xs bg-success/5 border border-success/15 p-2 rounded-lg">
+                              <span className="font-semibold text-[10px] text-success uppercase tracking-wider flex items-center gap-0.5">
+                                <CheckCircle className="w-3.5 h-3.5" /> Resolved Notes
+                              </span>
+                              <p className="text-[11px] text-foreground-subtle italic max-w-[150px] truncate" title={item.resolution_notes || ""}>
+                                "{item.resolution_notes || "N/A"}"
+                              </p>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
