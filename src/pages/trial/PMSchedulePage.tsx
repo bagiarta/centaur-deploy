@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback } from "react";
 import { 
   Calendar, Users, MapPin, ClipboardList, CheckSquare, Plus, Search, 
   X, Check, AlertTriangle, Eye, Loader2, Save, Wrench, RefreshCw, AlertOctagon,
-  ChevronDown, ChevronLeft, ChevronRight
+  ChevronDown, ChevronLeft, ChevronRight, Edit, Trash2
 } from "lucide-react";
 import { PageHeader, SectionCard, StatusBadge } from "@/components/ui-enterprise";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Store {
   org_cd: string;
@@ -36,6 +37,7 @@ interface Schedule {
   status: string;
   notes: string;
   created_at: string;
+  created_by?: string;
 }
 
 interface ChecklistItem {
@@ -70,7 +72,10 @@ const formatLocalDate = (dateStr: string | null | undefined, options?: Intl.Date
 };
 
 export default function PMSchedulePage() {
+  const { user } = useAuth();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
+  const [activeActionSchedule, setActiveActionSchedule] = useState<Schedule | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [users, setUsers] = useState<PicUser[]>([]);
   const [cctvDevices, setCctvDevices] = useState<CCTVDevice[]>([]);
@@ -181,12 +186,49 @@ export default function PMSchedulePage() {
   }, []);
 
   const handleOpenScheduleModal = () => {
+    setEditingSchedule(null);
     setSelectedStore(null);
     setStoreSearch("");
     setSelectedPic(users[0] || null);
     setScheduledDate(new Date().toISOString().split("T")[0]);
     setScheduleNotes("");
     setIsScheduleOpen(true);
+  };
+
+  const handleOpenEditModal = (sched: Schedule) => {
+    setEditingSchedule(sched);
+    setSelectedStore({ org_cd: sched.store_code, org_name: sched.store_name });
+    setStoreSearch(`${sched.store_name} (${sched.store_code})`);
+    const picUser = users.find(u => u.id === sched.pic_id) || { id: sched.pic_id, username: sched.pic_name, full_name: sched.pic_name, role_name: "IT" };
+    setSelectedPic(picUser);
+    setScheduledDate(sched.scheduled_date.split("T")[0]);
+    setScheduleNotes(sched.notes || "");
+    setIsScheduleOpen(true);
+  };
+
+  const handleDeleteSchedule = async (sched: Schedule) => {
+    const confirmMsg = sched.status === "Completed"
+      ? `WARNING: This schedule is marked as Completed! Deleting this schedule will also PERMANENTLY delete the PM checklist result, all device check records, and any related action items/repair logs. Are you absolutely sure you want to proceed?`
+      : `Are you sure you want to delete the schedule for ${sched.store_name}?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const res = await fetch(`/api/trial/support-manager/schedules/${sched.id}`, {
+        method: "DELETE",
+        headers: { "x-user-id": user?.id || "" }
+      });
+
+      if (res.ok) {
+        toast.success("Schedule and all related data deleted successfully");
+        fetchData();
+      } else {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to delete schedule");
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    }
   };
 
   const handleSaveSchedule = async () => {
@@ -197,26 +239,36 @@ export default function PMSchedulePage() {
 
     setSavingSchedule(true);
     try {
-      const res = await fetch("/api/trial/support-manager/schedules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const method = editingSchedule ? "PUT" : "POST";
+      const url = editingSchedule 
+        ? `/api/trial/support-manager/schedules/${editingSchedule.id}`
+        : "/api/trial/support-manager/schedules";
+
+      const res = await fetch(url, {
+        method,
+        headers: { 
+          "Content-Type": "application/json",
+          "x-user-id": user?.id || "" 
+        },
         body: JSON.stringify({
           store_code: selectedStore.org_cd,
           store_name: selectedStore.org_name,
           scheduled_date: scheduledDate,
           pic_id: selectedPic.id,
           pic_name: selectedPic.full_name || selectedPic.username,
-          notes: scheduleNotes
+          notes: scheduleNotes,
+          status: editingSchedule ? editingSchedule.status : "Scheduled"
         })
       });
 
       if (res.ok) {
-        toast.success("Preventive Maintenance scheduled successfully");
+        toast.success(editingSchedule ? "Schedule updated successfully" : "Preventive Maintenance scheduled successfully");
         setIsScheduleOpen(false);
+        setEditingSchedule(null);
         fetchData();
       } else {
         const err = await res.json();
-        throw new Error(err.error || "Failed to schedule");
+        throw new Error(err.error || "Failed to save schedule");
       }
     } catch (err: any) {
       toast.error(err.message);
@@ -511,11 +563,7 @@ export default function PMSchedulePage() {
                             key={sched.id}
                             type="button"
                             onClick={() => {
-                              if (sched.status === "Scheduled") {
-                                handleOpenChecklistModal(sched);
-                              } else {
-                                toast.info(`PM for ${sched.store_name} is already completed.`);
-                              }
+                              setActiveActionSchedule(sched);
                             }}
                             className={`w-full text-left p-2 rounded-xl border text-[9px] leading-tight flex flex-col gap-1 transition-all duration-300 hover:translate-x-0.5 hover:-translate-y-0.5 shadow-sm ${
                               isCompleted 
@@ -596,20 +644,44 @@ export default function PMSchedulePage() {
                       <StatusBadge status={s.status.toLowerCase()} />
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {s.status === "Scheduled" && (
-                        <button 
-                          onClick={() => handleOpenChecklistModal(s)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-success text-success-foreground rounded-lg text-xs font-bold hover:bg-success/90 transition-all shadow-sm"
-                        >
-                          <CheckSquare className="w-3.5 h-3.5" />
-                          Execute Checklist
-                        </button>
-                      )}
-                      {s.status === "Completed" && (
-                        <span className="text-xs text-success font-medium flex items-center justify-end gap-1">
-                          <Check className="w-4 h-4" /> Checkup Logged
-                        </span>
-                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        {s.status === "Scheduled" && (
+                          <button 
+                            onClick={() => handleOpenChecklistModal(s)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-success text-success-foreground rounded-lg text-xs font-bold hover:bg-success/90 transition-all shadow-sm font-semibold"
+                          >
+                            <CheckSquare className="w-3.5 h-3.5" />
+                            Execute Checklist
+                          </button>
+                        )}
+                        {s.status === "Completed" && (
+                          <span className="text-xs text-success font-medium flex items-center justify-end gap-1 select-none">
+                            <Check className="w-4 h-4" /> Checkup Logged
+                          </span>
+                        )}
+
+                        {/* Edit Button: Admin OR Creator */}
+                        {(user?.is_admin || s.created_by === user?.id) && (
+                          <button
+                            onClick={() => handleOpenEditModal(s)}
+                            className="p-1.5 text-foreground-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
+                            title="Edit Schedule"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                        )}
+
+                        {/* Delete Button: Admin Only */}
+                        {user?.is_admin && (
+                          <button
+                            onClick={() => handleDeleteSchedule(s)}
+                            className="p-1.5 text-foreground-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-all"
+                            title="Delete Schedule & related data"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -626,9 +698,9 @@ export default function PMSchedulePage() {
             <div className="flex items-center justify-between border-b border-border pb-3">
               <h3 className="font-bold text-base flex items-center gap-2 text-foreground">
                 <Calendar className="w-5 h-5 text-primary" />
-                Schedule Preventive Maintenance
+                {editingSchedule ? "Edit PM Schedule" : "Schedule Preventive Maintenance"}
               </h3>
-              <button onClick={() => setIsScheduleOpen(false)} className="text-foreground-muted hover:text-foreground">
+              <button onClick={() => { setIsScheduleOpen(false); setEditingSchedule(null); }} className="text-foreground-muted hover:text-foreground">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -733,7 +805,7 @@ export default function PMSchedulePage() {
             {/* Actions */}
             <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
               <button 
-                onClick={() => setIsScheduleOpen(false)}
+                onClick={() => { setIsScheduleOpen(false); setEditingSchedule(null); }}
                 className="px-4 py-2 border border-border hover:bg-surface-raised rounded-lg text-sm text-foreground transition-all"
               >
                 Cancel
@@ -746,10 +818,10 @@ export default function PMSchedulePage() {
                 {savingSchedule ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Scheduling...
+                    {editingSchedule ? "Updating..." : "Scheduling..."}
                   </>
                 ) : (
-                  "Create Schedule"
+                  editingSchedule ? "Update Schedule" : "Create Schedule"
                 )}
               </button>
             </div>
@@ -1083,6 +1155,90 @@ export default function PMSchedulePage() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Choice Modal for Calendar View Schedule Actions */}
+      {activeActionSchedule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-surface-raised border border-border w-full max-w-md rounded-xl shadow-2xl p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <h3 className="font-bold text-base flex items-center gap-2 text-foreground">
+                <Wrench className="w-5 h-5 text-primary" />
+                Schedule Actions
+              </h3>
+              <button onClick={() => setActiveActionSchedule(null)} className="text-foreground-muted hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Details */}
+            <div className="p-4 bg-surface border border-border rounded-xl text-xs space-y-2 text-foreground-muted">
+              <div>Store: <strong className="text-foreground">{activeActionSchedule.store_name} ({activeActionSchedule.store_code})</strong></div>
+              <div>Date: <strong className="text-foreground">{formatLocalDate(activeActionSchedule.scheduled_date)}</strong></div>
+              <div>PIC: <strong className="text-foreground">{activeActionSchedule.pic_name}</strong></div>
+              <div>Status: <StatusBadge status={activeActionSchedule.status.toLowerCase()} /></div>
+              {activeActionSchedule.notes && (
+                <div className="pt-2 border-t border-border/50">
+                  Notes: <span className="italic text-foreground">"{activeActionSchedule.notes}"</span>
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2.5 mt-2">
+              {activeActionSchedule.status === "Scheduled" && (
+                <button
+                  onClick={() => {
+                    const sched = activeActionSchedule;
+                    setActiveActionSchedule(null);
+                    handleOpenChecklistModal(sched);
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-success text-success-foreground rounded-lg text-sm font-bold hover:bg-success/90 transition-all shadow-sm"
+                >
+                  <CheckSquare className="w-4 h-4" />
+                  Execute Checklist
+                </button>
+              )}
+
+              {/* Edit Option: Admin or Creator */}
+              {(user?.is_admin || activeActionSchedule.created_by === user?.id) && (
+                <button
+                  onClick={() => {
+                    const sched = activeActionSchedule;
+                    setActiveActionSchedule(null);
+                    handleOpenEditModal(sched);
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/95 transition-all shadow-sm"
+                >
+                  <Edit className="w-4 h-4" />
+                  Edit Schedule
+                </button>
+              )}
+
+              {/* Delete Option: Admin Only */}
+              {user?.is_admin && (
+                <button
+                  onClick={() => {
+                    const sched = activeActionSchedule;
+                    setActiveActionSchedule(null);
+                    handleDeleteSchedule(sched);
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-danger text-danger-foreground rounded-lg text-sm font-bold hover:bg-danger/90 transition-all shadow-sm"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete Schedule & Related Logs
+                </button>
+              )}
+
+              <button
+                onClick={() => setActiveActionSchedule(null)}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-border text-foreground hover:bg-surface-raised rounded-lg text-sm font-medium transition-all"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

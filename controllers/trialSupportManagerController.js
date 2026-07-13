@@ -98,8 +98,41 @@ export const getSchedules = async (req, res) => {
 };
 
 // 5. POST /api/trial/support-manager/schedules
+// Helper function to check schedule edit/delete permissions
+const checkSchedulePermission = async (pool, scheduleId, userId) => {
+  if (!userId) return { allowed: false, error: 'Unauthorized: Missing User ID', status: 401 };
+
+  // Query user's admin status
+  const userQuery = await pool.request()
+    .input('userId', sql.NVarChar, userId)
+    .query('SELECT r.is_admin FROM Users u JOIN Roles r ON u.role_id = r.id WHERE u.id = @userId');
+  
+  const isAdmin = userQuery.recordset[0]?.is_admin === true;
+
+  // Query schedule creator
+  const scheduleQuery = await pool.request()
+    .input('id', sql.NVarChar, scheduleId)
+    .query('SELECT created_by FROM Trial_PMSchedules WHERE id = @id');
+  
+  if (scheduleQuery.recordset.length === 0) {
+    return { allowed: false, error: 'Schedule not found', status: 404 };
+  }
+
+  const createdBy = scheduleQuery.recordset[0].created_by;
+
+  return {
+    allowedEdit: isAdmin || (createdBy && createdBy === userId),
+    allowedDelete: isAdmin,
+    isAdmin,
+    isCreator: createdBy && createdBy === userId
+  };
+};
+
+// 5. POST /api/trial/support-manager/schedules
 export const createSchedule = async (req, res) => {
   const { store_code, store_name, scheduled_date, pic_id, pic_name, notes } = req.body;
+  const creatorId = req.headers['x-user-id'] || null;
+
   if (!store_code || !scheduled_date || !pic_id) {
     return res.status(400).json({ error: 'Store, Date, and PIC are required' });
   }
@@ -115,14 +148,131 @@ export const createSchedule = async (req, res) => {
       .input('pic_id', sql.NVarChar, pic_id)
       .input('pic_name', sql.NVarChar, pic_name)
       .input('notes', sql.NVarChar, notes || null)
+      .input('created_by', sql.NVarChar, creatorId)
       .query(`
-        INSERT INTO Trial_PMSchedules (id, store_code, store_name, scheduled_date, pic_id, pic_name, status, notes)
-        VALUES (@id, @store_code, @store_name, @scheduled_date, @pic_id, @pic_name, 'Scheduled', @notes)
+        INSERT INTO Trial_PMSchedules (id, store_code, store_name, scheduled_date, pic_id, pic_name, status, notes, created_by)
+        VALUES (@id, @store_code, @store_name, @scheduled_date, @pic_id, @pic_name, 'Scheduled', @notes, @created_by)
       `);
     res.json({ success: true, id });
   } catch (err) {
     console.error('[SupportManager] createSchedule error:', err.message);
     res.status(500).json({ error: 'Failed to create schedule', details: err.message });
+  }
+};
+
+// 5b. PUT /api/trial/support-manager/schedules/:id
+export const updateSchedule = async (req, res) => {
+  const { id } = req.params;
+  const { store_code, store_name, scheduled_date, pic_id, pic_name, notes, status } = req.body;
+  const userId = req.headers['x-user-id'];
+
+  if (!store_code || !scheduled_date || !pic_id) {
+    return res.status(400).json({ error: 'Store, Date, and PIC are required' });
+  }
+
+  try {
+    const pool = await poolPromise;
+
+    // Check permissions
+    const perms = await checkSchedulePermission(pool, id, userId);
+    if (perms.status) {
+      return res.status(perms.status).json({ error: perms.error });
+    }
+    if (!perms.allowedEdit) {
+      return res.status(403).json({ error: 'Forbidden: Only administrators or the creator can edit this schedule' });
+    }
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('store_code', sql.NVarChar, store_code)
+      .input('store_name', sql.NVarChar, store_name)
+      .input('scheduled_date', sql.Date, scheduled_date)
+      .input('pic_id', sql.NVarChar, pic_id)
+      .input('pic_name', sql.NVarChar, pic_name)
+      .input('notes', sql.NVarChar, notes || null)
+      .input('status', sql.NVarChar, status || 'Scheduled')
+      .query(`
+        UPDATE Trial_PMSchedules
+        SET store_code = @store_code,
+            store_name = @store_name,
+            scheduled_date = @scheduled_date,
+            pic_id = @pic_id,
+            pic_name = @pic_name,
+            notes = @notes,
+            status = @status,
+            updated_at = GETDATE()
+        WHERE id = @id
+      `);
+
+    res.json({ success: true, message: 'Schedule updated successfully' });
+  } catch (err) {
+    console.error('[SupportManager] updateSchedule error:', err.message);
+    res.status(500).json({ error: 'Failed to update schedule', details: err.message });
+  }
+};
+
+// 5c. DELETE /api/trial/support-manager/schedules/:id
+export const deleteSchedule = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.headers['x-user-id'];
+
+  try {
+    const pool = await poolPromise;
+
+    // Check permissions
+    const perms = await checkSchedulePermission(pool, id, userId);
+    if (perms.status) {
+      return res.status(perms.status).json({ error: perms.error });
+    }
+    if (!perms.allowedDelete) {
+      return res.status(403).json({ error: 'Forbidden: Only administrators can delete schedules' });
+    }
+
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    
+    try {
+      // 1. Delete Action Items
+      await transaction.request()
+        .input('schedule_id', sql.NVarChar, id)
+        .query(`
+          DELETE FROM Trial_PMActionItems 
+          WHERE result_id IN (SELECT id FROM Trial_PMResults WHERE schedule_id = @schedule_id)
+        `);
+
+      // 2. Delete Device Checks
+      await transaction.request()
+        .input('schedule_id', sql.NVarChar, id)
+        .query(`
+          DELETE FROM Trial_PMDeviceChecks 
+          WHERE result_id IN (SELECT id FROM Trial_PMResults WHERE schedule_id = @schedule_id)
+        `);
+
+      // 3. Delete PM Results
+      await transaction.request()
+        .input('schedule_id', sql.NVarChar, id)
+        .query(`
+          DELETE FROM Trial_PMResults 
+          WHERE schedule_id = @schedule_id
+        `);
+
+      // 4. Delete the Schedule
+      await transaction.request()
+        .input('id', sql.NVarChar, id)
+        .query(`
+          DELETE FROM Trial_PMSchedules 
+          WHERE id = @id
+        `);
+
+      await transaction.commit();
+      res.json({ success: true, message: 'Schedule and all related PM data deleted successfully' });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error('[SupportManager] deleteSchedule error:', err.message);
+    res.status(500).json({ error: 'Failed to delete schedule', details: err.message });
   }
 };
 

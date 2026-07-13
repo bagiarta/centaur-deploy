@@ -5,7 +5,7 @@ import {
   Terminal, History, Settings, ChevronLeft, ChevronRight,
   Server, Shield, Bell, User, Activity, Users, Database, Scale,
   UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
-  UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw,Wrench,
+  UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw, Wrench,
   Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,8 +18,23 @@ import { toast } from "sonner";
 
 export const navItems = [
   { id: "overview", to: "/", icon: LayoutDashboard, label: "Overview", group: "main" },
-  { id: "activities", to: "/activities", icon: ClipboardList, label: "User Task", group: "main" },
-  { id: "tickets", to: "/tickets", icon: Ticket, label: "Helpdesk Tickets", group: "main" },
+  { id: "reports", to: "/reports", icon: Activity, label: "Reports", group: "main" },
+  { id: "devices", to: "/devices", icon: Monitor, label: "Devices", group: "main" },
+  { id: "workflows", to: "/workflows", icon: BookMarked, label: "Knowledge Base", group: "main" },
+
+  {
+    id: "support_manager",
+    label: "Support Manager",
+    icon: Shield,
+    group: "main",
+    children: [
+      {id: "activities", to: "/activities", icon: ClipboardList, label: "User Task"},
+      { id: "tickets", to: "/tickets", icon: Ticket, label: "Helpdesk Tickets"},
+      { id: "sm_dashboard", to: "/trial/support-manager/dashboard", icon: LayoutDashboard, label: "PM Dashboard" },
+      { id: "sm_schedule", to: "/trial/support-manager/schedule", icon: ClipboardList, label: "PM Schedule & Checklist" },
+      { id: "sm_actions", to: "/trial/support-manager/action-items", icon: Wrench, label: "Action Items Tracking" },
+    ]
+  },
   {
     id: "crm_center",
     label: "CRM Center",
@@ -37,40 +52,27 @@ export const navItems = [
     ]
   },
   {
-      id: "Tolls & Utilities",
-      label: "Tools & Utilities",
-      icon: Wrench,
-      group: "main",
-      children: [
-        { id: "cctv", to: "/cctv", icon: Video, label: "CCTV Monitoring" },
-        { id: "network", to: "/network", icon: Globe, label: "Network Map" },
-        { id: "groups", to: "/groups", icon: Users, label: "Device Groups" },
-        { id: "sql", to: "/remote-sql", icon: Database, label: "Remote SQL" },
-        { id: "scales", to: "/scales", icon: Scale, label: "Scale Manager" },
-        { id: "agent", to: "/agent-installer", icon: Download, label: "Agent Installer" },
-        { id: "remote", to: "/remote", icon: Terminal, label: "Remote Commands"},
-        { id: "logs", to: "/logs", icon: History, label: "Logs & History" },
-        { id: "packages", to: "/packages", icon: Package, label: "Package Repo"},
-        { id: "deploy", to: "/deploy", icon: Rocket, label: "Deployments" },  
-      ]
-  },
-  { id: "reports", to: "/reports", icon: Activity, label: "Reports", group: "main" },
-  { id: "devices", to: "/devices", icon: Monitor, label: "Devices", group: "main" },  
-  { id: "workflows", to: "/workflows", icon: BookMarked, label: "Knowledge Base", group: "main" },
-  {
-    id: "trial_support_manager",
-    label: "Support Manager (Trial)",
-    icon: Shield,
+    id: "Tolls & Utilities",
+    label: "Tools & Utilities",
+    icon: Wrench,
     group: "main",
     children: [
-      { id: "sm_dashboard", to: "/trial/support-manager/dashboard", icon: LayoutDashboard, label: "PM Dashboard" },
-      { id: "sm_schedule", to: "/trial/support-manager/schedule", icon: ClipboardList, label: "PM Schedule & Checklist" },
-      { id: "sm_actions", to: "/trial/support-manager/action-items", icon: Wrench, label: "Action Items Tracking" },
+      { id: "cctv", to: "/cctv", icon: Video, label: "CCTV Monitoring" },
+      { id: "network", to: "/network", icon: Globe, label: "Network Map" },
+      { id: "groups", to: "/groups", icon: Users, label: "Device Groups" },
+      { id: "sql", to: "/remote-sql", icon: Database, label: "Remote SQL" },
+      { id: "scales", to: "/scales", icon: Scale, label: "Scale Manager" },
+      { id: "agent", to: "/agent-installer", icon: Download, label: "Agent Installer" },
+      { id: "remote", to: "/remote", icon: Terminal, label: "Remote Commands" },
+      { id: "logs", to: "/logs", icon: History, label: "Logs & History" },
+      { id: "packages", to: "/packages", icon: Package, label: "Package Repo" },
+      { id: "deploy", to: "/deploy", icon: Rocket, label: "Deployments" },
     ]
   },
-   
-    
- 
+
+
+
+
   { id: "users", to: "/users", icon: UserCog, label: "User Management", group: "system", adminOnly: true },
   { id: "roles", to: "/roles", icon: ShieldCheck, label: "Roles & Access", group: "system", adminOnly: true },
   { id: "settings", to: "/settings", icon: Settings, label: "Settings", group: "system" },
@@ -162,7 +164,7 @@ const hexToHslStr = (hex: string) => {
 
 const applyThemeVariables = (theme: ThemeSettings) => {
   const root = document.documentElement;
-  
+
   // FORCE light theme for main content, ignoring saved DB/localStorage dark themes
   theme.mainBg = "#f8fafc";
   theme.cardBg = "#ffffff";
@@ -408,13 +410,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               if (permission === 'granted') {
                 const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
                 if (!vapidKey) return;
-                
+
                 registration.pushManager.subscribe({
                   userVisibleOnly: true,
                   applicationServerKey: urlBase64ToUint8Array(vapidKey)
                 })
-                .then(newSub => sendSubscriptionToServer(newSub))
-                .catch(e => console.error('[PUSH] Subscribe failed:', e));
+                  .then(newSub => sendSubscriptionToServer(newSub))
+                  .catch(e => console.error('[PUSH] Subscribe failed:', e));
               }
             });
           }

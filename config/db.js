@@ -454,6 +454,7 @@ export async function initDb() {
            pic_name NVARCHAR(200) NOT NULL,
            status NVARCHAR(50) DEFAULT 'Scheduled',
            notes NVARCHAR(MAX),
+           created_by NVARCHAR(100) NULL,
            created_at DATETIME DEFAULT GETDATE(),
            updated_at DATETIME DEFAULT GETDATE()
        )`,
@@ -525,6 +526,15 @@ export async function initDb() {
     }
     if (!checkUsersCols.recordset.find(c => c.COLUMN_NAME === 'location')) {
       await pool.request().query("ALTER TABLE Users ADD location NVARCHAR(150) NULL");
+    }
+
+    // Ensure Trial_PMSchedules created_by column exists
+    const checkSchedCols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'Trial_PMSchedules' AND COLUMN_NAME = 'created_by'
+    `);
+    if (checkSchedCols.recordset.length === 0) {
+      await pool.request().query('ALTER TABLE Trial_PMSchedules ADD created_by NVARCHAR(100) NULL');
     }
 
 
