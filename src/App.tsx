@@ -24,6 +24,7 @@ import CrmLookupPage from "./pages/CrmLookupPage";
 import CrmReportsPage from "./pages/CrmReportsPage";
 import CrmAbcAnalysisPage from "./pages/CrmAbcAnalysisPage";
 import CrmSyncPage from "./pages/CrmSyncPage";
+import CrmDevLoyaltyPage from "./pages/CrmDevLoyaltyPage";
 import ActivitiesPage from "./pages/ActivitiesPage";
 import ScaleManagerPage from "./pages/ScaleManagerPage";
 import CCTVMonitoringPage from "./pages/CCTVMonitoringPage";
@@ -185,6 +186,7 @@ const App = () => (
             <Route path="/crm/sync" element={<ProtectedRoute><AppShell><CrmSyncPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/abc-analysis" element={<ProtectedRoute><AppShell><CrmAbcAnalysisPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/reports/:type" element={<ProtectedRoute><AppShell><CrmReportsPage /></AppShell></ProtectedRoute>} />
+            <Route path="/crm/dev-loyalty" element={<ProtectedRoute><AppShell><CrmDevLoyaltyPage /></AppShell></ProtectedRoute>} />
             <Route path="/scales" element={
               <ProtectedRoute>
                 <AppShell>

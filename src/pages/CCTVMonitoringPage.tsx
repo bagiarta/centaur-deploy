@@ -153,7 +153,7 @@ export default function CCTVMonitoringPage() {
   const [discoveredData, setDiscoveredData] = useState<any>(null);
   const [selectedDevice, setSelectedDevice] = useState<CCTVDevice | null>(null);
   const [deviceToDelete, setDeviceToDelete] = useState<CCTVDevice | null>(null);
-  const [showOfflineChannels, setShowOfflineChannels] = useState(true); // Default expanded
+  const [showOfflineChannels, setShowOfflineChannels] = useState(false); // Default collapsed
   
   const [formData, setFormData] = useState<DeviceFormData>({
     ipAddress: '',
