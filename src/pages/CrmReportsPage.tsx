@@ -118,6 +118,7 @@ export default function CrmReportsPage() {
   const [page, setPage] = useState(parseInt(searchParams.get('page') || '1'));
   const [sortBy, setSortBy] = useState(searchParams.get('sortBy') || '');
   const [sortDir, setSortDir] = useState(searchParams.get('sortDir') || 'desc');
+  const [topLimit, setTopLimit] = useState(parseInt(searchParams.get('top') || '100'));
 
   useEffect(() => {
     fetchStores();
@@ -128,11 +129,12 @@ export default function CrmReportsPage() {
     setSortBy('');
     setSortDir('desc');
     setSearchTerm('');
+    setTopLimit(100);
   }, [type]);
 
   useEffect(() => {
     fetchData();
-  }, [type, fromDate, toDate, selectedStore, page, sortBy, sortDir, searchTerm]);
+  }, [type, fromDate, toDate, selectedStore, page, sortBy, sortDir, searchTerm, topLimit]);
 
   const fetchStores = async () => {
     try {
@@ -159,6 +161,9 @@ export default function CrmReportsPage() {
         sortBy,
         sortDir
       });
+      if (type === 'top-spender') {
+        params.append('top', topLimit.toString());
+      }
 
       const res = await fetch(`/api/crm/reports/${config.endpoint}?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch data");
@@ -189,6 +194,9 @@ export default function CrmReportsPage() {
       sortBy,
       sortDir
     });
+    if (type === 'top-spender') {
+      params.append('top', topLimit.toString());
+    }
 
     // Use a direct download link
     const url = `/api/crm/reports/${config.endpoint}/export/${format}?${params.toString()}`;
@@ -249,7 +257,7 @@ export default function CrmReportsPage() {
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard
-          label="Total Records"
+          label={type === 'top-spender' ? "TOP RECORD" : "Total Records"}
           value={summary.total || 0}
           icon={<Database className="w-4 h-4" />}
           variant="primary"
@@ -299,6 +307,27 @@ export default function CrmReportsPage() {
                 />
               </div>
             </div>
+
+            {type === 'top-spender' && (
+              <div className="flex flex-col gap-1.5 w-32">
+                <label className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider ml-1">Top Spender Limit</label>
+                <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2">
+                  <select
+                    value={topLimit}
+                    onChange={e => setTopLimit(parseInt(e.target.value) || 100)}
+                    className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 flex-1 cursor-pointer appearance-none text-center font-bold font-mono"
+                  >
+                    <option value="5">Top 5</option>
+                    <option value="10">Top 10</option>
+                    <option value="25">Top 25</option>
+                    <option value="50">Top 50</option>
+                    <option value="100">Top 100</option>
+                    <option value="250">Top 250</option>
+                    <option value="500">Top 500</option>
+                  </select>
+                </div>
+              </div>
+            )}
 
             {config.endpoint !== 'member-enrollment' && (
               <div className="flex flex-col gap-1.5 min-w-[200px]">

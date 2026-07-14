@@ -24,6 +24,9 @@ import { poolPromise, dbConfig, initDb } from '../config/db.js';
 import { h2hConfig, getH2hToken } from '../config/h2h.js';
 import { getCurrentTimestamp, getCurrentTimeHHMM, getISOTimestamp } from '../utils/timeUtils.js';
 
+let devEtlLogs = [];
+let devEtlRunning = false;
+
 // Recreate some missing utility constants/functions from server.cjs
 const execPromise = (cmd, options = {}) => {
   return new Promise((resolve, reject) => {
@@ -4338,6 +4341,258 @@ router.get('/api/crm/customer/:phone', async (req, res) => {
   }
 });
 
+// ── DEV CRM Loyalty & Achievements Endpoints ──────────────────
+router.get('/api/dev/loyalty/stats', async (req, res) => {
+  const { fromDate, toDate, store = '' } = req.query;
+  try {
+    const pool = await poolPromise;
+    const request = pool.request();
+    
+    let whereClause = "WHERE 1=1";
+    if (fromDate && toDate) {
+      whereClause += " AND summary_date BETWEEN @fromDate AND @toDate";
+      request.input('fromDate', sql.Date, fromDate);
+      request.input('toDate', sql.Date, toDate);
+    }
+    if (store && store !== 'All Stores') {
+      whereClause += " AND org_cd = @store";
+      request.input('store', sql.NVarChar, store);
+    }
+
+    const statsRes = await request.query(`
+      SELECT 
+        ISNULL(COUNT(DISTINCT member_id), 0) AS totalProfiles,
+        ISNULL(SUM(total_sales), 0) AS totalSpend,
+        ISNULL(SUM(total_txn), 0) AS totalTransactions
+      FROM LOYAL_MEMBER_DAILY_SUMMARY
+      ${whereClause}
+    `);
+    const stats = statsRes.recordset[0];
+
+    const achCountRes = await pool.request().query("SELECT COUNT(1) AS totalAchievements FROM LOYAL_MEMBER_ACHIEVEMENT");
+    const totalAchievements = achCountRes.recordset[0].totalAchievements || 0;
+
+    res.json({
+      totalProfiles: stats.totalProfiles,
+      totalSpend: stats.totalSpend,
+      totalTransactions: stats.totalTransactions,
+      totalAchievements: totalAchievements
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/dev/loyalty/summary', async (req, res) => {
+  const { page = 1, perPage = 50, search = '', sortBy = 'summary_date', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(perPage);
+  const limit = parseInt(perPage);
+  const safeSortDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  const allowedSortCols = ['summary_date', 'total_sales', 'total_margin', 'total_txn', 'member_id'];
+  const safeSortCol = allowedSortCols.includes(sortBy) ? sortBy : 'summary_date';
+
+  try {
+    const pool = await poolPromise;
+    let whereClause = "WHERE 1=1";
+    const request = pool.request();
+
+    if (search) {
+      whereClause += " AND s.member_id LIKE @search";
+      request.input('search', sql.NVarChar, `%${search}%`);
+    }
+    if (fromDate && toDate) {
+      whereClause += " AND s.summary_date BETWEEN @fromDate AND @toDate";
+      request.input('fromDate', sql.Date, fromDate);
+      request.input('toDate', sql.Date, toDate);
+    }
+    if (store && store !== 'All Stores') {
+      whereClause += " AND s.org_cd = @store";
+      request.input('store', sql.NVarChar, store);
+    }
+
+    const countRes = await request.query(`
+      SELECT COUNT(1) AS total FROM LOYAL_MEMBER_DAILY_SUMMARY s ${whereClause}
+    `);
+    const total = countRes.recordset[0].total;
+
+    request.input('offset', sql.Int, offset);
+    request.input('limit', sql.Int, limit);
+    const result = await request.query(`
+      SELECT s.*, p.name, p.mobile_no 
+      FROM LOYAL_MEMBER_DAILY_SUMMARY s
+      LEFT JOIN LOYAL_MEMBER_PROFILE p ON s.member_id = p.member_id
+      ${whereClause}
+      ORDER BY s.${safeSortCol} ${safeSortDir}
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    `);
+    
+    res.json({ summaries: result.recordset, total, page: parseInt(page), perPage: limit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/dev/loyalty/profiles', async (req, res) => {
+  const { page = 1, perPage = 50, search = '', sortBy = 'total_spent', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(perPage);
+  const limit = parseInt(perPage);
+  const safeSortDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  const allowedSortCols = ['total_spent', 'total_transactions', 'member_id', 'name', 'last_active_date'];
+  const safeSortCol = allowedSortCols.includes(sortBy) ? sortBy : 'total_spent';
+
+  try {
+    const pool = await poolPromise;
+    let whereClause = "WHERE 1=1";
+    const request = pool.request();
+    
+    if (search) {
+      whereClause += " AND (member_id LIKE @search OR name LIKE @search OR mobile_no LIKE @search OR city LIKE @search)";
+      request.input('search', sql.NVarChar, `%${search}%`);
+    }
+    if (fromDate && toDate) {
+      whereClause += " AND member_id IN (SELECT DISTINCT member_id FROM LOYAL_MEMBER_DAILY_SUMMARY WHERE summary_date BETWEEN @fromDate AND @toDate)";
+      request.input('fromDate', sql.Date, fromDate);
+      request.input('toDate', sql.Date, toDate);
+    }
+    if (store && store !== 'All Stores') {
+      whereClause += " AND member_id IN (SELECT DISTINCT member_id FROM LOYAL_MEMBER_DAILY_SUMMARY WHERE org_cd = @store)";
+      request.input('store', sql.NVarChar, store);
+    }
+
+    const countRes = await request.query(`
+      SELECT COUNT(1) AS total FROM LOYAL_MEMBER_PROFILE ${whereClause}
+    `);
+    const total = countRes.recordset[0].total;
+
+    request.input('offset', sql.Int, offset);
+    request.input('limit', sql.Int, limit);
+    const profilesRes = await request.query(`
+      SELECT * FROM LOYAL_MEMBER_PROFILE 
+      ${whereClause}
+      ORDER BY ${safeSortCol} ${safeSortDir}
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    `);
+    const profiles = profilesRes.recordset;
+
+    if (profiles.length === 0) {
+      return res.json({ profiles: [], total, page: parseInt(page), perPage: limit });
+    }
+
+    const memberIds = profiles.map(p => p.member_id);
+    const idPlaceholders = memberIds.map((id, index) => {
+      return `@id_${index}`;
+    }).join(', ');
+
+    // Fetch all daily summaries for these member IDs within the selected filter range to compute dynamic stats & achievements
+    let summaryQuery = `
+      SELECT * FROM LOYAL_MEMBER_DAILY_SUMMARY 
+      WHERE member_id IN (${idPlaceholders})
+    `;
+    const sumRequest = pool.request();
+    memberIds.forEach((id, index) => {
+      sumRequest.input(`id_${index}`, sql.NVarChar, id);
+    });
+
+    if (fromDate && toDate) {
+      summaryQuery += " AND summary_date BETWEEN @fromDate AND @toDate";
+      sumRequest.input('fromDate', sql.Date, fromDate);
+      sumRequest.input('toDate', sql.Date, toDate);
+    }
+    if (store && store !== 'All Stores') {
+      summaryQuery += " AND org_cd = @store";
+      sumRequest.input('store', sql.NVarChar, store);
+    }
+
+    const summariesRes = await sumRequest.query(summaryQuery);
+    const allSummaries = summariesRes.recordset;
+
+    // Group summaries by member_id
+    const summariesByMember = {};
+    allSummaries.forEach(s => {
+      if (!summariesByMember[s.member_id]) summariesByMember[s.member_id] = [];
+      summariesByMember[s.member_id].push(s);
+    });
+
+    // Evaluate achievements and compute stats dynamically
+    const { evaluateAchievements } = require('../scripts/loyalty_achievements.cjs');
+
+    const result = profiles.map(p => {
+      const memberSummaries = summariesByMember[p.member_id] || [];
+      
+      // Calculate dynamic spent and txn based on filtered summaries
+      let dynamicSpent = 0;
+      let dynamicTxn = 0;
+      memberSummaries.forEach(s => {
+        dynamicSpent += s.total_sales;
+        dynamicTxn += s.total_txn;
+      });
+
+      const mockProfile = {
+        ...p,
+        total_spent: dynamicSpent,
+        total_transactions: dynamicTxn
+      };
+
+      const dynamicAchievements = evaluateAchievements(p.member_id, mockProfile, memberSummaries);
+
+      return {
+        ...p,
+        total_spent: dynamicSpent,
+        total_transactions: dynamicTxn,
+        achievements: dynamicAchievements.map(ach => ({
+          name: ach.name,
+          unlocked_at: new Date(),
+          criteria_met: ach.criteria
+        }))
+      };
+    });
+
+    res.json({ profiles: result, total, page: parseInt(page), perPage: limit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/dev/loyalty/etl-status', (req, res) => {
+  res.json({ running: devEtlRunning, logs: devEtlLogs });
+});
+
+router.post('/api/dev/loyalty/trigger-etl', async (req, res) => {
+  const { fromDate, toDate } = req.body;
+  if (!fromDate || !toDate) {
+    return res.status(400).json({ error: 'Please specify fromDate and toDate' });
+  }
+
+  if (devEtlRunning) {
+    return res.status(400).json({ error: 'ETL is already running' });
+  }
+
+  const { runDevEtl } = require('../scripts/sync_dev_loyalty_etl.cjs');
+  
+  devEtlRunning = true;
+  devEtlLogs = [];
+  
+  const logFn = (msg) => {
+    const timeStr = new Date().toLocaleTimeString();
+    devEtlLogs.push(`[${timeStr}] ${msg}`);
+    console.log(`[DEV-ETL] ${msg}`);
+  };
+
+  logFn(`Starting manual ETL trigger for range: ${fromDate} to ${toDate}`);
+  
+  runDevEtl(fromDate, toDate, logFn)
+    .then(() => {
+      logFn(`ETL completed successfully!`);
+      devEtlRunning = false;
+    })
+    .catch((err) => {
+      logFn(`ETL failed: ${err.message}`);
+      devEtlRunning = false;
+    });
+
+  res.json({ message: 'ETL process started in background' });
+});
+
 // ── GET /api/crm/reports/stores ──────────────────────────────
 router.get('/api/crm/reports/stores', async (req, res) => {
   try {
@@ -4487,6 +4742,7 @@ router.get('/api/crm/reports/:type', async (req, res) => {
       countQuery = `SELECT COUNT(*) as total FROM dim_member m ${where}`;
     }
     else if (type === 'top-spender') {
+      const topLimit = parseInt(req.query.top) || 100;
       let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.BILL_DT BETWEEN @fromDate AND @toDate";
       if (store && store !== 'All Store') {
         where += " AND d.ORG_NAME = @store";
@@ -4498,7 +4754,7 @@ router.get('/api/crm/reports/:type', async (req, res) => {
       }
 
       query = `
-        SELECT TOP 100
+        SELECT TOP ${topLimit}
             q.RLITQ_CARD_NO AS card_no,
             MAX(m.RLICM_NAME) AS cust_name,
             MAX(m.RLICM_MOBILE_NO) AS phone_no,
@@ -4512,7 +4768,7 @@ router.get('/api/crm/reports/:type', async (req, res) => {
         GROUP BY q.RLITQ_CARD_NO
         ORDER BY total_net_sales DESC
       `;
-      countQuery = `SELECT 100 AS total`;
+      countQuery = `SELECT ${topLimit} AS total`;
     }
     else if (type === 'fraud-analysis') {
       let where = "WHERE h.BILL_DT BETWEEN @fromDate AND @toDate";
@@ -4597,8 +4853,13 @@ router.get('/api/crm/reports/:type', async (req, res) => {
       request.query(countQuery)
     ]);
 
-    const total = countRes.recordset[0]?.total || 0;
-    const summary = countRes.recordset[0] || {};
+    let total = countRes.recordset[0]?.total || 0;
+    let summary = countRes.recordset[0] || {};
+
+    if (type === 'top-spender') {
+      total = dataRes.recordset.length;
+      summary = { total };
+    }
 
     res.json({
       rows: dataRes.recordset,
@@ -4606,7 +4867,7 @@ router.get('/api/crm/reports/:type', async (req, res) => {
       summary,
       page: parseInt(page),
       perPage: parseInt(perPage),
-      totalPages: Math.ceil(total / parseInt(perPage))
+      totalPages: type === 'top-spender' ? 1 : Math.ceil(total / parseInt(perPage))
     });
 
   } catch (err) {
@@ -4743,6 +5004,7 @@ router.get('/api/crm/reports/:type/export/:format', async (req, res) => {
       `;
     }
     else if (type === 'top-spender') {
+      const topLimit = parseInt(req.query.top) || 100;
       title = "Top Spender Analysis";
       columns = [
         { header: 'Card No', key: 'card_no', width: 20 },
@@ -4764,7 +5026,7 @@ router.get('/api/crm/reports/:type/export/:format', async (req, res) => {
       }
 
       query = `
-        SELECT
+        SELECT TOP ${topLimit}
             q.RLITQ_CARD_NO AS card_no,
             MAX(m.RLICM_NAME) AS cust_name,
             MAX(m.RLICM_MOBILE_NO) AS phone_no,
