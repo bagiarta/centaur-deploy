@@ -72,6 +72,22 @@ const ACHIEVEMENT_BADGES: Record<string, { icon: string; color: string; desc: st
   'Promo Hunter': { icon: "🏷️", color: "bg-orange-500/10 text-orange-500 border-orange-500/30", desc: "Saved Promo value >= 20% of total spent" }
 };
 
+// Helper to get local date string YYYY-MM-DD
+const getLocalYYYYMMDD = (date: Date) => {
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
+
+const getFirstDayOfCurrentMonth = () => {
+  const now = new Date();
+  return getLocalYYYYMMDD(new Date(now.getFullYear(), now.getMonth(), 1));
+};
+
+const getTodayDateString = () => {
+  return getLocalYYYYMMDD(new Date());
+};
+
 export default function CrmDevLoyaltyPage() {
   const [activeTab, setActiveTab] = useState<'profiles' | 'summaries'>('profiles');
   const [loading, setLoading] = useState(true);
@@ -86,8 +102,8 @@ export default function CrmDevLoyaltyPage() {
 
   // Global Filters
   const [filterStore, setFilterStore] = useState("All Stores");
-  const [filterFromDate, setFilterFromDate] = useState("");
-  const [filterToDate, setFilterToDate] = useState("");
+  const [filterFromDate, setFilterFromDate] = useState(getFirstDayOfCurrentMonth());
+  const [filterToDate, setFilterToDate] = useState(getTodayDateString());
   const [stores, setStores] = useState<Store[]>([]);
 
   // Profiles Tab State
