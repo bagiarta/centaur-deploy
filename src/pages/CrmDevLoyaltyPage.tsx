@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Trophy, Award, RefreshCw, Calendar, Search, Database,
   TrendingUp, Users, UserPlus, Activity, Sparkles, ChevronDown, 
@@ -89,7 +90,7 @@ const getTodayDateString = () => {
 };
 
 export default function CrmDevLoyaltyPage() {
-  const [activeTab, setActiveTab] = useState<'profiles' | 'summaries'>('profiles');
+  const [activeTab, setActiveTab] = useState<'profiles' | 'summaries' | 'item-sales'>('profiles');
   const [loading, setLoading] = useState(true);
 
   // Overall Stats
@@ -126,15 +127,31 @@ export default function CrmDevLoyaltyPage() {
   const [sumSortDir, setSumSortDir] = useState<"asc" | "desc">("desc");
   const [sumTotal, setSumTotal] = useState(0);
 
+  // Item Sales Tab State
+  const [itemSales, setItemSales] = useState<any[]>([]);
+  const [itemSalesSearch, setItemSalesSearch] = useState("");
+  const [itemSalesSearchInput, setItemSalesSearchInput] = useState("");
+  const [itemSalesPage, setItemSalesPage] = useState(1);
+  const [itemSalesPerPage] = useState(50);
+  const [itemSalesTotal, setItemSalesTotal] = useState(0);
+  const [deptStats, setDeptStats] = useState<any[]>([]);
+  const [brandStats, setBrandStats] = useState<any[]>([]);
+
   // ETL Manual Trigger
-  const [fromDate, setFromDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
+  const [fromDate, setFromDate] = useState(new Date(new Date().setDate(new Date().getDate() - 2)).toISOString().split('T')[0]);
   const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0]);
   const [etlRunning, setEtlRunning] = useState(false);
   const [etlLogs, setEtlLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
 
-  // Tooltip details state
-  const [hoveredBadge, setHoveredBadge] = useState<{ name: string; criteria: string; date: string } | null>(null);
+  // Badge details popover state
+  const [selectedBadge, setSelectedBadge] = useState<{
+    name: string;
+    criteria: string;
+    date: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Fetch static data on mount
   useEffect(() => {
@@ -159,6 +176,15 @@ export default function CrmDevLoyaltyPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Close badge popover on scroll so it doesn't detach
+  useEffect(() => {
+    const handleScroll = () => {
+      if (selectedBadge) setSelectedBadge(null);
+    };
+    window.addEventListener("scroll", handleScroll, true);
+    return () => window.removeEventListener("scroll", handleScroll, true);
+  }, [selectedBadge]);
+
   // Fetch overall statistics when global filters change
   useEffect(() => {
     fetchStats(filterStore, filterFromDate, filterToDate);
@@ -177,6 +203,13 @@ export default function CrmDevLoyaltyPage() {
       fetchSummaries(filterStore, filterFromDate, filterToDate);
     }
   }, [activeTab, sumPage, sumSearch, sumSortBy, sumSortDir, filterStore, filterFromDate, filterToDate]);
+
+  // Fetch item sales when dependency state changes
+  useEffect(() => {
+    if (activeTab === 'item-sales') {
+      fetchItemSales(filterStore, filterFromDate, filterToDate);
+    }
+  }, [activeTab, itemSalesPage, itemSalesSearch, filterStore, filterFromDate, filterToDate]);
 
   const fetchStats = async (store = filterStore, from = filterFromDate, to = filterToDate) => {
     try {
@@ -249,6 +282,34 @@ export default function CrmDevLoyaltyPage() {
     }
   };
 
+  const fetchItemSales = async (store = filterStore, from = filterFromDate, to = filterToDate) => {
+    setLoading(true);
+    try {
+      const q = new URLSearchParams({
+        page: itemSalesPage.toString(),
+        perPage: itemSalesPerPage.toString(),
+        search: itemSalesSearch,
+      });
+      if (store && store !== "All Stores") q.append("store", store);
+      if (from) q.append("fromDate", from);
+      if (to) q.append("toDate", to);
+
+      const res = await fetch(`/api/dev/loyalty/item-sales?${q}`);
+      if (res.ok) {
+        const data = await res.json();
+        setItemSales(data.sales || []);
+        setItemSalesTotal(data.total || 0);
+        setDeptStats(data.deptStats || []);
+        setBrandStats(data.brandStats || []);
+      }
+    } catch (e) {
+      console.error("Error fetching item sales", e);
+      toast.error("Failed to load item sales details");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const checkEtlStatus = async () => {
     try {
       const res = await fetch('/api/dev/loyalty/etl-status');
@@ -309,6 +370,12 @@ export default function CrmDevLoyaltyPage() {
     setSumSearch(sumSearchInput);
   };
 
+  const handleItemSalesSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setItemSalesPage(1);
+    setItemSalesSearch(itemSalesSearchInput);
+  };
+
   const toggleProfSort = (column: string) => {
     if (profSortBy === column) {
       setProfSortDir(profSortDir === 'asc' ? 'desc' : 'asc');
@@ -348,6 +415,11 @@ export default function CrmDevLoyaltyPage() {
   const sumStartRecord = (sumPage - 1) * sumPerPage + 1;
   const sumEndRecord = Math.min(sumPage * sumPerPage, sumTotal);
 
+  // Item sales pagination metrics
+  const itemSalesTotalPages = Math.ceil(itemSalesTotal / itemSalesPerPage) || 1;
+  const itemSalesStartRecord = (itemSalesPage - 1) * itemSalesPerPage + 1;
+  const itemSalesEndRecord = Math.min(itemSalesPage * itemSalesPerPage, itemSalesTotal);
+
   return (
     <div className="p-6 space-y-6 animate-fade-up relative">
       <PageHeader
@@ -355,7 +427,7 @@ export default function CrmDevLoyaltyPage() {
         subtitle="Developer Analytics Dashboard & Achievements evaluation"
         actions={
           <button
-            onClick={() => { fetchStats(filterStore, filterFromDate, filterToDate); if (activeTab === 'profiles') fetchProfiles(filterStore, filterFromDate, filterToDate); else fetchSummaries(filterStore, filterFromDate, filterToDate); }}
+            onClick={() => { fetchStats(filterStore, filterFromDate, filterToDate); if (activeTab === 'profiles') fetchProfiles(filterStore, filterFromDate, filterToDate); else if (activeTab === 'summaries') fetchSummaries(filterStore, filterFromDate, filterToDate); else fetchItemSales(filterStore, filterFromDate, filterToDate); }}
             disabled={loading}
             className="flex items-center gap-2 px-3.5 py-2 bg-surface border border-border rounded-xl text-xs font-bold hover:bg-surface-raised transition-all"
           >
@@ -487,6 +559,17 @@ export default function CrmDevLoyaltyPage() {
           >
             <Database className="w-4 h-4" /> Daily Summaries ({sumTotal})
           </button>
+          <button
+            onClick={() => setActiveTab('item-sales')}
+            className={cn(
+              "px-4 py-2 text-xs font-bold border-b-2 transition-all -mb-px flex items-center gap-1.5",
+              activeTab === 'item-sales'
+                ? "border-primary text-primary"
+                : "border-transparent text-foreground-muted hover:text-foreground"
+            )}
+          >
+            <Sparkles className="w-4 h-4" /> Member Item Sales ({itemSalesTotal})
+          </button>
         </div>
 
         {/* Inline Filters */}
@@ -496,7 +579,7 @@ export default function CrmDevLoyaltyPage() {
             <span className="text-foreground-muted font-medium">Store:</span>
             <select
               value={filterStore}
-              onChange={e => { setFilterStore(e.target.value); setProfPage(1); setSumPage(1); }}
+              onChange={e => { setFilterStore(e.target.value); setProfPage(1); setSumPage(1); setItemSalesPage(1); }}
               className="bg-transparent border-none outline-none focus:ring-0 p-0 text-foreground font-semibold cursor-pointer max-w-[120px]"
             >
               <option value="All Stores" className="bg-surface text-foreground">All Stores</option>
@@ -514,20 +597,20 @@ export default function CrmDevLoyaltyPage() {
             <input
               type="date"
               value={filterFromDate}
-              onChange={e => { setFilterFromDate(e.target.value); setProfPage(1); setSumPage(1); }}
+              onChange={e => { setFilterFromDate(e.target.value); setProfPage(1); setSumPage(1); setItemSalesPage(1); }}
               className="bg-transparent border-none outline-none focus:ring-0 p-0 w-[95px] text-foreground font-semibold"
             />
             <span className="text-foreground-muted">→</span>
             <input
               type="date"
               value={filterToDate}
-              onChange={e => { setFilterToDate(e.target.value); setProfPage(1); setSumPage(1); }}
+              onChange={e => { setFilterToDate(e.target.value); setProfPage(1); setSumPage(1); setItemSalesPage(1); }}
               className="bg-transparent border-none outline-none focus:ring-0 p-0 w-[95px] text-foreground font-semibold"
             />
             {(filterFromDate || filterToDate) && (
               <button
                 type="button"
-                onClick={() => { setFilterFromDate(""); setFilterToDate(""); setProfPage(1); setSumPage(1); }}
+                onClick={() => { setFilterFromDate(""); setFilterToDate(""); setProfPage(1); setSumPage(1); setItemSalesPage(1); }}
                 className="text-[10px] text-danger hover:underline font-bold ml-1"
               >
                 Clear
@@ -625,13 +708,17 @@ export default function CrmDevLoyaltyPage() {
                                   "relative inline-flex items-center justify-center w-7 h-7 rounded-lg border text-xs cursor-pointer select-none transition-all hover:scale-110 shadow-sm",
                                   badge.color
                                 )}
-                                title={`${ach.name}: ${ach.criteria_met}`}
-                                onMouseEnter={() => setHoveredBadge({
-                                  name: ach.name,
-                                  criteria: ach.criteria_met,
-                                  date: new Date(ach.unlocked_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
-                                })}
-                                onMouseLeave={() => setHoveredBadge(null)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setSelectedBadge({
+                                    name: ach.name,
+                                    criteria: ach.criteria_met,
+                                    date: new Date(ach.unlocked_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
+                                    x: rect.left - 12,
+                                    y: rect.top + rect.height / 2
+                                  });
+                                }}
                               >
                                 {badge.icon}
                               </div>
@@ -693,7 +780,7 @@ export default function CrmDevLoyaltyPage() {
             </div>
           )}
         </SectionCard>
-      ) : (
+      ) : activeTab === 'summaries' ? (
         <SectionCard>
           {/* Search bar */}
           <form onSubmit={handleSumSearchSubmit} className="flex items-center gap-2 mb-4 max-w-md">
@@ -720,22 +807,21 @@ export default function CrmDevLoyaltyPage() {
               <thead>
                 <tr className="bg-surface-raised/50 border-b border-border">
                   <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-center w-12">#</th>
-                  <th onClick={() => toggleSumSort('member_id')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest cursor-pointer hover:text-foreground select-none">
-                    Card ID {renderSortArrow('member_id', sumSortBy, sumSortDir)}
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Store</th>
                   <th onClick={() => toggleSumSort('summary_date')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest cursor-pointer hover:text-foreground select-none">
                     Date {renderSortArrow('summary_date', sumSortBy, sumSortDir)}
                   </th>
+                  <th onClick={() => toggleSumSort('member_id')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest cursor-pointer hover:text-foreground select-none">
+                    Member Card {renderSortArrow('member_id', sumSortBy, sumSortDir)}
+                  </th>
+                  <th onClick={() => toggleSumSort('org_cd')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest cursor-pointer hover:text-foreground select-none">
+                    Store {renderSortArrow('org_cd', sumSortBy, sumSortDir)}
+                  </th>
                   <th onClick={() => toggleSumSort('total_sales')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-right cursor-pointer hover:text-foreground select-none">
-                    Sales {renderSortArrow('total_sales', sumSortBy, sumSortDir)}
+                    Sales Value {renderSortArrow('total_sales', sumSortBy, sumSortDir)}
                   </th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-right">Cost</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-right">Promo</th>
-                  <th onClick={() => toggleSumSort('total_margin')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-right cursor-pointer hover:text-foreground select-none">
-                    Margin {renderSortArrow('total_margin', sumSortBy, sumSortDir)}
+                  <th onClick={() => toggleSumSort('total_qty')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-center cursor-pointer hover:text-foreground select-none">
+                    Qty {renderSortArrow('total_qty', sumSortBy, sumSortDir)}
                   </th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-center">GP %</th>
                   <th onClick={() => toggleSumSort('total_txn')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-center cursor-pointer hover:text-foreground select-none">
                     Txns {renderSortArrow('total_txn', sumSortBy, sumSortDir)}
                   </th>
@@ -745,40 +831,30 @@ export default function CrmDevLoyaltyPage() {
                 {loading ? (
                   Array.from({ length: 10 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      <td colSpan={10} className="px-4 py-7 bg-white/5" />
+                      <td colSpan={7} className="px-4 py-7 bg-white/5" />
                     </tr>
                   ))
                 ) : summaries.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-16 text-center text-foreground-muted italic text-xs">
-                      No daily summary records found. Run the Dev ETL above.
+                    <td colSpan={7} className="px-4 py-16 text-center text-foreground-muted italic text-xs">
+                      No daily summaries found. Trigger the Dev ETL above to populate.
                     </td>
                   </tr>
-                ) : summaries.map((s, idx) => {
-                  const gpPct = s.total_sales > 0 ? (s.total_margin / s.total_sales) * 100 : 0;
-                  return (
-                    <tr key={idx} className="hover:bg-white/5 transition-colors font-mono text-xs">
-                      <td className="px-4 py-3 text-center text-foreground-muted">{sumStartRecord + idx}</td>
-                      <td className="px-4 py-3 text-primary font-bold">{s.member_id}</td>
-                      <td className="px-4 py-3 text-foreground-subtle font-medium">{s.org_cd}</td>
-                      <td className="px-4 py-3 text-foreground-subtle">{new Date(s.summary_date).toLocaleDateString('id-ID')}</td>
-                      <td className="px-4 py-3 text-right font-bold text-foreground">{formatCurrency(s.total_sales)}</td>
-                      <td className="px-4 py-3 text-right text-foreground-muted">{formatCurrency(s.total_cost)}</td>
-                      <td className="px-4 py-3 text-right text-orange-500">{formatCurrency(s.total_promo)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-success">{formatCurrency(s.total_margin)}</td>
-                      <td className="px-4 py-3 text-center font-bold">
-                        <span className={cn(
-                          "px-1.5 py-0.5 rounded-md",
-                          gpPct >= 30 ? "bg-emerald-500/10 text-emerald-500" :
-                            gpPct >= 10 ? "bg-yellow-500/10 text-yellow-500" : "bg-red-500/10 text-red-500"
-                        )}>
-                          {gpPct.toFixed(1)}%
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center font-bold text-foreground/80">{s.total_txn}</td>
-                    </tr>
-                  );
-                })}
+                ) : summaries.map((sum, idx) => (
+                  <tr key={`${sum.member_id}_${sum.summary_date}`} className="hover:bg-white/5 transition-colors group">
+                    <td className="px-4 py-3 text-xs text-foreground-muted text-center font-mono">{sumStartRecord + idx}</td>
+                    <td className="px-4 py-3 text-xs font-mono">
+                      {new Date(sum.summary_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-bold font-mono text-primary">{sum.member_id}</td>
+                    <td className="px-4 py-3 text-xs text-foreground-subtle font-medium">{sum.org_cd}</td>
+                    <td className="px-4 py-3 text-xs font-mono text-success text-right font-bold">
+                      {formatCurrency(sum.total_sales)}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-mono text-center text-foreground/80">{sum.total_qty}</td>
+                    <td className="px-4 py-3 text-xs font-mono text-center text-foreground/80">{sum.total_txn}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -787,7 +863,7 @@ export default function CrmDevLoyaltyPage() {
           {!loading && sumTotal > 0 && (
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-4 px-1 text-xs">
               <span className="text-foreground-muted">
-                Showing <strong className="text-foreground font-semibold">{sumStartRecord}</strong> to <strong className="text-foreground font-semibold">{sumEndRecord}</strong> of <strong className="text-foreground font-semibold">{sumTotal.toLocaleString('id-ID')}</strong> daily summaries
+                Showing <strong className="text-foreground font-semibold">{sumStartRecord}</strong> to <strong className="text-foreground font-semibold">{sumEndRecord}</strong> of <strong className="text-foreground font-semibold">{sumTotal.toLocaleString('id-ID')}</strong> summaries
               </span>
 
               <div className="flex items-center gap-1.5">
@@ -828,28 +904,229 @@ export default function CrmDevLoyaltyPage() {
             </div>
           )}
         </SectionCard>
+      ) : (
+        <SectionCard>
+          {/* Top Stats Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+            {/* Dept Stats */}
+            <div className="border border-border rounded-2xl p-4 bg-surface-raised/40">
+              <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-primary mb-3">Top Departments by Member Qty</h3>
+              <div className="space-y-2.5">
+                {deptStats.length === 0 ? (
+                  <div className="text-[10px] text-foreground-muted italic py-4">No data available</div>
+                ) : (
+                  deptStats.map((d, i) => (
+                    <div key={i} className="text-xs">
+                      <div className="flex justify-between text-[11px] mb-1 font-semibold">
+                        <span className="text-foreground">{d.department}</span>
+                        <span className="text-foreground-muted">{d.total_qty.toLocaleString()} Qty ({d.tx_count} lines)</span>
+                      </div>
+                      <div className="w-full bg-border/40 h-1.5 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-primary h-full rounded-full" 
+                          style={{ width: `${Math.min(100, (d.total_qty / (deptStats[0]?.total_qty || 1)) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Brand Stats */}
+            <div className="border border-border rounded-2xl p-4 bg-surface-raised/40">
+              <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-success mb-3">Top Brands by Member Qty</h3>
+              <div className="space-y-2.5">
+                {brandStats.length === 0 ? (
+                  <div className="text-[10px] text-foreground-muted italic py-4">No data available</div>
+                ) : (
+                  brandStats.map((b, i) => (
+                    <div key={i} className="text-xs">
+                      <div className="flex justify-between text-[11px] mb-1 font-semibold">
+                        <span className="text-foreground">{b.brand}</span>
+                        <span className="text-foreground-muted">{b.total_qty.toLocaleString()} Qty ({b.tx_count} lines)</span>
+                      </div>
+                      <div className="w-full bg-border/40 h-1.5 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-success h-full rounded-full" 
+                          style={{ width: `${Math.min(100, (b.total_qty / (brandStats[0]?.total_qty || 1)) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Search bar */}
+          <form onSubmit={handleItemSalesSearchSubmit} className="flex items-center gap-2 mb-4 max-w-md">
+            <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2 flex-1">
+              <Search className="w-4 h-4 text-foreground-muted" />
+              <input
+                type="text"
+                placeholder="Search item name, brand, card, dept..."
+                value={itemSalesSearchInput}
+                onChange={e => setItemSalesSearchInput(e.target.value)}
+                className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 flex-1"
+              />
+            </div>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold rounded-xl transition-all shadow-glow"
+            >
+              Search
+            </button>
+          </form>
+
+          <div className="relative overflow-x-auto border border-border rounded-2xl bg-black/20">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-surface-raised/50 border-b border-border">
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-center w-12">#</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Store / Date</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Member Card</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Item Name / Code</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Classification</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-right">Qty</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Promo Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {loading ? (
+                  Array.from({ length: 10 }).map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td colSpan={7} className="px-4 py-7 bg-white/5" />
+                    </tr>
+                  ))
+                ) : itemSales.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-16 text-center text-foreground-muted italic text-xs">
+                      No member item sales found. Make sure the cron job or manual trigger is populated.
+                    </td>
+                  </tr>
+                ) : itemSales.map((item, idx) => (
+                  <tr key={item.id} className="hover:bg-white/5 transition-colors group text-xs">
+                    <td className="px-4 py-3 text-center text-foreground-muted font-mono">{itemSalesStartRecord + idx}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-bold text-foreground">{item.org_cd}</div>
+                      <div className="text-[10px] text-foreground-muted mt-0.5">{new Date(item.bill_dt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-primary font-bold">{item.card_no}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-bold text-foreground">{item.item_name}</div>
+                      <div className="text-[10px] text-foreground-muted mt-0.5 font-mono">{item.itm_cd}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-foreground/90 font-medium">Dept: <strong className="text-foreground">{item.department || '-'}</strong></div>
+                      <div className="text-[10px] text-foreground-muted mt-0.5">Brand: {item.brand || '-'} | Div: {item.division || '-'}</div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-bold text-foreground">
+                      {item.qty} <span className="text-[10px] text-foreground-muted font-normal">{item.uom}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {item.promo_item_flag === 'Y' ? (
+                        <div className="text-[10px]">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-success/10 border border-success/30 text-success font-bold mb-0.5">PROMO</span>
+                          <div className="text-foreground-subtle truncate max-w-[150px]">{item.promo_detail || 'Promo Item'}</div>
+                          {item.disc_amt > 0 && <div className="text-[9px] text-success-hover font-semibold">Disc: {formatCurrency(item.disc_amt)}</div>}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-foreground-muted italic">Regular</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Item Sales pagination controls */}
+          {!loading && itemSalesTotal > 0 && (
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-4 px-1 text-xs">
+              <span className="text-foreground-muted">
+                Showing <strong className="text-foreground font-semibold">{itemSalesStartRecord}</strong> to <strong className="text-foreground font-semibold">{itemSalesEndRecord}</strong> of <strong className="text-foreground font-semibold">{itemSalesTotal.toLocaleString('id-ID')}</strong> records
+              </span>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setItemSalesPage(1)}
+                  disabled={itemSalesPage === 1}
+                  className="p-1.5 border border-border bg-surface hover:bg-surface-raised rounded-lg disabled:opacity-40 disabled:hover:bg-surface transition-all"
+                >
+                  <ChevronsLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setItemSalesPage(prev => Math.max(prev - 1, 1))}
+                  disabled={itemSalesPage === 1}
+                  className="p-1.5 border border-border bg-surface hover:bg-surface-raised rounded-lg disabled:opacity-40 disabled:hover:bg-surface transition-all"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <span className="px-3 py-1 bg-surface border border-border rounded-lg text-foreground font-bold">
+                  Page {itemSalesPage} of {itemSalesTotalPages}
+                </span>
+
+                <button
+                  onClick={() => setItemSalesPage(prev => Math.min(prev + 1, itemSalesTotalPages))}
+                  disabled={itemSalesPage === itemSalesTotalPages}
+                  className="p-1.5 border border-border bg-surface hover:bg-surface-raised rounded-lg disabled:opacity-40 disabled:hover:bg-surface transition-all"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setItemSalesPage(itemSalesTotalPages)}
+                  disabled={itemSalesPage === itemSalesTotalPages}
+                  className="p-1.5 border border-border bg-surface hover:bg-surface-raised rounded-lg disabled:opacity-40 disabled:hover:bg-surface transition-all"
+                >
+                  <ChevronsRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </SectionCard>
       )}
 
-      {/* Floating Badge Detail Tooltip */}
-      {hoveredBadge && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-xs bg-surface-raised border border-border/80 rounded-xl shadow-2xl p-4 animate-in fade-in slide-in-from-bottom-4 duration-200">
-          <div className="flex items-center gap-1.5 border-b border-border/50 pb-2 mb-2">
-            <span className="text-base">{ACHIEVEMENT_BADGES[hoveredBadge.name]?.icon}</span>
-            <span className="font-extrabold text-sm text-foreground">{hoveredBadge.name}</span>
+      {/* Dynamic Popover for Badge Details */}
+      {selectedBadge && createPortal(
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setSelectedBadge(null)} />
+          {/* Position wrapper to isolate transform from Tailwind animations */}
+          <div
+            style={{
+              position: 'fixed',
+              left: `${selectedBadge.x}px`,
+              top: `${selectedBadge.y}px`,
+              transform: 'translate(-100%, -50%)',
+              zIndex: 9999
+            }}
+          >
+            {/* Popover Card Content */}
+            <div className="relative max-w-xs bg-surface-raised border border-border rounded-xl shadow-2xl p-4 animate-in fade-in zoom-in-95 duration-150">
+              {/* Popover Arrow pointing right towards the badge */}
+              <div className="absolute top-1/2 right-0 -translate-y-1/2 translate-x-[5px] w-2 h-2 bg-surface-raised border-t border-r border-border rotate-45" />
+              
+              <div className="flex items-center gap-1.5 border-b border-border/50 pb-2 mb-2">
+                <span className="text-base">{ACHIEVEMENT_BADGES[selectedBadge.name]?.icon}</span>
+                <span className="font-extrabold text-sm text-foreground">{selectedBadge.name}</span>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="text-foreground-muted text-[10px] leading-relaxed italic">
+                  {ACHIEVEMENT_BADGES[selectedBadge.name]?.desc}
+                </div>
+                <div className="text-[10px] text-foreground-subtle bg-primary/5 border border-primary/20 rounded px-2 py-1 leading-normal">
+                  <strong>Unlocked criteria:</strong><br />
+                  {selectedBadge.criteria}
+                </div>
+                <div className="text-[9px] text-foreground-muted text-right">
+                  Unlocked on: {selectedBadge.date}
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="space-y-1.5 text-xs">
-            <div className="text-foreground-muted text-[10px] leading-relaxed italic">
-              {ACHIEVEMENT_BADGES[hoveredBadge.name]?.desc}
-            </div>
-            <div className="text-[10px] text-foreground-subtle bg-primary/5 border border-primary/20 rounded px-2 py-1 leading-normal">
-              <strong>Unlocked criteria:</strong><br />
-              {hoveredBadge.criteria}
-            </div>
-            <div className="text-[9px] text-foreground-muted text-right">
-              Unlocked on: {hoveredBadge.date}
-            </div>
-          </div>
-        </div>
+        </>,
+        document.body
       )}
     </div>
   );

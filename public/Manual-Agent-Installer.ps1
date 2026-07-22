@@ -1,5 +1,5 @@
 param(
-    [string]$ServerUrl = "https://192.168.85.30:3001"
+    [string]$ServerUrl = "http://192.168.85.30:3001"
 )
 
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
