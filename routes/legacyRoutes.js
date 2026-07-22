@@ -798,7 +798,7 @@ router.delete('/api/deployments/:deploymentId/targets/:deviceId', async (req, re
 router.post('/api/agent/heartbeat', async (req, res) => {
   const hostname = req.body?.hostname || 'unknown';
   try {
-    const { ip, cpu, ram, disk, agent_version, os_version } = req.body;
+    const { ip, cpu, ram, disk, agent_version, os_version, disk_status, bad_sectors, disk_temp, psu_status } = req.body;
     if (!hostname || hostname === 'unknown') {
       return res.status(400).json({ error: "Hostname is required" });
     }
@@ -822,6 +822,10 @@ router.post('/api/agent/heartbeat', async (req, res) => {
       .input('ver', sql.NVarChar, agent_version || '2.5.0')
       .input('os', sql.NVarChar, os_version || 'Windows')
       .input('seen', sql.NVarChar, now)
+      .input('disk_status', sql.NVarChar, disk_status || 'Healthy')
+      .input('bad_sectors', sql.Int, bad_sectors || 0)
+      .input('disk_temp', sql.Float, disk_temp || 0.0)
+      .input('psu_status', sql.NVarChar, psu_status || 'Not Supported')
       .query(`
         MERGE INTO Devices AS target
         USING (SELECT @h AS hostname) AS source
@@ -830,10 +834,12 @@ router.post('/api/agent/heartbeat', async (req, res) => {
           UPDATE SET 
             ip = @ip, cpu = @cpu, ram = @ram, disk = @disk, 
             agent_version = @ver, os_version = @os, 
-            last_seen = @seen, status = 'online'
+            last_seen = @seen, status = 'online',
+            disk_status = @disk_status, bad_sectors = @bad_sectors,
+            disk_temp = @disk_temp, psu_status = @psu_status
         WHEN NOT MATCHED THEN
-          INSERT (id, hostname, ip, os_version, status, last_seen, cpu, ram, disk, agent_version)
-          VALUES (@id, @h, @ip, @os, 'online', @seen, @cpu, @ram, @disk, @ver);
+          INSERT (id, hostname, ip, os_version, status, last_seen, cpu, ram, disk, agent_version, disk_status, bad_sectors, disk_temp, psu_status)
+          VALUES (@id, @h, @ip, @os, 'online', @seen, @cpu, @ram, @disk, @ver, @disk_status, @bad_sectors, @disk_temp, @psu_status);
       `);
 
     // Verify update was successful
@@ -887,14 +893,23 @@ router.post('/api/agent/software-inventory', async (req, res) => {
     if (!Array.isArray(software)) return res.status(400).json({ error: "Software array is required" });
 
     const pool = await poolPromise;
-    const safeId = `dev-${hostname.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    
+    // Look up the actual device ID by hostname from Devices table
+    const devRes = await pool.request()
+      .input('h', sql.NVarChar, hostname)
+      .query("SELECT id FROM Devices WHERE hostname = @h");
+      
+    let device_id = `dev-${hostname.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    if (devRes.recordset.length > 0) {
+      device_id = devRes.recordset[0].id;
+    }
 
     const transaction = new sql.Transaction(pool);
     await transaction.begin();
 
     try {
       await transaction.request()
-        .input('device_id', sql.NVarChar, safeId)
+        .input('device_id', sql.NVarChar, device_id)
         .query(`DELETE FROM DeviceSoftware WHERE device_id = @device_id`);
 
       if (software.length > 0) {
@@ -902,7 +917,7 @@ router.post('/api/agent/software-inventory', async (req, res) => {
         for (let i = 0; i < software.length; i += chunkSize) {
           const chunk = software.slice(i, i + chunkSize);
           const reqBatch = transaction.request();
-          reqBatch.input('device_id', sql.NVarChar, safeId);
+          reqBatch.input('device_id', sql.NVarChar, device_id);
 
           let insertValues = [];
           chunk.forEach((app, idx) => {
@@ -1052,42 +1067,7 @@ router.get('/api/agent/pending-deployments', async (req, res) => {
   }
 });
 
-// ── POST /api/agent/software-inventory ───────────────────
-router.post('/api/agent/software-inventory', async (req, res) => {
-  const { hostname, software } = req.body;
-  if (!hostname || !Array.isArray(software)) return res.status(400).json({ error: 'Missing hostname or software list' });
-  try {
-    const pool = await poolPromise;
-    const devRes = await pool.request()
-      .input('h', sql.NVarChar, hostname)
-      .query("SELECT id FROM Devices WHERE hostname = @h");
-    if (!devRes.recordset[0]) return res.json({ status: 'device_not_found' });
-    const device_id = devRes.recordset[0].id;
 
-    // Clear old entries for this device then re-insert
-    await pool.request()
-      .input('device_id', sql.NVarChar, device_id)
-      .query("DELETE FROM DeviceSoftware WHERE device_id = @device_id");
-
-    for (const sw of software.slice(0, 300)) {
-      if (!sw.name) continue;
-      await pool.request()
-        .input('device_id', sql.NVarChar, device_id)
-        .input('name', sql.NVarChar(500), (sw.name || '').substring(0, 500))
-        .input('version', sql.NVarChar(100), (sw.version || '').substring(0, 100))
-        .input('publisher', sql.NVarChar(200), (sw.publisher || '').substring(0, 200))
-        .query(`
-          IF NOT EXISTS (SELECT 1 FROM DeviceSoftware WHERE device_id=@device_id AND name=@name)
-            INSERT INTO DeviceSoftware (device_id, name, version, publisher)
-            VALUES (@device_id, @name, @version, @publisher)
-        `);
-    }
-    res.json({ status: 'ok', count: software.length });
-  } catch (err) {
-    console.error('Software inventory error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── POST /api/agent/command-result ───────────────────────
 router.post('/api/agent/command-result', async (req, res) => {

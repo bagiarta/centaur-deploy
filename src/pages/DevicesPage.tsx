@@ -1,5 +1,5 @@
 import { useState, FormEvent, useEffect } from "react";
-import { Search, Filter, RefreshCw, Plus, ChevronDown, Cpu, HardDrive, MemoryStick, Wifi, Edit, Trash2, Users, Activity, Database, Play, AlertTriangle, X, Package, ChevronRight, Eye, List, Map as MapIcon } from "lucide-react";
+import { Search, Filter, RefreshCw, Plus, ChevronDown, Cpu, HardDrive, MemoryStick, Wifi, Edit, Trash2, Users, Activity, Database, Play, AlertTriangle, X, Package, ChevronRight, Eye, List, Map as MapIcon, ShieldAlert, Thermometer } from "lucide-react";
 import { Device } from "@/types/inventory";
 import DeviceMap from "@/components/DeviceMap";
 import { StatusBadge, PageHeader, SectionCard } from "@/components/ui-enterprise";
@@ -441,6 +441,21 @@ export default function DevicesPage() {
                         <span className="font-mono text-sm font-medium flex items-center gap-2">
                           {d.device_type === 'Network' ? <Wifi className="w-3.5 h-3.5 text-primary" /> : <HardDrive className="w-3.5 h-3.5 text-foreground-muted" />}
                           {d.hostname}
+                          {d.disk_status && d.disk_status !== "Healthy" && (
+                            <span className="text-[9px] bg-danger/10 text-danger border border-danger/20 font-bold px-1 rounded animate-pulse" title="Failure Predicted">
+                              FAIL
+                            </span>
+                          )}
+                          {d.bad_sectors && d.bad_sectors > 0 ? (
+                            <span className="text-[9px] bg-warning/10 text-warning border border-warning/20 font-bold px-1 rounded" title={`${d.bad_sectors} bad sectors`}>
+                              {d.bad_sectors} BAD
+                            </span>
+                          ) : null}
+                          {d.disk_temp && d.disk_temp >= 50 ? (
+                            <span className="text-[9px] bg-danger/10 text-danger border border-danger/20 font-bold px-1 rounded" title={`High temp: ${d.disk_temp}°C`}>
+                              {d.disk_temp}°C
+                            </span>
+                          ) : null}
                         </span>
                       </div>
                       {d.location && (
@@ -708,8 +723,12 @@ export default function DevicesPage() {
                       { icon: <Wifi className="w-4 h-4" />,        label: "OS Version",    value: selected.os_version },
                       { icon: <Cpu className="w-4 h-4" />,         label: "CPU",           value: selected.cpu },
                       { icon: <MemoryStick className="w-4 h-4" />, label: "RAM",           value: selected.ram },
-                      { icon: <HardDrive className="w-4 h-4" />,   label: "Disk",          value: selected.disk },
-                      { icon: <Activity className="w-4 h-4" />,    label: "Agent",         value: selected.agent_version },
+                      { icon: <HardDrive className="w-4 h-4" />,   label: "Disk Size",     value: selected.disk },
+                      { icon: <Activity className="w-4 h-4" />,    label: "Agent Version", value: selected.agent_version },
+                      { icon: <ShieldAlert className="w-4 h-4" />,  label: "Disk Health Status", value: selected.disk_status || "Healthy" },
+                      { icon: <AlertTriangle className="w-4 h-4" />,label: "Bad Sector Count",    value: selected.bad_sectors !== undefined ? selected.bad_sectors.toString() : "0" },
+                      { icon: <Thermometer className="w-4 h-4" />,  label: "Disk Temperature",   value: selected.disk_temp ? `${selected.disk_temp}°C` : "N/A" },
+                      { icon: <Database className="w-4 h-4" />,     label: "Power Supply Status",value: selected.psu_status || "Not Supported" },
                     ].map(row => (
                       <div key={row.label} className="flex items-center gap-3 p-3 bg-surface-raised rounded-lg border border-border/50">
                         <div className="text-foreground-muted shrink-0 bg-background p-1.5 rounded-md border border-border">{row.icon}</div>

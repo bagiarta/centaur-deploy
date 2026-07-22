@@ -507,3 +507,64 @@ export const getAnalytics = async (req, res) => {
     res.status(500).json({ error: 'Failed to retrieve analytics', details: err.message });
   }
 };
+
+// 10. POST /api/trial/support-manager/devices/health
+export const submitDeviceHealth = async (req, res) => {
+  try {
+    const { hostname, ip, disk_status, bad_sectors, disk_temp, psu_status } = req.body;
+    const pool = await poolPromise;
+
+    await pool.request()
+      .input('hostname', sql.NVarChar, hostname || 'Unknown')
+      .input('ip', sql.NVarChar, ip || '')
+      .input('disk_status', sql.NVarChar, disk_status || 'Healthy')
+      .input('bad_sectors', sql.Int, bad_sectors || 0)
+      .input('disk_temp', sql.Float, disk_temp || 0.0)
+      .input('psu_status', sql.NVarChar, psu_status || 'Not Supported')
+      .query(`
+        INSERT INTO TrialDeviceHealth (hostname, ip, disk_status, bad_sectors, disk_temp, psu_status, logged_at)
+        VALUES (@hostname, @ip, @disk_status, @bad_sectors, @disk_temp, @psu_status, GETDATE())
+      `);
+
+    res.json({ success: true, message: 'Telemetry recorded successfully' });
+  } catch (err) {
+    console.error('[SupportManager] submitDeviceHealth error:', err.message);
+    res.status(500).json({ error: 'Failed to record device health telemetry', details: err.message });
+  }
+};
+
+// 11. GET /api/trial/support-manager/devices/health
+export const getDeviceHealth = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    // Get the latest health entry for each unique hostname
+    const latestQuery = await pool.request().query(`
+      WITH RankedHealth AS (
+        SELECT 
+          id, hostname, ip, disk_status, bad_sectors, disk_temp, psu_status, logged_at,
+          ROW_NUMBER() OVER (PARTITION BY hostname ORDER BY logged_at DESC) as rn
+        FROM TrialDeviceHealth
+      )
+      SELECT id, hostname, ip, disk_status, bad_sectors, disk_temp, psu_status, logged_at
+      FROM RankedHealth
+      WHERE rn = 1
+      ORDER BY hostname ASC
+    `);
+
+    // Also get the last 50 overall entries for logging/audit trail
+    const historyQuery = await pool.request().query(`
+      SELECT TOP 50 id, hostname, ip, disk_status, bad_sectors, disk_temp, psu_status, logged_at
+      FROM TrialDeviceHealth
+      ORDER BY logged_at DESC
+    `);
+
+    res.json({
+      latest: latestQuery.recordset,
+      history: historyQuery.recordset
+    });
+  } catch (err) {
+    console.error('[SupportManager] getDeviceHealth error:', err.message);
+    res.status(500).json({ error: 'Failed to retrieve device health telemetry', details: err.message });
+  }
+};

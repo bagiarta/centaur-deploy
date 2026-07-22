@@ -6,7 +6,7 @@ import {
   Server, Shield, Bell, User, Activity, Users, Database, Scale,
   UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
   UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw, Wrench,
-  Video, Trophy,
+  Video, Trophy, HardDrive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,11 +28,11 @@ export const navItems = [
     icon: Shield,
     group: "main",
     children: [
-      {id: "activities", to: "/activities", icon: ClipboardList, label: "User Task"},
-      { id: "tickets", to: "/tickets", icon: Ticket, label: "Helpdesk Tickets"},
-      { id: "sm_dashboard", to: "/trial/support-manager/dashboard", icon: LayoutDashboard, label: "PM Dashboard" },
-      { id: "sm_schedule", to: "/trial/support-manager/schedule", icon: ClipboardList, label: "PM Schedule & Checklist" },
-      { id: "sm_actions", to: "/trial/support-manager/action-items", icon: Wrench, label: "Action Items Tracking" },
+      { id: "activities", to: "/activities", icon: ClipboardList, label: "User Task" },
+      { id: "tickets", to: "/tickets", icon: Ticket, label: "Helpdesk Tickets" },
+      { id: "sm_dashboard", to: "/support-manager/dashboard", icon: LayoutDashboard, label: "PM Dashboard" },
+      { id: "sm_schedule", to: "/support-manager/schedule", icon: ClipboardList, label: "PM Schedule & Checklist" },
+      { id: "sm_actions", to: "/support-manager/action-items", icon: Wrench, label: "Action Items Tracking" },
     ]
   },
   {
@@ -58,6 +58,7 @@ export const navItems = [
     icon: Wrench,
     group: "main",
     children: [
+      { id: "sm_device_health", to: "/support-manager/device-health", icon: HardDrive, label: "Device Health Monitor" },
       { id: "cctv", to: "/cctv", icon: Video, label: "CCTV Monitoring" },
       { id: "network", to: "/network", icon: Globe, label: "Network Map" },
       { id: "groups", to: "/groups", icon: Users, label: "Device Groups" },

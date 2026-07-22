@@ -28,9 +28,10 @@ import CrmDevLoyaltyPage from "./pages/CrmDevLoyaltyPage";
 import ActivitiesPage from "./pages/ActivitiesPage";
 import ScaleManagerPage from "./pages/ScaleManagerPage";
 import CCTVMonitoringPage from "./pages/CCTVMonitoringPage";
-import PMDashboardPage from "./pages/trial/PMDashboardPage";
-import PMSchedulePage from "./pages/trial/PMSchedulePage";
-import PMActionItemsPage from "./pages/trial/PMActionItemsPage";
+import PMDashboardPage from "./pages/PMDashboardPage";
+import PMSchedulePage from "./pages/PMSchedulePage";
+import PMActionItemsPage from "./pages/PMActionItemsPage";
+import DeviceHealthPage from "./pages/DeviceHealthPage";
 import InstallersPage from "./pages/InstallersPage";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -209,24 +210,31 @@ const App = () => (
                 </AppShell>
               </ProtectedRoute>
             } />
-            <Route path="/trial/support-manager/dashboard" element={
+            <Route path="/support-manager/dashboard" element={
               <ProtectedRoute>
                 <AppShell>
                   <PMDashboardPage />
                 </AppShell>
               </ProtectedRoute>
             } />
-            <Route path="/trial/support-manager/schedule" element={
+            <Route path="/support-manager/schedule" element={
               <ProtectedRoute>
                 <AppShell>
                   <PMSchedulePage />
                 </AppShell>
               </ProtectedRoute>
             } />
-            <Route path="/trial/support-manager/action-items" element={
+            <Route path="/support-manager/action-items" element={
               <ProtectedRoute>
                 <AppShell>
                   <PMActionItemsPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/support-manager/device-health" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <DeviceHealthPage />
                 </AppShell>
               </ProtectedRoute>
             } />

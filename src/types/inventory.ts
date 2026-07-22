@@ -19,6 +19,10 @@ export interface Device {
   location?: string;
   latitude?: number;
   longitude?: number;
+  disk_status?: string;
+  bad_sectors?: number;
+  disk_temp?: number;
+  psu_status?: string;
 }
 
 export interface DeviceGroup {

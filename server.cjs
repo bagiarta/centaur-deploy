@@ -2262,7 +2262,7 @@ app.post('/api/deployments', async (req, res) => {
 app.post('/api/agent/heartbeat', async (req, res) => {
   const hostname = req.body?.hostname || 'unknown';
   try {
-    const { ip, cpu, ram, disk, agent_version, os_version } = req.body;
+    const { ip, cpu, ram, disk, agent_version, os_version, disk_status, bad_sectors, disk_temp, psu_status } = req.body;
     if (!hostname || hostname === 'unknown') {
       return res.status(400).json({ error: "Hostname is required" });
     }
@@ -2286,6 +2286,10 @@ app.post('/api/agent/heartbeat', async (req, res) => {
       .input('ver', sql.NVarChar, agent_version || '2.5.0')
       .input('os', sql.NVarChar, os_version || 'Windows')
       .input('seen', sql.NVarChar, now)
+      .input('disk_status', sql.NVarChar, disk_status || 'Healthy')
+      .input('bad_sectors', sql.Int, bad_sectors || 0)
+      .input('disk_temp', sql.Float, disk_temp || 0.0)
+      .input('psu_status', sql.NVarChar, psu_status || 'Not Supported')
       .query(`
         MERGE INTO Devices AS target
         USING (SELECT @h AS hostname) AS source
@@ -2294,10 +2298,12 @@ app.post('/api/agent/heartbeat', async (req, res) => {
           UPDATE SET 
             ip = @ip, cpu = @cpu, ram = @ram, disk = @disk, 
             agent_version = @ver, os_version = @os, 
-            last_seen = @seen, status = 'online'
+            last_seen = @seen, status = 'online',
+            disk_status = @disk_status, bad_sectors = @bad_sectors,
+            disk_temp = @disk_temp, psu_status = @psu_status
         WHEN NOT MATCHED THEN
-          INSERT (id, hostname, ip, os_version, status, last_seen, cpu, ram, disk, agent_version)
-          VALUES (@id, @h, @ip, @os, 'online', @seen, @cpu, @ram, @disk, @ver);
+          INSERT (id, hostname, ip, os_version, status, last_seen, cpu, ram, disk, agent_version, disk_status, bad_sectors, disk_temp, psu_status)
+          VALUES (@id, @h, @ip, @os, 'online', @seen, @cpu, @ram, @disk, @ver, @disk_status, @bad_sectors, @disk_temp, @psu_status);
       `);
 
     // Verify update was successful

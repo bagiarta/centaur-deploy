@@ -14,5 +14,7 @@ router.post('/results', smController.submitPMResult);
 router.get('/action-items', smController.getActionItems);
 router.put('/action-items/:id/resolve', smController.resolveActionItem);
 router.get('/analytics', smController.getAnalytics);
+router.post('/devices/health', smController.submitDeviceHealth);
+router.get('/devices/health', smController.getDeviceHealth);
 
 export default router;

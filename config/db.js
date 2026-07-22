@@ -511,6 +511,17 @@ export async function initDb() {
            resolved_at DATETIME,
            created_at DATETIME DEFAULT GETDATE(),
            updated_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TrialDeviceHealth' AND xtype='U')
+       CREATE TABLE TrialDeviceHealth (
+           id INT IDENTITY(1,1) PRIMARY KEY,
+           hostname NVARCHAR(100) NOT NULL,
+           ip NVARCHAR(50),
+           disk_status NVARCHAR(50),
+           bad_sectors INT DEFAULT 0,
+           disk_temp FLOAT DEFAULT 0.0,
+           psu_status NVARCHAR(250),
+           logged_at DATETIME DEFAULT GETDATE()
        )`
     ];
 
@@ -548,6 +559,24 @@ export async function initDb() {
     `);
     if (checkSchedCols.recordset.length === 0) {
       await pool.request().query('ALTER TABLE Trial_PMSchedules ADD created_by NVARCHAR(100) NULL');
+    }
+
+    // Ensure Devices disk_status, bad_sectors, disk_temp, psu_status columns exist
+    const checkDevicesCols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'Devices' AND COLUMN_NAME IN ('disk_status', 'bad_sectors', 'disk_temp', 'psu_status')
+    `);
+    if (!checkDevicesCols.recordset.find(c => c.COLUMN_NAME === 'disk_status')) {
+      await pool.request().query("ALTER TABLE Devices ADD disk_status NVARCHAR(50) NULL");
+    }
+    if (!checkDevicesCols.recordset.find(c => c.COLUMN_NAME === 'bad_sectors')) {
+      await pool.request().query("ALTER TABLE Devices ADD bad_sectors INT DEFAULT 0");
+    }
+    if (!checkDevicesCols.recordset.find(c => c.COLUMN_NAME === 'disk_temp')) {
+      await pool.request().query("ALTER TABLE Devices ADD disk_temp FLOAT DEFAULT 0.0");
+    }
+    if (!checkDevicesCols.recordset.find(c => c.COLUMN_NAME === 'psu_status')) {
+      await pool.request().query("ALTER TABLE Devices ADD psu_status NVARCHAR(250) NULL");
     }
 
 

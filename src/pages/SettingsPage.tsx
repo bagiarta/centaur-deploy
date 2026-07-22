@@ -665,7 +665,12 @@ export default function SettingsPage() {
             const groupIds = Array.isArray(dev.group_ids)
               ? dev.group_ids
               : (dev.group_ids || '').split(',').map((s: string) => s.trim());
-            return groupIds.includes('g2') || groupIds.includes('g3') || dev.status === 'offline';
+            return groupIds.includes('g2');
+          });
+          filtered.sort((a: any, b: any) => {
+            const orgA = a.hostname.match(/\d+/) ? a.hostname.match(/\d+/)[0] : '';
+            const orgB = b.hostname.match(/\d+/) ? b.hostname.match(/\d+/)[0] : '';
+            return orgA.localeCompare(orgB, undefined, { numeric: true });
           });
           setDevicesList(filtered);
         }
@@ -2053,11 +2058,17 @@ export default function SettingsPage() {
                       className="w-full bg-background border border-border rounded-xl p-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-foreground"
                     >
                       <option value="">-- Select Target Device Host --</option>
-                      {devicesList.map(dev => (
-                        <option key={dev.id} value={dev.hostname}>
-                          {dev.hostname} ({dev.ip})
-                        </option>
-                      ))}
+                      {devicesList.map(dev => {
+                        const orgCode = dev.hostname.match(/\d+/) ? dev.hostname.match(/\d+/)[0] : '';
+                        const displayLabel = orgCode
+                          ? `(${orgCode}) ${dev.location || 'Unknown Store'} - ${dev.hostname} (${dev.ip})`
+                          : `${dev.location || 'Unknown Store'} - ${dev.hostname} (${dev.ip})`;
+                        return (
+                          <option key={dev.id} value={dev.hostname}>
+                            {displayLabel}
+                          </option>
+                        );
+                      })}
                     </select>
                   )}
                   <p className="text-[10px] text-foreground-subtle mt-1">This keyword requires a database host configuration to run against.</p>
