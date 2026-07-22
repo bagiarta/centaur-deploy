@@ -31,6 +31,7 @@ import CCTVMonitoringPage from "./pages/CCTVMonitoringPage";
 import PMDashboardPage from "./pages/trial/PMDashboardPage";
 import PMSchedulePage from "./pages/trial/PMSchedulePage";
 import PMActionItemsPage from "./pages/trial/PMActionItemsPage";
+import InstallersPage from "./pages/InstallersPage";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/LoginPage";
@@ -191,6 +192,13 @@ const App = () => (
               <ProtectedRoute>
                 <AppShell>
                   <ScaleManagerPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/tools/installers" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <InstallersPage />
                 </AppShell>
               </ProtectedRoute>
             } />

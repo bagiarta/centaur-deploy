@@ -217,6 +217,18 @@ const workflowStorage = multer.diskStorage({
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
 const workflowUpload = multer({ storage: workflowStorage });
+
+const installerStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = 'uploads/installers/';
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+});
+const installerUpload = multer({ storage: installerStorage });
 const execPromise = (cmd, options = {}) => {
   return new Promise((resolve, reject) => {
     exec(cmd, { windowsHide: true, ...options }, (error, stdout, stderr) => {
@@ -282,6 +294,21 @@ async function initDb() {
   try {
     poolPromise = sql.connect(dbConfig);
     const pool = await poolPromise;
+
+    try {
+      const cols = await pool.request().query(`
+        SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_NAME IN ('attribute_nesting', 'attribute_nesting_mst')
+      `);
+      fs.writeFileSync('C:\\Users\\DERTOID\\.gemini\\antigravity-ide\\brain\\10db09e8-58a0-4ee1-8e3c-c85cfd841074\\scratch\\schema_output.txt', JSON.stringify({
+        columns: cols.recordset
+      }, null, 2));
+    } catch (e) {
+      fs.writeFileSync('C:\\Users\\DERTOID\\.gemini\\antigravity-ide\\brain\\10db09e8-58a0-4ee1-8e3c-c85cfd841074\\scratch\\schema_output.txt', JSON.stringify({
+        error: e.message
+      }, null, 2));
+    }
 
     // Connectivity Event listener
     pool.on('error', err => {
@@ -524,6 +551,19 @@ async function initDb() {
          version NVARCHAR(100),
          publisher NVARCHAR(200),
          updated_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Installers' AND xtype='U')
+       CREATE TABLE Installers (
+           id NVARCHAR(50) PRIMARY KEY,
+           name NVARCHAR(100) NOT NULL,
+           version NVARCHAR(50),
+           file_name NVARCHAR(255) NOT NULL,
+           file_path NVARCHAR(MAX) NOT NULL,
+           file_size NVARCHAR(50),
+           file_type NVARCHAR(50),
+           description NVARCHAR(500),
+           uploaded_at DATETIME DEFAULT GETDATE(),
+           uploaded_by NVARCHAR(100)
        )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TroubleTickets' AND xtype='U')
        CREATE TABLE TroubleTickets (
@@ -1644,7 +1684,16 @@ app.post('/api/sql/execute', async (req, res) => {
       try {
         const remotePool = new sql.ConnectionPool(config);
         await remotePool.connect();
-        const result = await remotePool.request().query(script);
+        
+        const batches = script
+          .split(/^\s*GO\s*$/gmi)
+          .map(b => b.trim())
+          .filter(b => b.length > 0);
+
+        let lastResult = null;
+        for (const batch of batches) {
+          lastResult = await remotePool.request().query(batch);
+        }
         await remotePool.close();
 
         // Audit log
@@ -1659,8 +1708,8 @@ app.post('/api/sql/execute', async (req, res) => {
           status: 'success',
           hostname: dev.hostname,
           ip: dev.ip,
-          recordset: result.recordset,
-          rowsAffected: result.rowsAffected
+          recordset: lastResult ? lastResult.recordset : null,
+          rowsAffected: lastResult ? lastResult.rowsAffected : null
         };
       } catch (err) {
         results[deviceId] = {
@@ -1762,6 +1811,7 @@ app.post('/api/agent-jobs', async (req, res) => {
     const pool = await poolPromise;
 
     let serverUrl = `${req.protocol}://${req.get('host')}`;
+    serverUrl = serverUrl.replace(':3002', ':3001').replace('https://', 'http://');
     if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
     const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
     const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
@@ -1943,6 +1993,7 @@ app.post('/api/agent-jobs/retry', async (req, res) => {
       const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
       const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
       let serverUrl = `${req.protocol}://${req.get('host')}`;
+      serverUrl = serverUrl.replace(':3002', ':3001').replace('https://', 'http://');
       if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
 
       let statusResult = 'failed';
@@ -2319,9 +2370,9 @@ app.post('/api/agent/software-inventory', async (req, res) => {
 
           let insertValues = [];
           chunk.forEach((app, idx) => {
-            reqBatch.input(`n${idx}`, sql.NVarChar, (app.name || 'Unknown').substring(0, 490));
-            reqBatch.input(`v${idx}`, sql.NVarChar, (app.version || '').substring(0, 90));
-            reqBatch.input(`p${idx}`, sql.NVarChar, (app.publisher || '').substring(0, 190));
+            reqBatch.input(`n${idx}`, sql.NVarChar, (app.name || 'Unknown').substring(0, 255));
+            reqBatch.input(`v${idx}`, sql.NVarChar, (app.version || '').substring(0, 100));
+            reqBatch.input(`p${idx}`, sql.NVarChar, (app.publisher || '').substring(0, 255));
             insertValues.push(`(@device_id, @n${idx}, @v${idx}, @p${idx}, GETDATE())`);
           });
 
@@ -2332,7 +2383,10 @@ app.post('/api/agent/software-inventory', async (req, res) => {
       await transaction.commit();
       res.json({ message: "Inventory updated" });
     } catch (err) {
-      await transaction.rollback();
+      console.error(`[INVENTORY_DB_ERROR] Original query failure for ${hostname}:`, err.message, err);
+      try {
+        await transaction.rollback();
+      } catch (e) {}
       throw err;
     }
   } catch (err) {
@@ -4367,6 +4421,23 @@ app.post('/api/reports/trigger-abc-sync', async (req, res) => {
   res.json({ message: "ABC Analysis sync triggered manually in the background." });
 });
 
+// Item Sales Member Sync
+const { runSync: runItemSalesSync } = require('./scripts/sync_dev_item_sales_member.cjs');
+
+// Schedule Daily Item Sales Member Sync: Every day at 00:05 AM (yesterday's data)
+cron.schedule('5 0 * * *', () => {
+  const yesterday = new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().slice(0, 10);
+  runItemSalesSync(yesterday, yesterday);
+});
+
+// Manual trigger for Item Sales Member Sync
+app.post('/api/reports/trigger-item-sales-sync', async (req, res) => {
+  const { date } = req.body;
+  const targetDate = date || new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().slice(0, 10);
+  runItemSalesSync(targetDate, targetDate);
+  res.json({ message: `Item Sales Member sync for ${targetDate} triggered manually in the background.` });
+});
+
 // Serve Weekly Reports Folder
 app.use('/reports/weekly', express.static(path.join(__dirname, 'reports', 'weekly')));
 
@@ -5753,6 +5824,138 @@ app.get('/api/dev/loyalty/profiles', async (req, res) => {
   }
 });
 
+app.get('/api/dev/loyalty/item-sales', async (req, res) => {
+  const { page = 1, perPage = 50, search = '', fromDate, toDate, store = '' } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(perPage);
+  const limit = parseInt(perPage);
+
+  try {
+    const pool = await poolPromise;
+    let whereClause = "WHERE 1=1";
+    const request = pool.request();
+
+    if (search) {
+      // Allow searching by codes or descriptions (since we resolve them in the query)
+      whereClause += ` AND (
+        m.itm_cd LIKE @search OR 
+        m.item_name LIKE @search OR 
+        m.card_no LIKE @search OR 
+        m.department LIKE @search OR 
+        m.brand LIKE @search OR
+        A4.anm_desc LIKE @search OR
+        A7.anm_desc LIKE @search
+      )`;
+      request.input('search', sql.NVarChar, `%${search}%`);
+    }
+    if (fromDate && toDate) {
+      whereClause += " AND m.bill_dt >= @fromDate AND m.bill_dt <= @toDate";
+      request.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+      request.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+    }
+    if (store && store !== 'All Stores') {
+      whereClause += " AND m.org_cd = @store";
+      request.input('store', sql.NVarChar, store);
+    }
+
+    const countRes = await request.query(`
+      SELECT COUNT(1) AS total 
+      FROM ITEM_SALES_MEMBER m
+      LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
+      LEFT JOIN attribute_nesting_mst A7 ON m.brand = A7.anm_attr_cd AND A7.anm_attr = 'ATTR7'
+      ${whereClause}
+    `);
+    const total = countRes.recordset[0].total;
+
+    request.input('offset', sql.Int, offset);
+    request.input('limit', sql.Int, limit);
+    const salesRes = await request.query(`
+      SELECT 
+          m.id, m.org_cd, m.itm_cd, m.item_name, m.qty, m.uom, m.promo_item_flag, m.promo_detail, m.disc_amt, m.bill_dt, m.card_no,
+          A2.anm_desc AS division,
+          A3.anm_desc AS groups,
+          A4.anm_desc AS department,
+          A5.anm_desc AS class,
+          A6.anm_desc AS sub_class,
+          A7.anm_desc AS brand,
+          A8.anm_desc AS principle,
+          A9.anm_desc AS sources,
+          A10.anm_desc AS size_measure,
+          A11.anm_desc AS plano_name,
+          A13.anm_desc AS returnable,
+          A18.anm_desc AS item_type
+      FROM ITEM_SALES_MEMBER m
+      LEFT JOIN attribute_nesting_mst A2 ON m.division = A2.anm_attr_cd AND A2.anm_attr = 'ATTR2'
+      LEFT JOIN attribute_nesting_mst A3 ON m.groups = A3.anm_attr_cd AND A3.anm_attr = 'ATTR3'
+      LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
+      LEFT JOIN attribute_nesting_mst A5 ON m.class = A5.anm_attr_cd AND A5.anm_attr = 'ATTR5'
+      LEFT JOIN attribute_nesting_mst A6 ON m.sub_class = A6.anm_attr_cd AND A6.anm_attr = 'ATTR6'
+      LEFT JOIN attribute_nesting_mst A7 ON m.brand = A7.anm_attr_cd AND A7.anm_attr = 'ATTR7'
+      LEFT JOIN attribute_nesting_mst A8 ON m.principle = A8.anm_attr_cd AND A8.anm_attr = 'ATTR8'
+      LEFT JOIN attribute_nesting_mst A9 ON m.sources = A9.anm_attr_cd AND A9.anm_attr = 'ATTR9'
+      LEFT JOIN attribute_nesting_mst A10 ON m.size_measure = A10.anm_attr_cd AND A10.anm_attr = 'ATTR10'
+      LEFT JOIN attribute_nesting_mst A11 ON m.plano_name = A11.anm_attr_cd AND A11.anm_attr = 'ATTR11'
+      LEFT JOIN attribute_nesting_mst A13 ON m.returnable = A13.anm_attr_cd AND A13.anm_attr = 'ATTR13'
+      LEFT JOIN attribute_nesting_mst A18 ON m.item_type = A18.anm_attr_cd AND A18.anm_attr = 'ATTR18'
+      ${whereClause}
+      ORDER BY m.bill_dt DESC
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    `);
+
+    // Top Departments Aggregation
+    const deptRequest = pool.request();
+    let deptWhere = "WHERE 1=1";
+    if (fromDate && toDate) {
+      deptWhere += " AND m.bill_dt >= @fromDate AND m.bill_dt <= @toDate";
+      deptRequest.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+      deptRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+    }
+    if (store && store !== 'All Stores') {
+      deptWhere += " AND m.org_cd = @store";
+      deptRequest.input('store', sql.NVarChar, store);
+    }
+    const deptRes = await deptRequest.query(`
+      SELECT TOP 5 ISNULL(A4.anm_desc, 'UNKNOWN') as department, SUM(m.qty) as total_qty, COUNT(1) as tx_count
+      FROM ITEM_SALES_MEMBER m
+      LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
+      ${deptWhere}
+      GROUP BY A4.anm_desc
+      ORDER BY total_qty DESC
+    `);
+
+    // Top Brands Aggregation
+    const brandRequest = pool.request();
+    let brandWhere = "WHERE 1=1";
+    if (fromDate && toDate) {
+      brandWhere += " AND m.bill_dt >= @fromDate AND m.bill_dt <= @toDate";
+      brandRequest.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+      brandRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+    }
+    if (store && store !== 'All Stores') {
+      brandWhere += " AND m.org_cd = @store";
+      brandRequest.input('store', sql.NVarChar, store);
+    }
+    const brandRes = await brandRequest.query(`
+      SELECT TOP 5 ISNULL(A7.anm_desc, 'UNKNOWN') as brand, SUM(m.qty) as total_qty, COUNT(1) as tx_count
+      FROM ITEM_SALES_MEMBER m
+      LEFT JOIN attribute_nesting_mst A7 ON m.brand = A7.anm_attr_cd AND A7.anm_attr = 'ATTR7'
+      ${brandWhere}
+      GROUP BY A7.anm_desc
+      ORDER BY total_qty DESC
+    `);
+
+    res.json({
+      sales: salesRes.recordset,
+      total,
+      deptStats: deptRes.recordset,
+      brandStats: brandRes.recordset,
+      page: parseInt(page),
+      perPage: limit
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/dev/loyalty/etl-status', (req, res) => {
   res.json({ running: devEtlRunning, logs: devEtlLogs });
 });
@@ -6761,6 +6964,166 @@ app.get('/api/tickets/:id/logs', async (req, res) => {
       .input('ticket_id', sql.NVarChar, req.params.id)
       .query('SELECT * FROM TicketLogs WHERE ticket_id = @ticket_id ORDER BY created_at ASC');
     res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/installers', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM Installers ORDER BY uploaded_at DESC');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/installers', installerUpload.single('file'), async (req, res) => {
+  const uid = req.headers['x-user-id'];
+  const { name, version, description } = req.body;
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  try {
+    const pool = await poolPromise;
+    
+    // Check if user is admin
+    const userRes = await pool.request().input('uid', sql.NVarChar, uid).query("SELECT r.is_admin, u.username FROM Users u JOIN Roles r ON u.role_id = r.id WHERE u.id = @uid");
+    const user = userRes.recordset[0];
+    if (!user || !user.is_admin) {
+      // Clean up uploaded file if unauthorized
+      try { fs.unlinkSync(req.file.path); } catch (e) {}
+      return res.status(403).json({ error: "Only administrators can upload installation files" });
+    }
+
+    const id = `inst-${Date.now()}`;
+    const file_name = req.file.originalname;
+    const file_path = req.file.path.replace(/\\/g, '/'); // Normalize path
+    const file_size = (req.file.size / (1024 * 1024)).toFixed(2) + ' MB';
+    const file_type = path.extname(file_name).toLowerCase().replace('.', '');
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('version', sql.NVarChar, version || null)
+      .input('file_name', sql.NVarChar, file_name)
+      .input('file_path', sql.NVarChar, file_path)
+      .input('file_size', sql.NVarChar, file_size)
+      .input('file_type', sql.NVarChar, file_type)
+      .input('description', sql.NVarChar, description || null)
+      .input('uploaded_by', sql.NVarChar, user.username)
+      .query(`
+        INSERT INTO Installers (id, name, version, file_name, file_path, file_size, file_type, description, uploaded_by)
+        VALUES (@id, @name, @version, @file_name, @file_path, @file_size, @file_type, @description, @uploaded_by)
+      `);
+
+    // Log activity
+    await pool.request()
+      .input('time', sql.NVarChar, new Date().toLocaleString())
+      .input('user', sql.NVarChar, user.username)
+      .input('action', sql.NVarChar, `Uploaded installation file: ${name} (Version: ${version || 'N/A'}, File: ${file_name})`)
+      .query('INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)');
+
+    res.json({ success: true, message: 'Installation file uploaded successfully' });
+  } catch (err) {
+    try { fs.unlinkSync(req.file.path); } catch (e) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/installers/:id', async (req, res) => {
+  const uid = req.headers['x-user-id'];
+  const { id } = req.params;
+  const { name, version, description } = req.body;
+
+  try {
+    const pool = await poolPromise;
+    const userRes = await pool.request().input('uid', sql.NVarChar, uid).query("SELECT r.is_admin, u.username FROM Users u JOIN Roles r ON u.role_id = r.id WHERE u.id = @uid");
+    const user = userRes.recordset[0];
+    if (!user || !user.is_admin) {
+      return res.status(403).json({ error: "Only administrators can update installation files" });
+    }
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('name', sql.NVarChar, name)
+      .input('version', sql.NVarChar, version || null)
+      .input('description', sql.NVarChar, description || null)
+      .query(`
+        UPDATE Installers 
+        SET name = @name, version = @version, description = @description
+        WHERE id = @id
+      `);
+
+    res.json({ success: true, message: 'Installer metadata updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/installers/:id', async (req, res) => {
+  const uid = req.headers['x-user-id'];
+  const { id } = req.params;
+
+  try {
+    const pool = await poolPromise;
+    const userRes = await pool.request().input('uid', sql.NVarChar, uid).query("SELECT r.is_admin, u.username FROM Users u JOIN Roles r ON u.role_id = r.id WHERE u.id = @uid");
+    const user = userRes.recordset[0];
+    if (!user || !user.is_admin) {
+      return res.status(403).json({ error: "Only administrators can delete installation files" });
+    }
+
+    // Get file path before deleting record
+    const fileRes = await pool.request().input('id', sql.NVarChar, id).query("SELECT file_path, name FROM Installers WHERE id = @id");
+    if (fileRes.recordset.length === 0) {
+      return res.status(404).json({ error: "Installer not found" });
+    }
+
+    const { file_path, name } = fileRes.recordset[0];
+
+    // Delete record from DB
+    await pool.request().input('id', sql.NVarChar, id).query("DELETE FROM Installers WHERE id = @id");
+
+    // Try deleting physical file
+    try {
+      if (fs.existsSync(file_path)) {
+        fs.unlinkSync(file_path);
+      }
+    } catch (fileErr) {
+      console.error(`[INSTALLERS] Failed to delete file: ${file_path}`, fileErr);
+    }
+
+    // Log activity
+    await pool.request()
+      .input('time', sql.NVarChar, new Date().toLocaleString())
+      .input('user', sql.NVarChar, user.username)
+      .input('action', sql.NVarChar, `Deleted installation file: ${name}`)
+      .query('INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)');
+
+    res.json({ success: true, message: 'Installer deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/installers/:id/download', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const pool = await poolPromise;
+    const fileRes = await pool.request().input('id', sql.NVarChar, id).query("SELECT file_path, file_name FROM Installers WHERE id = @id");
+    if (fileRes.recordset.length === 0) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const { file_path, file_name } = fileRes.recordset[0];
+    if (fs.existsSync(file_path)) {
+      res.download(file_path, file_name);
+    } else {
+      res.status(404).send('Physical file not found on server.');
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

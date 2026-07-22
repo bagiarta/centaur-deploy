@@ -1,29 +1,27 @@
 const sql = require('mssql');
-const dotenv = require('dotenv');
-const path = require('path');
+require('dotenv').config();
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-
-const dbConfig = {
+const mainConfig = {
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   server: process.env.DB_SERVER,
   database: process.env.DB_NAME,
   options: {
     encrypt: false,
-    trustServerCertificate: true,
-  },
+    trustServerCertificate: true
+  }
 };
 
-async function checkUsers() {
+async function test() {
   try {
-    const pool = await sql.connect(dbConfig);
-    const result = await pool.request().query('SELECT * FROM Users');
-    console.log(JSON.stringify(result.recordset, null, 2));
-    await pool.close();
+    const pool = await sql.connect(mainConfig);
+    const users = await pool.request().query("SELECT id, username, full_name, role_id FROM Users");
+    console.log("Users in DB:", users.recordset);
+    process.exit(0);
   } catch (err) {
-    console.error(err);
+    console.error("DB Error:", err.message);
+    process.exit(1);
   }
 }
 
-checkUsers();
+test();

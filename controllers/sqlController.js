@@ -168,7 +168,16 @@ export const executeCommand = async (req, res) => {
       try {
         const remotePool = new sql.ConnectionPool(config);
         await remotePool.connect();
-        const result = await remotePool.request().query(script);
+        
+        const batches = script
+          .split(/^\s*GO\s*$/gmi)
+          .map(b => b.trim())
+          .filter(b => b.length > 0);
+
+        let lastResult = null;
+        for (const batch of batches) {
+          lastResult = await remotePool.request().query(batch);
+        }
         await remotePool.close();
 
         // Audit log
@@ -183,8 +192,8 @@ export const executeCommand = async (req, res) => {
           status: 'success',
           hostname: dev.hostname,
           ip: dev.ip,
-          recordset: result.recordset,
-          rowsAffected: result.rowsAffected
+          recordset: lastResult ? lastResult.recordset : null,
+          rowsAffected: lastResult ? lastResult.rowsAffected : null
         };
       } catch (err) {
         results[deviceId] = {

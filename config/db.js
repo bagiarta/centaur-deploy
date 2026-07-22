@@ -292,6 +292,19 @@ export async function initDb() {
          publisher NVARCHAR(200),
          updated_at DATETIME DEFAULT GETDATE()
        )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Installers' AND xtype='U')
+       CREATE TABLE Installers (
+           id NVARCHAR(50) PRIMARY KEY,
+           name NVARCHAR(100) NOT NULL,
+           version NVARCHAR(50),
+           file_name NVARCHAR(255) NOT NULL,
+           file_path NVARCHAR(MAX) NOT NULL,
+           file_size NVARCHAR(50),
+           file_type NVARCHAR(50),
+           description NVARCHAR(500),
+           uploaded_at DATETIME DEFAULT GETDATE(),
+           uploaded_by NVARCHAR(100)
+       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='TroubleTickets' AND xtype='U')
        CREATE TABLE TroubleTickets (
          id NVARCHAR(50) PRIMARY KEY,

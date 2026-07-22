@@ -10,7 +10,7 @@ namespace CentaurAgent
 {
     class Program
     {
-        private static readonly string ServerUrl = "https://192.168.85.30:3001";
+        private static readonly string ServerUrl = "http://192.168.85.30:3001";
         private static readonly string LogFile = "agent_log.txt";
 
         static void Main(string[] args)

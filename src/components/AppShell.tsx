@@ -64,6 +64,7 @@ export const navItems = [
       { id: "sql", to: "/remote-sql", icon: Database, label: "Remote SQL" },
       { id: "scales", to: "/scales", icon: Scale, label: "Scale Manager" },
       { id: "agent", to: "/agent-installer", icon: Download, label: "Agent Installer" },
+      { id: "installers", to: "/tools/installers", icon: Download, label: "Installation Files" },
       { id: "remote", to: "/remote", icon: Terminal, label: "Remote Commands" },
       { id: "logs", to: "/logs", icon: History, label: "Logs & History" },
       { id: "packages", to: "/packages", icon: Package, label: "Package Repo" },
