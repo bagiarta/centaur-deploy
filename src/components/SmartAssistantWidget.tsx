@@ -307,7 +307,12 @@ function AssistantKeywordForm({
             const groupIds = Array.isArray(dev.group_ids)
               ? dev.group_ids
               : (dev.group_ids || '').split(',').map((s: string) => s.trim());
-            return groupIds.includes('g2') || groupIds.includes('g3') || dev.status === 'offline';
+            return groupIds.includes('g2');
+          });
+          filtered.sort((a: any, b: any) => {
+            const orgA = a.hostname.match(/\d+/) ? a.hostname.match(/\d+/)[0] : '';
+            const orgB = b.hostname.match(/\d+/) ? b.hostname.match(/\d+/)[0] : '';
+            return orgA.localeCompare(orgB, undefined, { numeric: true });
           });
           setDevicesList(filtered);
         })
@@ -384,9 +389,17 @@ function AssistantKeywordForm({
               className="w-full bg-white dark:bg-zinc-850 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-xs outline-none focus:border-blue-500 text-black dark:text-white"
             >
               <option value="">-- Select Host Device --</option>
-              {devicesList.map(dev => (
-                <option key={dev.id} value={dev.hostname}>{dev.hostname} ({dev.ip})</option>
-              ))}
+              {devicesList.map(dev => {
+                const orgCode = dev.hostname.match(/\d+/) ? dev.hostname.match(/\d+/)[0] : '';
+                const displayLabel = orgCode
+                  ? `(${orgCode}) ${dev.location || 'Unknown Store'} - ${dev.hostname} (${dev.ip})`
+                  : `${dev.location || 'Unknown Store'} - ${dev.hostname} (${dev.ip})`;
+                return (
+                  <option key={dev.id} value={dev.hostname}>
+                    {displayLabel}
+                  </option>
+                );
+              })}
             </select>
           )}
         </div>

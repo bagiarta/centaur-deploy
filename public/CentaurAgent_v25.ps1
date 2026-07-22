@@ -1,4 +1,4 @@
-# --- Centaur Deploy Agent v2.7.5 ---
+# --- Centaur Deploy Agent v2.8.0 ---
 # Capabilities:
 #   1. Send hardware/resource heartbeat
 #   2. Self-update check (download new version if server has newer)
@@ -11,7 +11,7 @@ param(
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
-$Version = "2.7.5"
+$Version = "2.8.0"
 $Hostname = $env:COMPUTERNAME
 # --- IP Selection Logic (Prioritize Internal IPv4) ---
 $allIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" }
@@ -128,10 +128,74 @@ try {
     $diskInfo = $diskInfoParts -join " | "
 
     $osVersion = $os.Caption
+
+    # --- Disk Health & SMART ---
+    $PredictFailure = "Healthy"
+    try {
+        $FailureStatus = Get-WmiObject -Namespace root\wmi -Class MSStorageDriver_FailurePredictStatus -ErrorAction SilentlyContinue
+        if ($FailureStatus) {
+            foreach ($status in $FailureStatus) {
+                if ($status.PredictFailure) { $PredictFailure = "Predicting Failure" }
+            }
+        } else {
+            $wmicStatus = (wmic diskdrive get status 2>$null | Out-String).Trim()
+            if ($wmicStatus -match "PredFail") { $PredictFailure = "Predicting Failure" }
+        }
+    } catch { }
+
+    # --- Bad Sectors ---
+    $BadSectors = 0
+    try {
+        $Reliability = Get-PhysicalDisk -ErrorAction SilentlyContinue | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue
+        if ($Reliability) {
+            foreach ($counter in $Reliability) {
+                $BadSectors += $counter.ReadErrorsTotal + $counter.WriteErrorsTotal
+            }
+        }
+        $DiskEvents = Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='disk'; Id=7} -MaxEvents 5 -ErrorAction SilentlyContinue
+        if ($DiskEvents) { $BadSectors += $DiskEvents.Count }
+    } catch { }
+
+    # --- Disk Temperature ---
+    $MaxTemp = 0
+    try {
+        if ($Reliability) {
+            foreach ($counter in $Reliability) {
+                if ($counter.Temperature -gt $MaxTemp) { $MaxTemp = $counter.Temperature }
+            }
+        }
+        if ($MaxTemp -eq 0) {
+            $acpiTemp = Get-CimInstance -Namespace root\wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue
+            if ($acpiTemp) {
+                $MaxTemp = ($acpiTemp.CurrentTemperature / 10) - 273.15
+            }
+        }
+    } catch { }
+
+    # --- Power Supply Unit (PSU) ---
+    $PSUStatus = "Not Supported (Desktop/Laptop)"
+    try {
+        $Model = (Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue).Model
+        if ($Model -match "PowerEdge" -or $Model -match "ProLiant") {
+            $DellPSUs = Get-CimInstance -Namespace root\dcim\sysman -ClassName Dell_PowerSupply -ErrorAction SilentlyContinue
+            if ($DellPSUs) {
+                $healthyPSUs = $DellPSUs | Where-Object { $_.PrimaryStatus -eq 1 -or $_.DetailedState -eq "Presence Detected" }
+                $PSUStatus = "Healthy ($($healthyPSUs.Count)/$($DellPSUs.Count) active)"
+            } else {
+                $PSUStatus = "Server (WMI provider missing)"
+            }
+        } else {
+            $GenericPSU = Get-CimInstance -ClassName Win32_PowerSupply -ErrorAction SilentlyContinue
+            if ($GenericPSU) {
+                $PSUStatus = $GenericPSU.DeviceID + " - " + $GenericPSU.Status
+            }
+        }
+    } catch { }
 }
 catch {
     Write-Log "[Metrics] Warning: $($_.Exception.Message)"
     $cpu = 0; $ramInfo = "N/A"; $diskInfo = "N/A"; $osVersion = "Windows"
+    $PredictFailure = "Healthy"; $BadSectors = 0; $MaxTemp = 0; $PSUStatus = "Not Supported (Desktop/Laptop)"
 }
 
 # ─────────────────────────────────────────────────────────
@@ -147,6 +211,10 @@ try {
         disk          = $diskInfo
         agent_version = $Version
         os_version    = $osVersion
+        disk_status   = $PredictFailure
+        bad_sectors   = [int]$BadSectors
+        disk_temp     = [double]$MaxTemp
+        psu_status    = $PSUStatus
     }
     $json = $heartbeatData | ConvertTo-Json
     $response = Invoke-RestMethod -Uri "$ServerUrl/api/agent/heartbeat" -Method Post -Body $json -ContentType "application/json" -TimeoutSec 15 -ErrorAction Stop

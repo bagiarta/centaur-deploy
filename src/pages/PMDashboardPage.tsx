@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { 
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
 } from "recharts";
-import { 
-  ShieldAlert, CheckCircle2, Clock, AlertOctagon, Wrench, RefreshCcw, 
+import {
+  ShieldAlert, CheckCircle2, Clock, AlertOctagon, Wrench, RefreshCcw,
   MapPin, AlertTriangle, Play, RefreshCw, ClipboardList, Loader2
 } from "lucide-react";
 import { PageHeader, SectionCard, StatCard, ProgressBar } from "@/components/ui-enterprise";
@@ -93,11 +93,11 @@ export default function PMDashboardPage() {
 
   return (
     <div className="p-6 h-full flex flex-col gap-6 overflow-y-auto animate-fade-up">
-      <PageHeader 
-        title="PM Dashboard & Analytics" 
-        subtitle="Preventive maintenance statistics, store device health index, and recurring issues tracking (Trial Mode)"
+      <PageHeader
+        title="PM Dashboard & Analytics"
+        subtitle="Preventive maintenance statistics, store device health index, and recurring issues tracking"
         actions={
-          <button 
+          <button
             onClick={fetchAnalytics}
             className="flex items-center gap-2 px-3 py-1.5 bg-surface-raised border border-border text-foreground rounded-lg font-medium hover:bg-surface-overlay transition-all shadow-sm text-sm"
           >
@@ -109,30 +109,30 @@ export default function PMDashboardPage() {
 
       {/* Stats Cards Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard 
-          label="Completed PM Checklists" 
-          value={stats.completed_pms} 
+        <StatCard
+          label="Completed PM Checklists"
+          value={stats.completed_pms}
           icon={<CheckCircle2 className="w-5 h-5 text-success" />}
           variant="success"
           sub="Total store checkups completed"
         />
-        <StatCard 
-          label="Pending PM Schedules" 
-          value={stats.pending_schedules} 
+        <StatCard
+          label="Pending PM Schedules"
+          value={stats.pending_schedules}
           icon={<Clock className="w-5 h-5 text-warning" />}
           variant="warning"
           sub="Schedules waiting execution"
         />
-        <StatCard 
-          label="Active Action Items" 
-          value={stats.active_action_items} 
+        <StatCard
+          label="Active Action Items"
+          value={stats.active_action_items}
           icon={<Wrench className="w-5 h-5 text-danger" />}
           variant="danger"
           sub="Repairs & adjustments in progress"
         />
-        <StatCard 
-          label="Replacements Needed" 
-          value={stats.replacement_needed} 
+        <StatCard
+          label="Replacements Needed"
+          value={stats.replacement_needed}
           icon={<RefreshCcw className="w-5 h-5 text-primary" />}
           variant="primary"
           sub="Devices flagged for swap/upgrade"
@@ -159,26 +159,26 @@ export default function PMDashboardPage() {
                   margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                  <XAxis 
-                    dataKey="device_name" 
+                  <XAxis
+                    dataKey="device_name"
                     tick={{ fill: 'var(--foreground-muted)', fontSize: 10 }}
                     axisLine={{ stroke: 'var(--border)' }}
                     tickLine={{ stroke: 'var(--border)' }}
                   />
-                  <YAxis 
+                  <YAxis
                     allowDecimals={false}
                     tick={{ fill: 'var(--foreground-muted)', fontSize: 10 }}
                     axisLine={{ stroke: 'var(--border)' }}
                     tickLine={{ stroke: 'var(--border)' }}
                   />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'var(--card)', 
-                      borderColor: 'var(--border)', 
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--card)',
+                      borderColor: 'var(--border)',
                       color: 'var(--foreground)',
                       fontSize: 12,
                       borderRadius: 8
-                    }} 
+                    }}
                   />
                   <Bar dataKey="fail_count" radius={[4, 4, 0, 0]}>
                     {problematicDevices.map((entry, index) => (
@@ -207,7 +207,7 @@ export default function PMDashboardPage() {
                 let colorClass = "bg-success";
                 if (store.health_percentage < 60) colorClass = "bg-danger";
                 else if (store.health_percentage < 85) colorClass = "bg-warning";
-                
+
                 return (
                   <div key={store.store_code} className="space-y-1.5 p-3 rounded-lg bg-surface-raised border border-border hover:border-foreground-subtle transition-all">
                     <div className="flex items-center justify-between text-xs">

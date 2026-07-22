@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { 
-  Wrench, CheckCircle, Clock, X, Search, Filter, Loader2, AlertOctagon, 
+import {
+  Wrench, CheckCircle, Clock, X, Search, Filter, Loader2, AlertOctagon,
   MapPin, User, MessageSquare, AlertCircle, RefreshCw, ChevronDown, ChevronRight
 } from "lucide-react";
 import { PageHeader, SectionCard, StatusBadge } from "@/components/ui-enterprise";
@@ -49,7 +49,7 @@ export default function PMActionItemsPage() {
       setLoading(true);
       const url = new URL("/api/trial/support-manager/action-items", window.location.origin);
       if (statusFilter !== "All") url.searchParams.append("status", statusFilter);
-      
+
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error("Failed to load action items");
       const data = await res.json();
@@ -118,13 +118,13 @@ export default function PMActionItemsPage() {
 
   // Filter items in memory
   const filteredItems = items.filter(item => {
-    const matchesSearch = 
+    const matchesSearch =
       item.store_name.toLowerCase().includes(search.toLowerCase()) ||
       item.store_code.toLowerCase().includes(search.toLowerCase()) ||
       item.device_name.toLowerCase().includes(search.toLowerCase()) ||
       item.issue_description.toLowerCase().includes(search.toLowerCase());
 
-    const matchesCategory = 
+    const matchesCategory =
       categoryFilter === "All" || item.device_category === categoryFilter;
 
     return matchesSearch && matchesCategory;
@@ -169,11 +169,11 @@ export default function PMActionItemsPage() {
 
   return (
     <div className="p-6 h-full flex flex-col gap-6 overflow-y-auto animate-fade-up">
-      <PageHeader 
-        title="Action Items & Device Repair Logs" 
-        subtitle="Track device replacements, monitor repairs, and see store changes derived from PM results (Trial Mode)"
+      <PageHeader
+        title="Action Items & Device Repair Logs"
+        subtitle="Track device replacements, monitor repairs, and see store changes derived from PM results"
         actions={
-          <button 
+          <button
             onClick={fetchActionItems}
             className="flex items-center gap-2 px-3 py-1.5 bg-surface-raised border border-border text-foreground rounded-lg font-medium hover:bg-surface-overlay transition-all shadow-sm text-sm"
           >
@@ -209,11 +209,10 @@ export default function PMActionItemsPage() {
                   <button
                     key={status}
                     onClick={() => setStatusFilter(status)}
-                    className={`px-3 py-1.5 rounded-md font-semibold transition-all ${
-                      statusFilter === status 
-                        ? "bg-background text-foreground shadow-sm font-bold" 
+                    className={`px-3 py-1.5 rounded-md font-semibold transition-all ${statusFilter === status
+                        ? "bg-background text-foreground shadow-sm font-bold"
                         : "text-foreground-muted hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     {status}
                   </button>
@@ -302,7 +301,7 @@ export default function PMActionItemsPage() {
                 return (
                   <React.Fragment key={group.result_id}>
                     {/* Group Header Row */}
-                    <tr 
+                    <tr
                       className="bg-surface-raised/80 hover:bg-surface-overlay cursor-pointer select-none border-b border-border transition-colors"
                       onClick={() => toggleGroup(group.result_id)}
                     >
@@ -344,7 +343,7 @@ export default function PMActionItemsPage() {
                         </div>
                       </td>
                     </tr>
-                    
+
                     {/* Detail Rows */}
                     {isExpanded && group.items.map(item => (
                       <tr key={item.id} className="hover:bg-white/5 border-b border-border/40 transition-colors group/row">
@@ -366,9 +365,8 @@ export default function PMActionItemsPage() {
                             <span className="text-xs text-foreground-subtle bg-surface-raised p-2 rounded-md border border-border/50 truncate" title={item.issue_description}>
                               {item.issue_description}
                             </span>
-                            <span className={`text-[10px] font-bold uppercase tracking-wide mt-1.5 ${
-                              item.action_type === "Replacement" ? "text-danger" : "text-warning"
-                            }`}>
+                            <span className={`text-[10px] font-bold uppercase tracking-wide mt-1.5 ${item.action_type === "Replacement" ? "text-danger" : "text-warning"
+                              }`}>
                               Required: {item.action_type}
                             </span>
                           </div>
@@ -389,7 +387,7 @@ export default function PMActionItemsPage() {
                         </td>
                         <td className="px-4 py-3.5 text-right">
                           {item.status === "Pending" ? (
-                            <button 
+                            <button
                               onClick={() => handleOpenResolve(item)}
                               className="inline-flex items-center gap-1 px-3 py-1.5 bg-success text-success-foreground rounded-lg text-xs font-bold hover:bg-success/90 transition-all shadow-sm"
                             >
@@ -454,13 +452,13 @@ export default function PMActionItemsPage() {
 
             {/* Actions */}
             <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
-              <button 
+              <button
                 onClick={() => setIsResolveOpen(false)}
                 className="px-4 py-2 border border-border hover:bg-surface-raised rounded-lg text-sm text-foreground transition-all"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={handleSaveResolve}
                 disabled={submittingResolution}
                 className="px-4 py-2 bg-success text-success-foreground hover:bg-success/95 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"

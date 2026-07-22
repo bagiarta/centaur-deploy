@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { 
-  Calendar, Users, MapPin, ClipboardList, CheckSquare, Plus, Search, 
+import {
+  Calendar, Users, MapPin, ClipboardList, CheckSquare, Plus, Search,
   X, Check, AlertTriangle, Eye, Loader2, Save, Wrench, RefreshCw, AlertOctagon,
   ChevronDown, ChevronLeft, ChevronRight, Edit, Trash2
 } from "lucide-react";
@@ -240,15 +240,15 @@ export default function PMSchedulePage() {
     setSavingSchedule(true);
     try {
       const method = editingSchedule ? "PUT" : "POST";
-      const url = editingSchedule 
+      const url = editingSchedule
         ? `/api/trial/support-manager/schedules/${editingSchedule.id}`
         : "/api/trial/support-manager/schedules";
 
       const res = await fetch(url, {
         method,
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
-          "x-user-id": user?.id || "" 
+          "x-user-id": user?.id || ""
         },
         body: JSON.stringify({
           store_code: selectedStore.org_cd,
@@ -280,7 +280,7 @@ export default function PMSchedulePage() {
   const handleOpenChecklistModal = (schedule: Schedule) => {
     setActiveSchedule(schedule);
     setGeneralNotes("");
-    
+
     // Initialize checklist items
     const initialChecklist: ChecklistItem[] = DEFAULT_DEVICES.map(d => ({
       device_category: d.category,
@@ -289,7 +289,7 @@ export default function PMSchedulePage() {
       issues_found: "",
       cctv_device_id: ""
     }));
-    
+
     setChecklist(initialChecklist);
     setIsChecklistOpen(true);
   };
@@ -312,14 +312,14 @@ export default function PMSchedulePage() {
       toast.error("Please enter a device name");
       return;
     }
-    
+
     const newItem: ChecklistItem = {
       device_category: customDeviceCategory,
       device_name: customDeviceName.trim(),
       status: "Good",
       issues_found: ""
     };
-    
+
     setChecklist(prev => [...prev, newItem]);
     setCustomDeviceName("");
     setShowAddCustomForm(false);
@@ -331,11 +331,11 @@ export default function PMSchedulePage() {
       toast.error("Please enter an instance name");
       return;
     }
-    
+
     const itemToDuplicate = checklist[idx];
     const baseName = itemToDuplicate.device_name.replace(/\s*\([^)]+\)$/, "");
     const newName = `${baseName} (${customInstanceName.trim()})`;
-    
+
     const newItem: ChecklistItem = {
       device_category: itemToDuplicate.device_category,
       device_name: newName,
@@ -343,13 +343,13 @@ export default function PMSchedulePage() {
       issues_found: "",
       cctv_device_id: ""
     };
-    
+
     setChecklist(prev => {
       const copy = [...prev];
       copy.splice(idx + 1, 0, newItem);
       return copy;
     });
-    
+
     setAddingInstanceForIdx(null);
     setCustomInstanceName("");
     toast.success(`Added ${newItem.device_name}`);
@@ -412,26 +412,26 @@ export default function PMSchedulePage() {
   };
 
   // Filters for stores dropdown
-  const filteredStores = stores.filter(s => 
+  const filteredStores = stores.filter(s =>
     s.org_name.toLowerCase().includes(storeSearch.toLowerCase()) ||
     s.org_cd.toLowerCase().includes(storeSearch.toLowerCase())
   );
 
   // Filters for CCTV devices dropdown
   const getFilteredCctv = (search: string) => {
-    return cctvDevices.filter(c => 
-      c.name.toLowerCase().includes(search.toLowerCase()) || 
+    return cctvDevices.filter(c =>
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
       c.ip_address.toLowerCase().includes(search.toLowerCase())
     );
   };
 
   return (
     <div className="p-6 h-full flex flex-col gap-6 overflow-y-auto animate-fade-up">
-      <PageHeader 
-        title="Preventive Maintenance Schedules" 
-        subtitle="Manage maintenance calendars, schedule events, and perform checklist verifications (Trial Mode)"
+      <PageHeader
+        title="Preventive Maintenance Schedules"
+        subtitle="Manage maintenance calendars, schedule events, and perform checklist verifications"
         actions={
-          <button 
+          <button
             onClick={handleOpenScheduleModal}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-all shadow-glow text-sm"
           >
@@ -447,11 +447,10 @@ export default function PMSchedulePage() {
           <button
             type="button"
             onClick={() => setViewMode("calendar")}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 flex items-center gap-1.5 ${
-              viewMode === "calendar"
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 flex items-center gap-1.5 ${viewMode === "calendar"
                 ? "bg-primary text-primary-foreground shadow-glow font-black"
                 : "text-foreground-muted hover:text-foreground hover:bg-surface-overlay"
-            }`}
+              }`}
           >
             <Calendar className="w-3.5 h-3.5" />
             Calendar View
@@ -459,11 +458,10 @@ export default function PMSchedulePage() {
           <button
             type="button"
             onClick={() => setViewMode("list")}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 flex items-center gap-1.5 ${
-              viewMode === "list"
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 flex items-center gap-1.5 ${viewMode === "list"
                 ? "bg-primary text-primary-foreground shadow-glow font-black"
                 : "text-foreground-muted hover:text-foreground hover:bg-surface-overlay"
-            }`}
+              }`}
           >
             <ClipboardList className="w-3.5 h-3.5" />
             List View
@@ -502,13 +500,12 @@ export default function PMSchedulePage() {
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, idx) => {
               const isWeekend = idx === 0 || idx === 6;
               return (
-                <div 
-                  key={day} 
-                  className={`text-xs font-black uppercase tracking-wider py-2.5 rounded-xl border border-border/20 ${
-                    isWeekend 
-                      ? "bg-danger/5 text-danger/80 border-danger/10" 
+                <div
+                  key={day}
+                  className={`text-xs font-black uppercase tracking-wider py-2.5 rounded-xl border border-border/20 ${isWeekend
+                      ? "bg-danger/5 text-danger/80 border-danger/10"
                       : "bg-surface-raised text-foreground-muted"
-                  }`}
+                    }`}
                 >
                   {day}
                 </div>
@@ -530,22 +527,20 @@ export default function PMSchedulePage() {
               return cells.map((cell, index) => {
                 const daySchedules = getSchedulesForDate(cell.dateStr);
                 const isToday = cell.dateStr === todayStr;
-                
+
                 return (
                   <div
                     key={index}
-                    className={`min-h-[105px] border rounded-2xl p-3 flex flex-col transition-all duration-300 relative ${
-                      cell.day 
-                        ? isToday 
+                    className={`min-h-[105px] border rounded-2xl p-3 flex flex-col transition-all duration-300 relative ${cell.day
+                        ? isToday
                           ? "border-primary bg-gradient-to-br from-primary/10 via-primary/5 to-transparent shadow-[0_0_20px_rgba(59,130,246,0.15)] ring-1 ring-primary/30"
                           : "border-border/60 bg-surface-raised/20 hover:bg-surface-raised/40 hover:border-primary/45 hover:shadow-lg"
                         : "border-border/10 opacity-15 border-dashed pointer-events-none bg-transparent"
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className={`text-xs font-extrabold font-mono ${
-                        isToday ? "text-primary scale-110 origin-left" : "text-foreground-muted"
-                      }`}>
+                      <span className={`text-xs font-extrabold font-mono ${isToday ? "text-primary scale-110 origin-left" : "text-foreground-muted"
+                        }`}>
                         {cell.day}
                       </span>
                       {daySchedules.length > 0 && (
@@ -565,20 +560,18 @@ export default function PMSchedulePage() {
                             onClick={() => {
                               setActiveActionSchedule(sched);
                             }}
-                            className={`w-full text-left p-2 rounded-xl border text-[9px] leading-tight flex flex-col gap-1 transition-all duration-300 hover:translate-x-0.5 hover:-translate-y-0.5 shadow-sm ${
-                              isCompleted 
+                            className={`w-full text-left p-2 rounded-xl border text-[9px] leading-tight flex flex-col gap-1 transition-all duration-300 hover:translate-x-0.5 hover:-translate-y-0.5 shadow-sm ${isCompleted
                                 ? "bg-success/5 hover:bg-success/15 border-success/20 border-l-[3px] border-l-success text-success font-semibold"
                                 : "bg-primary/5 hover:bg-primary/15 border-primary/20 border-l-[3px] border-l-primary text-primary font-bold"
-                            }`}
+                              }`}
                           >
                             <span className="font-extrabold truncate">{sched.store_code} - {sched.store_name}</span>
                             <div className="flex items-center justify-between gap-1 w-full mt-0.5">
                               <span className="text-[8px] text-foreground-muted truncate flex items-center gap-0.5 font-medium">
                                 <Users className="w-2.5 h-2.5 shrink-0 text-foreground-muted/65" /> {sched.pic_name}
                               </span>
-                              <span className={`text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded leading-none ${
-                                isCompleted ? "bg-success/15" : "bg-primary/15"
-                              }`}>
+                              <span className={`text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded leading-none ${isCompleted ? "bg-success/15" : "bg-primary/15"
+                                }`}>
                                 {sched.status}
                               </span>
                             </div>
@@ -646,7 +639,7 @@ export default function PMSchedulePage() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {s.status === "Scheduled" && (
-                          <button 
+                          <button
                             onClick={() => handleOpenChecklistModal(s)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-success text-success-foreground rounded-lg text-xs font-bold hover:bg-success/90 transition-all shadow-sm font-semibold"
                           >
@@ -724,7 +717,7 @@ export default function PMSchedulePage() {
                   />
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground-muted" />
                   {selectedStore && (
-                    <button 
+                    <button
                       onClick={() => { setSelectedStore(null); setStoreSearch(""); }}
                       className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-surface-overlay text-foreground-muted"
                     >
@@ -732,7 +725,7 @@ export default function PMSchedulePage() {
                     </button>
                   )}
                 </div>
-                
+
                 {/* Store selector dropdown */}
                 {showStoreDropdown && (
                   <div className="absolute z-50 left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-card border border-border rounded-lg shadow-xl divide-y divide-border">
@@ -804,13 +797,13 @@ export default function PMSchedulePage() {
 
             {/* Actions */}
             <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
-              <button 
+              <button
                 onClick={() => { setIsScheduleOpen(false); setEditingSchedule(null); }}
                 className="px-4 py-2 border border-border hover:bg-surface-raised rounded-lg text-sm text-foreground transition-all"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={handleSaveSchedule}
                 disabled={savingSchedule}
                 className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/95 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5"
@@ -833,7 +826,7 @@ export default function PMSchedulePage() {
       {isChecklistOpen && activeSchedule && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-surface border border-border w-full max-w-4xl h-[90vh] rounded-xl shadow-2xl p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-200 overflow-hidden">
-            
+
             {/* Header info */}
             <div className="flex items-center justify-between border-b border-border pb-3 shrink-0">
               <div>
@@ -874,7 +867,7 @@ export default function PMSchedulePage() {
                       <div className="space-y-4 divide-y divide-border/50">
                         {items.map(({ item, idx }) => {
                           const isParent = DEFAULT_DEVICES.some(d => d.name === item.device_name);
-                          
+
                           return (
                             <div key={idx} className="pt-3 first:pt-0 flex flex-col md:flex-row md:items-start justify-between gap-4">
                               <div className="min-w-0 flex-1">
@@ -884,7 +877,7 @@ export default function PMSchedulePage() {
                                   ) : (
                                     <p className="text-sm font-semibold text-foreground pl-4 border-l-2 border-primary/20">{item.device_name}</p>
                                   )}
-                                  
+
                                   {isParent && (
                                     addingInstanceForIdx !== idx ? (
                                       <button
@@ -929,7 +922,7 @@ export default function PMSchedulePage() {
                                       </div>
                                     )
                                   )}
-                                  
+
                                   {!isParent && (
                                     <button
                                       type="button"
@@ -944,113 +937,113 @@ export default function PMSchedulePage() {
                                 {/* CCTV Dropdown - Searchable */}
                                 {!isParent && cat === "CCTV" && item.device_name.startsWith("CCTV Feed Check") && (
                                   <div className="mt-2 relative max-w-xs">
-                                  <label className="text-[10px] text-foreground-muted font-medium mb-1 block">Link specific CCTV camera:</label>
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowCctvDropdown(showCctvDropdown === idx ? null : idx)}
-                                    className="w-full flex items-center justify-between bg-background border border-border rounded px-2.5 py-1.5 text-left text-xs text-foreground outline-none"
-                                  >
-                                    <span className="truncate">
-                                      {item.cctv_device_id 
-                                        ? cctvDevices.find(c => c.id === item.cctv_device_id)?.name || "Linked Camera"
-                                        : "Select active CCTV device..."
-                                      }
-                                    </span>
-                                    <ChevronDown className="w-3.5 h-3.5 text-foreground-muted" />
-                                  </button>
+                                    <label className="text-[10px] text-foreground-muted font-medium mb-1 block">Link specific CCTV camera:</label>
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowCctvDropdown(showCctvDropdown === idx ? null : idx)}
+                                      className="w-full flex items-center justify-between bg-background border border-border rounded px-2.5 py-1.5 text-left text-xs text-foreground outline-none"
+                                    >
+                                      <span className="truncate">
+                                        {item.cctv_device_id
+                                          ? cctvDevices.find(c => c.id === item.cctv_device_id)?.name || "Linked Camera"
+                                          : "Select active CCTV device..."
+                                        }
+                                      </span>
+                                      <ChevronDown className="w-3.5 h-3.5 text-foreground-muted" />
+                                    </button>
 
-                                  {showCctvDropdown === idx && (
-                                    <div className="absolute z-[100] left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-card border border-border rounded shadow-xl p-2 flex flex-col gap-1.5">
-                                      <input
-                                        type="text"
-                                        placeholder="Type device name..."
-                                        value={cctvSearch}
-                                        onChange={(e) => setCctvSearch(e.target.value)}
-                                        className="w-full bg-background border border-border rounded px-2 py-1 text-[11px] text-foreground outline-none"
-                                      />
-                                      <div className="flex flex-col overflow-y-auto divide-y divide-border/30">
-                                        {cctvSearch.trim() && (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setChecklist(prev => prev.map((item, i) => i === idx ? { 
-                                                ...item, 
-                                                device_name: `CCTV - ${cctvSearch.trim()}`,
-                                                cctv_device_id: 'custom' 
-                                              } : item));
-                                              setCctvSearch("");
-                                              setShowCctvDropdown(null);
-                                              toast.success(`Linked custom CCTV camera: ${cctvSearch.trim()}`);
-                                            }}
-                                            className="w-full text-left px-2 py-1.5 text-[11px] text-primary hover:bg-primary/10 font-bold border-b border-border/30"
-                                          >
-                                            Use custom: "{cctvSearch.trim()}"
-                                          </button>
-                                        )}
-                                        {getFilteredCctv(cctvSearch).map(dev => (
-                                          <button
-                                            key={dev.id}
-                                            type="button"
-                                            onClick={() => {
-                                              handleLinkCCTV(idx, dev.id);
-                                              setCctvSearch("");
-                                            }}
-                                            className="w-full text-left px-2 py-1.5 hover:bg-primary/15 text-[11px] text-foreground flex items-center justify-between"
-                                          >
-                                            <span>{dev.name}</span>
-                                            <span className="font-mono text-[9px] text-foreground-muted">{dev.ip_address}</span>
-                                          </button>
-                                        ))}
+                                    {showCctvDropdown === idx && (
+                                      <div className="absolute z-[100] left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-card border border-border rounded shadow-xl p-2 flex flex-col gap-1.5">
+                                        <input
+                                          type="text"
+                                          placeholder="Type device name..."
+                                          value={cctvSearch}
+                                          onChange={(e) => setCctvSearch(e.target.value)}
+                                          className="w-full bg-background border border-border rounded px-2 py-1 text-[11px] text-foreground outline-none"
+                                        />
+                                        <div className="flex flex-col overflow-y-auto divide-y divide-border/30">
+                                          {cctvSearch.trim() && (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setChecklist(prev => prev.map((item, i) => i === idx ? {
+                                                  ...item,
+                                                  device_name: `CCTV - ${cctvSearch.trim()}`,
+                                                  cctv_device_id: 'custom'
+                                                } : item));
+                                                setCctvSearch("");
+                                                setShowCctvDropdown(null);
+                                                toast.success(`Linked custom CCTV camera: ${cctvSearch.trim()}`);
+                                              }}
+                                              className="w-full text-left px-2 py-1.5 text-[11px] text-primary hover:bg-primary/10 font-bold border-b border-border/30"
+                                            >
+                                              Use custom: "{cctvSearch.trim()}"
+                                            </button>
+                                          )}
+                                          {getFilteredCctv(cctvSearch).map(dev => (
+                                            <button
+                                              key={dev.id}
+                                              type="button"
+                                              onClick={() => {
+                                                handleLinkCCTV(idx, dev.id);
+                                                setCctvSearch("");
+                                              }}
+                                              className="w-full text-left px-2 py-1.5 hover:bg-primary/15 text-[11px] text-foreground flex items-center justify-between"
+                                            >
+                                              <span>{dev.name}</span>
+                                              <span className="font-mono text-[9px] text-foreground-muted">{dev.ip_address}</span>
+                                            </button>
+                                          ))}
+                                        </div>
                                       </div>
-                                    </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Status Buttons Selector */}
+                              {!isParent && (
+                                <div className="flex flex-col gap-2 shrink-0 animate-fade-in">
+                                  <div className="flex items-center gap-1">
+                                    {(["Good", "Needs Repair", "Needs Replacement", "Not Available"] as const).map(status => {
+                                      const isActive = item.status === status;
+                                      let btnStyle = "bg-background border-border text-foreground-muted hover:bg-surface-overlay";
+
+                                      if (isActive) {
+                                        if (status === "Good") btnStyle = "bg-success text-success-foreground border-success shadow-sm";
+                                        else if (status === "Needs Repair") btnStyle = "bg-warning text-warning-foreground border-warning shadow-sm";
+                                        else if (status === "Needs Replacement") btnStyle = "bg-danger text-danger-foreground border-danger shadow-sm";
+                                        else btnStyle = "bg-muted text-foreground-muted border-border";
+                                      }
+
+                                      return (
+                                        <button
+                                          key={status}
+                                          type="button"
+                                          onClick={() => handleChecklistStatusChange(idx, status)}
+                                          className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border transition-all ${btnStyle}`}
+                                        >
+                                          {status === "Good" ? "Good" : status === "Needs Repair" ? "Repair" : status === "Needs Replacement" ? "Swap" : "N/A"}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {/* Problem input fields (only show if status is broken) */}
+                                  {(item.status === "Needs Repair" || item.status === "Needs Replacement") && (
+                                    <input
+                                      type="text"
+                                      placeholder="Describe the issue... (required)"
+                                      value={item.issues_found}
+                                      onChange={(e) => handleChecklistNotesChange(idx, e.target.value)}
+                                      className="w-full bg-background border border-danger/35 rounded px-2.5 py-1 text-xs text-foreground outline-none focus:border-danger transition-all animate-shake"
+                                    />
                                   )}
                                 </div>
                               )}
                             </div>
-
-                             {/* Status Buttons Selector */}
-                             {!isParent && (
-                               <div className="flex flex-col gap-2 shrink-0 animate-fade-in">
-                                 <div className="flex items-center gap-1">
-                                   {(["Good", "Needs Repair", "Needs Replacement", "Not Available"] as const).map(status => {
-                                     const isActive = item.status === status;
-                                     let btnStyle = "bg-background border-border text-foreground-muted hover:bg-surface-overlay";
-                                     
-                                     if (isActive) {
-                                       if (status === "Good") btnStyle = "bg-success text-success-foreground border-success shadow-sm";
-                                       else if (status === "Needs Repair") btnStyle = "bg-warning text-warning-foreground border-warning shadow-sm";
-                                       else if (status === "Needs Replacement") btnStyle = "bg-danger text-danger-foreground border-danger shadow-sm";
-                                       else btnStyle = "bg-muted text-foreground-muted border-border";
-                                     }
-
-                                     return (
-                                       <button
-                                         key={status}
-                                         type="button"
-                                         onClick={() => handleChecklistStatusChange(idx, status)}
-                                         className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border transition-all ${btnStyle}`}
-                                       >
-                                         {status === "Good" ? "Good" : status === "Needs Repair" ? "Repair" : status === "Needs Replacement" ? "Swap" : "N/A"}
-                                       </button>
-                                     );
-                                   })}
-                                 </div>
-
-                                 {/* Problem input fields (only show if status is broken) */}
-                                 {(item.status === "Needs Repair" || item.status === "Needs Replacement") && (
-                                   <input
-                                     type="text"
-                                     placeholder="Describe the issue... (required)"
-                                     value={item.issues_found}
-                                     onChange={(e) => handleChecklistNotesChange(idx, e.target.value)}
-                                     className="w-full bg-background border border-danger/35 rounded px-2.5 py-1 text-xs text-foreground outline-none focus:border-danger transition-all animate-shake"
-                                   />
-                                 )}
-                               </div>
-                             )}
-                            </div>
-                        );
-                      })}
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -1130,13 +1123,13 @@ export default function PMSchedulePage() {
 
             {/* Actions footer */}
             <div className="flex items-center justify-end gap-2 border-t border-border pt-4 shrink-0">
-              <button 
+              <button
                 onClick={() => setIsChecklistOpen(false)}
                 className="px-4 py-2 border border-border hover:bg-surface-raised rounded-lg text-sm text-foreground transition-all"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={handleSubmitChecklist}
                 disabled={submittingChecklist}
                 className="px-4 py-2 bg-success text-success-foreground hover:bg-success/95 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm"
