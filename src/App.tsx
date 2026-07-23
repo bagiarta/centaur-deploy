@@ -36,6 +36,7 @@ import InstallersPage from "./pages/InstallersPage";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/LoginPage";
+import SSOCallbackPage from "./pages/SSOCallbackPage";
 import { Navigate } from "react-router-dom";
 
 const queryClient = new QueryClient();
@@ -70,6 +71,7 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/sso-callback" element={<SSOCallbackPage />} />
             
             <Route path="/" element={
               <ProtectedRoute>

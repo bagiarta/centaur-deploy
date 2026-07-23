@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Lock, User as UserIcon, Loader2, AlertCircle } from "lucide-react";
+import { Lock, User as UserIcon, Loader2, AlertCircle, Key } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
@@ -45,6 +45,27 @@ export default function LoginPage() {
     }
   };
 
+  const handleSSOLogin = async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/sso-config");
+      if (!res.ok) {
+        throw new Error("Failed to load SSO configuration");
+      }
+      const config = await res.json();
+      if (!config.auth_url || !config.client_id || !config.redirect_uri) {
+        throw new Error("SSO config is incomplete");
+      }
+      
+      const ssoUrl = `${config.auth_url}?client_id=${config.client_id}&redirect_uri=${encodeURIComponent(config.redirect_uri)}&response_type=code&scope=openid profile email`;
+      window.location.href = ssoUrl;
+    } catch (err: any) {
+      setError(err.message || "Unable to connect to SSO Server.");
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#0a0a0c] relative overflow-hidden font-sans">
       {/* Background blobs for aesthetic */}
@@ -68,7 +89,7 @@ export default function LoginPage() {
 
         {/* Login Card */}
         <div className="bg-surface/40 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl overflow-hidden relative group">
-          <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+          <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
 
           <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
             <div className="space-y-4">
@@ -121,6 +142,25 @@ export default function LoginPage() {
               )}
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "LOGIN"}
+            </button>
+
+            <div className="relative flex py-2 items-center">
+              <div className="flex-grow border-t border-white/5"></div>
+              <span className="flex-shrink mx-4 text-foreground-muted text-[10px] uppercase font-bold tracking-wider">or</span>
+              <div className="flex-grow border-t border-white/5"></div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSSOLogin}
+              disabled={isLoading}
+              className={cn(
+                "w-full py-3.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 border border-white/10 bg-white/5 text-white hover:bg-white/10",
+                isLoading && "opacity-50 cursor-not-allowed"
+              )}
+            >
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+              LOGIN WITH SSO
             </button>
           </form>
         </div>
