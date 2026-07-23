@@ -410,6 +410,21 @@ export default function SettingsPage() {
     setSchForm({ ...sch, is_enabled: sch.is_enabled === 1 || sch.is_enabled === true });
   };
 
+  const handleTestSch = async (id: string) => {
+    toast.info('Triggering schedule...');
+    try {
+      const res = await fetch(`/api/notification-schedules/${id}/trigger`, { method: 'POST' });
+      if (!res.ok) {
+        const errData = await res.json();
+        toast.error(`Error: ${errData.error || "Failed to trigger schedule."}`);
+      } else {
+        toast.success('Schedule triggered successfully!');
+      }
+    } catch (err: any) {
+      toast.error(`Error: ${err.message || "Failed to trigger schedule."}`);
+    }
+  };
+
   useEffect(() => {
     fetchSchedules();
     fetchNotifTypes();
@@ -1239,10 +1254,13 @@ export default function SettingsPage() {
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                     <div className="flex items-center justify-end gap-1">
-                                      <button onClick={() => handleEditSch(sch)} className="p-1.5 rounded-md text-foreground-muted hover:bg-primary/10 hover:text-primary transition-colors">
+                                      <button onClick={() => handleTestSch(sch.id)} className="p-1.5 rounded-md text-foreground-muted hover:bg-success/10 hover:text-success transition-colors" title="Test Schedule">
+                                        <Play className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button onClick={() => handleEditSch(sch)} className="p-1.5 rounded-md text-foreground-muted hover:bg-primary/10 hover:text-primary transition-colors" title="Edit">
                                         <Edit2 className="w-3.5 h-3.5" />
                                       </button>
-                                      <button onClick={() => handleDeleteSch(sch.id)} className="p-1.5 rounded-md text-foreground-muted hover:bg-danger/10 hover:text-danger transition-colors">
+                                      <button onClick={() => handleDeleteSch(sch.id)} className="p-1.5 rounded-md text-foreground-muted hover:bg-danger/10 hover:text-danger transition-colors" title="Delete">
                                         <Trash2 className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
@@ -1256,7 +1274,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 pt-6">
                     <div className="flex items-start gap-3 p-3 bg-surface-raised border border-border rounded-xl">
                       <div className="p-2 rounded-lg bg-danger/10 text-danger mt-0.5">
                         <AlertCircle className="w-4 h-4" />

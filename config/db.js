@@ -837,13 +837,31 @@ async function seedData(pool) {
       INSERT INTO NotificationTypes (id, label) VALUES 
       ('daily_report', 'Daily Ticket & CRM Summary'),
       ('weekly_report', 'Weekly Performance Report'),
-      ('fraud_alert', 'CRM Fraud Analysis Alert')
+      ('fraud_alert', 'CRM Fraud Analysis Alert'),
+      ('job_monitoring_report', 'DBWH Job Monitoring Report'),
+      ('device_status_report', 'Network & Device Status Summary'),
+      ('hardware_health_report', 'Hardware Health Status Summary')
     `);
   } else {
     // Migration for existing databases
     const checkFraud = await pool.request().query("SELECT COUNT(*) as count FROM NotificationTypes WHERE id = 'fraud_alert'");
     if (checkFraud.recordset[0].count === 0) {
       await pool.request().query("INSERT INTO NotificationTypes (id, label) VALUES ('fraud_alert', 'CRM Fraud Analysis Alert')");
+    }
+
+    const checkJobMonitoring = await pool.request().query("SELECT COUNT(*) as count FROM NotificationTypes WHERE id = 'job_monitoring_report'");
+    if (checkJobMonitoring.recordset[0].count === 0) {
+      await pool.request().query("INSERT INTO NotificationTypes (id, label) VALUES ('job_monitoring_report', 'DBWH Job Monitoring Report')");
+    }
+
+    const checkDeviceStatus = await pool.request().query("SELECT COUNT(*) as count FROM NotificationTypes WHERE id = 'device_status_report'");
+    if (checkDeviceStatus.recordset[0].count === 0) {
+      await pool.request().query("INSERT INTO NotificationTypes (id, label) VALUES ('device_status_report', 'Network & Device Status Summary')");
+    }
+
+    const checkHardwareHealth = await pool.request().query("SELECT COUNT(*) as count FROM NotificationTypes WHERE id = 'hardware_health_report'");
+    if (checkHardwareHealth.recordset[0].count === 0) {
+      await pool.request().query("INSERT INTO NotificationTypes (id, label) VALUES ('hardware_health_report', 'Hardware Health Status Summary')");
     }
   }
 

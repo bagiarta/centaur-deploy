@@ -849,6 +849,8 @@ router.post('/api/agent/heartbeat', async (req, res) => {
       console.warn(`[AGENT_HEARTBEAT] ⚠ No rows affected for ${hostname} - possible DB issue`);
     }
 
+
+
     // Fetch config for auto-update response
     const configRes = await pool.request().query("SELECT [key], [value] FROM SystemConfigs WHERE [key] IN ('LATEST_AGENT_VERSION', 'AGENT_UPDATE_URL')");
     const configs = {};
@@ -1211,6 +1213,134 @@ router.post('/api/auth/login', async (req, res) => {
       res.status(401).json({ error: 'Invalid username or password' });
     }
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/auth/sso-config', (req, res) => {
+  res.json({
+    client_id: process.env.SSO_CLIENT_ID || '',
+    auth_url: process.env.SSO_AUTHORIZATION_URL || '',
+    redirect_uri: process.env.SSO_REDIRECT_URI || ''
+  });
+});
+
+router.post('/api/auth/sso-login', async (req, res) => {
+  const { code } = req.body;
+  if (!code) {
+    return res.status(400).json({ error: 'Authorization code is required' });
+  }
+
+  try {
+    const tokenUrl = process.env.SSO_TOKEN_URL;
+    const userinfoUrl = process.env.SSO_USERINFO_URL;
+    const clientId = process.env.SSO_CLIENT_ID;
+    const clientSecret = process.env.SSO_CLIENT_SECRET;
+    const redirectUri = process.env.SSO_REDIRECT_URI;
+
+    // 1. Exchange authorization code for token
+    const tokenParams = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri
+    });
+
+    console.log('[SSO_LOGIN] Exchanging code at:', tokenUrl);
+    const tokenRes = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: tokenParams.toString()
+    });
+
+    if (!tokenRes.ok) {
+      const errText = await tokenRes.text();
+      console.error('[SSO_LOGIN] Token exchange failed:', errText);
+      return res.status(400).json({ error: `SSO token exchange failed: ${errText}` });
+    }
+
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
+    if (!accessToken) {
+      return res.status(400).json({ error: 'No access token received from SSO' });
+    }
+
+    // 2. Fetch UserInfo from SSO Server
+    console.log('[SSO_LOGIN] Fetching userinfo from:', userinfoUrl);
+    const userinfoRes = await fetch(userinfoUrl, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+
+    if (!userinfoRes.ok) {
+      const errText = await userinfoRes.text();
+      console.error('[SSO_LOGIN] UserInfo fetch failed:', errText);
+      return res.status(400).json({ error: `Failed to fetch SSO user profile: ${errText}` });
+    }
+
+    const ssoProfile = await userinfoRes.json();
+    const username = ssoProfile.preferred_username || ssoProfile.email;
+    if (!username) {
+      return res.status(400).json({ error: 'SSO profile did not contain username or email' });
+    }
+
+    // 3. Find or auto-provision user in Pepinet database
+    const pool = await poolPromise;
+    let userResult = await pool.request()
+      .input('username', sql.NVarChar, username)
+      .query(`
+        SELECT u.id, u.username, u.full_name, u.role_id,
+               r.name as role_name, r.menu_permissions, r.is_admin
+        FROM Users u
+        JOIN Roles r ON u.role_id = r.id
+        WHERE u.username = @username
+      `);
+
+    let user = userResult.recordset[0];
+
+    if (!user) {
+      console.log(`[SSO_LOGIN] User ${username} not found. Provisioning...`);
+      const newUserId = 'user_sso_' + Date.now();
+      const ssoRoles = ssoProfile.roles || [];
+      const isAdmin = ssoRoles.some(r => r.toLowerCase() === 'superadmin' || r.toLowerCase() === 'administrator' || r.toLowerCase() === 'admin');
+      const roleId = isAdmin ? 'role-admin' : 'role-user';
+      const fullName = (ssoProfile.given_name || ssoProfile.family_name)
+        ? `${ssoProfile.given_name || ''} ${ssoProfile.family_name || ''}`.trim()
+        : username;
+
+      await pool.request()
+        .input('id', sql.NVarChar, newUserId)
+        .input('username', sql.NVarChar, username)
+        .input('password_hash', sql.NVarChar, 'SSO_AUTHENTICATED')
+        .input('full_name', sql.NVarChar, fullName)
+        .input('role_id', sql.NVarChar, roleId)
+        .query(`
+          INSERT INTO Users (id, username, password_hash, full_name, role_id)
+          VALUES (@id, @username, @password_hash, @full_name, @role_id)
+        `);
+
+      // Fetch newly created user profile
+      userResult = await pool.request()
+        .input('username', sql.NVarChar, username)
+        .query(`
+          SELECT u.id, u.username, u.full_name, u.role_id,
+                 r.name as role_name, r.menu_permissions, r.is_admin
+          FROM Users u
+          JOIN Roles r ON u.role_id = r.id
+          WHERE u.username = @username
+        `);
+      user = userResult.recordset[0];
+    }
+
+    console.log('[SSO_LOGIN] Login success for user:', username);
+    res.json({ success: true, user });
+
+  } catch (err) {
+    console.error('[SSO_LOGIN] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1829,6 +1959,7 @@ router.post('/api/notification-settings', async (req, res) => {
   }
 });
 
+
 // ── NOTIFICATION SCHEDULES CRUD ──────────────────────────────
 router.get('/api/notification-schedules', async (req, res) => {
   try {
@@ -1921,6 +2052,49 @@ router.delete('/api/notification-schedules/:id', async (req, res) => {
     await pool.request().input('id', sql.NVarChar, id).query("DELETE FROM NotificationSchedules WHERE id = @id");
     res.json({ success: true });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/notification-schedules/:id/trigger', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('id', sql.NVarChar, id)
+      .query("SELECT * FROM NotificationSchedules WHERE id = @id");
+
+    const sch = result.recordset[0];
+    if (!sch) {
+      return res.status(404).json({ error: "Schedule not found" });
+    }
+
+    console.log(`[API] Manually triggering schedule ${id} (${sch.name})`);
+
+    const options = {
+      customTarget: sch.whatsapp_target,
+      customGroup: sch.whatsapp_group
+    };
+
+    if (sch.notif_type === 'daily_report') {
+      await sendDailyOutstandingTicketsNotification(options);
+    } else if (sch.notif_type === 'weekly_report') {
+      await generateWeeklyReportPDF(options);
+    } else if (sch.notif_type === 'fraud_alert') {
+      await sendFraudAlertNotification(options);
+    } else if (sch.notif_type === 'job_monitoring_report') {
+      await sendJobMonitoringReport(options);
+    } else if (sch.notif_type === 'device_status_report') {
+      await sendDeviceStatusReport(options);
+    } else if (sch.notif_type === 'hardware_health_report') {
+      await sendHardwareHealthReport(options);
+    } else {
+      return res.status(400).json({ error: `Unsupported notification type: ${sch.notif_type}` });
+    }
+
+    res.json({ success: true, message: `Schedule triggered for ${sch.notif_type}` });
+  } catch (err) {
+    console.error(`[API] Trigger error for ${id}:`, err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2477,6 +2651,8 @@ async function sendWebhook(title, description, color = 0x5865F2) {
   }
 }
 
+
+
 async function runOfflineDetector() {
   try {
     const pool = await initDb();
@@ -2687,6 +2863,8 @@ async function runOfflineDetector() {
 
     // 5. Send Notification if we caught NEW offline devices
     if (newlyOffline.length > 0) {
+
+
       // Fetch ALL currently offline devices to provide full context (the "7 devices" requested)
       const allOfflineRes = await pool.request().query("SELECT hostname, ip, last_seen FROM Devices WHERE status = 'offline'");
       const allOffline = allOfflineRes.recordset || [];
@@ -6173,6 +6351,113 @@ async function sendFraudAlertNotification(options = {}) {
   }
 }
 
+// ── DBWH JOB MONITORING REPORT ─────────────────────────────────
+async function sendJobMonitoringReport(options = {}) {
+  try {
+    const crmPool = await getCrmPool();
+    if (!crmPool) return;
+    const result = await crmPool.request().query(`
+      SELECT distinct
+        j.name AS JobName
+       ,CASE h.run_status
+          WHEN 0 THEN 'Failed'
+          WHEN 1 THEN 'Succeeded'
+          WHEN 2 THEN 'Retry'
+          WHEN 3 THEN 'Canceled'
+          WHEN 4 THEN 'In Progress'
+        END AS StatusJob
+      FROM msdb.dbo.sysjobs j
+      INNER JOIN msdb.dbo.sysjobhistory h ON j.job_id = h.job_id
+      WHERE h.run_date = CONVERT(VARCHAR(8), GETDATE(), 112)
+    `);
+
+    const jobs = result.recordset || [];
+    const total = jobs.length;
+    const failed = jobs.filter(j => j.StatusJob === 'Failed');
+
+    let msg = `📊 *DBWH Job Monitoring Report*\n\n`;
+    msg += `Total Jobs Run Today: *${total}*\n`;
+    msg += `Success: *${total - failed.length}*\n`;
+    msg += `Failed: *${failed.length}*\n\n`;
+
+    if (failed.length > 0) {
+      msg += `🚨 *Failed Jobs:*\n`;
+      failed.forEach(j => {
+        msg += `- ${j.JobName}\n`;
+      });
+    } else {
+      msg += `✅ All jobs completed successfully.`;
+    }
+
+    await sendWhatsapp(msg, options);
+  } catch (err) {
+    console.error('[JOB_REPORT] Error:', err.message);
+  }
+}
+
+// ── DEVICE STATUS REPORT ───────────────────────────────────────
+async function sendDeviceStatusReport(options = {}) {
+  try {
+    const pool = await poolPromise;
+    const res = await pool.request().query("SELECT hostname, status FROM Devices");
+    const devices = res.recordset || [];
+    const total = devices.length;
+    const offline = devices.filter(d => d.status === 'offline');
+
+    let msg = `📡 *Network & Device Status Report*\n\n`;
+    msg += `Total Devices: *${total}*\n`;
+    msg += `Online: *${total - offline.length}*\n`;
+    msg += `Offline: *${offline.length}*\n\n`;
+
+    if (offline.length > 0) {
+      msg += `🔴 *Offline Devices:*\n`;
+      offline.forEach(d => {
+        msg += `- ${d.hostname}\n`;
+      });
+    } else {
+      msg += `✅ All devices are online.`;
+    }
+
+    await sendWhatsapp(msg, options);
+  } catch (err) {
+    console.error('[DEVICE_REPORT] Error:', err.message);
+  }
+}
+
+// ── HARDWARE HEALTH REPORT ─────────────────────────────────────
+async function sendHardwareHealthReport(options = {}) {
+  try {
+    const pool = await poolPromise;
+    const res = await pool.request().query("SELECT hostname, disk_temp, bad_sectors, psu_status FROM Devices");
+    const devices = res.recordset || [];
+    
+    const warnings = [];
+    devices.forEach(d => {
+      let issues = [];
+      if (d.disk_temp > 55) issues.push(`Temp: ${d.disk_temp}°C`);
+      if (d.bad_sectors > 0) issues.push(`Bad Sectors: ${d.bad_sectors}`);
+      if (d.psu_status && d.psu_status.toLowerCase() !== 'healthy' && d.psu_status.toLowerCase() !== 'not supported') issues.push(`PSU: ${d.psu_status}`);
+      if (issues.length > 0) {
+        warnings.push(`- *${d.hostname}*: ${issues.join(', ')}`);
+      }
+    });
+
+    let msg = `🛠️ *Hardware Health Report*\n\n`;
+    msg += `Devices Monitored: *${devices.length}*\n`;
+    msg += `Devices with Warnings: *${warnings.length}*\n\n`;
+
+    if (warnings.length > 0) {
+      msg += `⚠️ *Attention Required:*\n`;
+      msg += warnings.join('\n');
+    } else {
+      msg += `✅ All hardware is operating normally.`;
+    }
+
+    await sendWhatsapp(msg, options);
+  } catch (err) {
+    console.error('[HARDWARE_REPORT] Error:', err.message);
+  }
+}
 // ── DYNAMIC NOTIFICATION SCHEDULER (Every Minute) ───────────
 cron.schedule('* * * * *', async () => {
   const now = new Date();
@@ -6214,6 +6499,21 @@ cron.schedule('* * * * *', async () => {
           });
         } else if (sch.notif_type === 'fraud_alert') {
           await sendFraudAlertNotification({
+            customTarget: sch.whatsapp_target,
+            customGroup: sch.whatsapp_group
+          });
+        } else if (sch.notif_type === 'job_monitoring_report') {
+          await sendJobMonitoringReport({
+            customTarget: sch.whatsapp_target,
+            customGroup: sch.whatsapp_group
+          });
+        } else if (sch.notif_type === 'device_status_report') {
+          await sendDeviceStatusReport({
+            customTarget: sch.whatsapp_target,
+            customGroup: sch.whatsapp_group
+          });
+        } else if (sch.notif_type === 'hardware_health_report') {
+          await sendHardwareHealthReport({
             customTarget: sch.whatsapp_target,
             customGroup: sch.whatsapp_group
           });
