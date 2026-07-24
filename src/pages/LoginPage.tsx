@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Lock, User as UserIcon, Loader2, AlertCircle, Key } from "lucide-react";
+import { Loader2, AlertCircle, Key } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const { login, user } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   // Redirect if already logged in
@@ -18,32 +16,6 @@ export default function LoginPage() {
       navigate("/");
     }
   }, [user, navigate]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError("");
-
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        login(data.user);
-        navigate("/");
-      } else {
-        setError(data.error || "Login failed. Please check your credentials.");
-      }
-    } catch (err) {
-      setError("Server connection failed. Please try again later.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleSSOLogin = async () => {
     setIsLoading(true);
@@ -91,78 +63,34 @@ export default function LoginPage() {
         <div className="bg-surface/40 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl overflow-hidden relative group">
           <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
 
-          <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
-            <div className="space-y-4">
-              <div className="relative">
-                <label className="text-xs font-bold text-foreground-muted uppercase tracking-wider ml-1 mb-1.5 block">Username</label>
-                <div className="relative">
-                  <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground-muted" />
-                  <input
-                    type="text"
-                    required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-white/20 outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
-                    placeholder="Enter your username"
-                  />
-                </div>
-              </div>
-
-              <div className="relative">
-                <label className="text-xs font-bold text-foreground-muted uppercase tracking-wider ml-1 mb-1.5 block">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground-muted" />
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-white/20 outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
-                    placeholder="••••••••"
-                  />
-                </div>
-              </div>
-            </div>
+          <div className="space-y-6 relative z-10 text-center">
+            
+            <p className="text-sm text-foreground-muted mb-6">
+              Authentication is managed centrally via SSO. Please log in using your corporate credentials.
+            </p>
 
             {error && (
-              <div className="bg-danger/10 border border-danger/20 rounded-xl p-3 flex items-center gap-3 animate-shake">
+              <div className="bg-danger/10 border border-danger/20 rounded-xl p-3 flex items-center gap-3 animate-shake text-left">
                 <AlertCircle className="w-4 h-4 text-danger shrink-0" />
                 <p className="text-xs text-danger font-medium">{error}</p>
               </div>
             )}
 
             <button
-              type="submit"
+              type="button"
+              onClick={handleSSOLogin}
               disabled={isLoading}
               className={cn(
-                "w-full py-3.5 rounded-xl font-bold text-sm transition-all shadow-glow flex items-center justify-center gap-2",
+                "w-full py-4 rounded-xl font-bold text-sm transition-all shadow-glow flex items-center justify-center gap-2",
                 isLoading
                   ? "bg-muted text-foreground-muted cursor-not-allowed"
                   : "bg-primary text-primary-foreground hover:scale-[1.02] active:scale-[0.98] hover:shadow-primary/30"
               )}
             >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "LOGIN"}
-            </button>
-
-            <div className="relative flex py-2 items-center">
-              <div className="flex-grow border-t border-white/5"></div>
-              <span className="flex-shrink mx-4 text-foreground-muted text-[10px] uppercase font-bold tracking-wider">or</span>
-              <div className="flex-grow border-t border-white/5"></div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSSOLogin}
-              disabled={isLoading}
-              className={cn(
-                "w-full py-3.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 border border-white/10 bg-white/5 text-white hover:bg-white/10",
-                isLoading && "opacity-50 cursor-not-allowed"
-              )}
-            >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Key className="w-5 h-5" />}
               LOGIN WITH SSO
             </button>
-          </form>
+          </div>
         </div>
 
         {/* Footer */}

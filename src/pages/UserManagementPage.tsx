@@ -124,15 +124,7 @@ export default function UserManagementPage() {
       <PageHeader 
         title="User Management" 
         subtitle="Manage system users and assign roles"
-        actions={
-          <button 
-            onClick={() => handleEdit(null)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-all shadow-glow"
-          >
-            <UserPlus className="w-4 h-4" />
-            Add New User
-          </button>
-        }
+        actions={null}
       />
 
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6">
@@ -244,8 +236,8 @@ export default function UserManagementPage() {
             <SectionCard className="flex flex-col h-full bg-surface-raised border-primary/20">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="font-bold flex items-center gap-2">
-                  {editingUser?.id ? <Edit2 className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-                  {editingUser?.id ? "Edit User" : "Create New User"}
+                  <Edit2 className="w-4 h-4" />
+                  Edit User Profile
                 </h3>
                 <button onClick={() => setIsEditing(false)} className="text-foreground-muted hover:text-white">
                   <X className="w-5 h-5" />
@@ -366,21 +358,6 @@ export default function UserManagementPage() {
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-foreground-muted">
-                    {editingUser?.id ? "Reset Password (Leave blank to keep current)" : "Password"}
-                  </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground-muted" />
-                    <input
-                      type="password"
-                      value={editingUser?.password || ""}
-                      onChange={(e) => setEditingUser(prev => ({ ...prev!, password: e.target.value }))}
-                      className="w-full bg-background border border-border rounded-lg py-2.5 pl-10 pr-4 text-sm outline-none focus:border-primary transition-all text-foreground"
-                      placeholder={editingUser?.id ? "Enter new password to reset" : "••••••••"}
-                    />
-                  </div>
-                  </div>
                 </div>
 
               <div className="mt-8 flex gap-3">
