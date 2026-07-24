@@ -242,7 +242,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
-  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -598,16 +597,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             {collapsed ? <ChevronRight className="w-4 h-4" /> : <><ChevronLeft className="w-4 h-4" /><span>Collapse</span></>}
           </button>
           <button
-            onClick={() => setIsChangePasswordOpen(true)}
-            className={cn(
-              "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all",
-              collapsed && "justify-center"
-            )}
-          >
-            <KeyRound className="w-4 h-4" />
-            {!collapsed && <span>Change Password</span>}
-          </button>
-          <button
             onClick={handleLogout}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-danger hover:bg-danger/10 transition-all",
@@ -840,9 +829,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </nav>
 
             <div className="p-4 border-t border-sidebar-border bg-sidebar-accent/30 space-y-2">
-              <button onClick={() => { setMobileMenuOpen(false); setIsChangePasswordOpen(true); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sidebar-foreground font-semibold rounded-lg bg-sidebar-accent hover:bg-sidebar-accent/90 transition-colors shadow-lg">
-                <KeyRound className="w-5 h-5" /> <span>Change Password</span>
-              </button>
               <button onClick={() => { setMobileMenuOpen(false); handleLogout(); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-danger-foreground font-semibold rounded-lg bg-danger hover:bg-danger/90 transition-colors shadow-lg">
                 <LogOut className="w-5 h-5" /> <span>Sign Out</span>
               </button>
@@ -878,7 +864,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <ReportTroubleModal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} />
-      <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
 
       {/* Chat Widget - always visible for logged in users */}
       <ChatWidget />
@@ -889,133 +874,3 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const [oldPassword, setOldPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const { user } = useAuth();
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!oldPassword || !newPassword) {
-      toast.error("Please fill in all fields");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error("New passwords do not match");
-      return;
-    }
-    if (newPassword.length < 6) {
-      toast.error("New password must be at least 6 characters long");
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const res = await fetch("/api/auth/change-password", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-user-id": user?.id || ""
-        },
-        body: JSON.stringify({ oldPassword, newPassword }),
-      });
-
-      if (res.ok) {
-        toast.success("Password changed successfully");
-        setOldPassword("");
-        setNewPassword("");
-        setConfirmPassword("");
-        onClose();
-      } else {
-        const data = await res.json();
-        toast.error(data.error || "Failed to change password");
-      }
-    } catch (err) {
-      toast.error("Error connecting to server");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-        <div className="p-6 border-b border-border flex items-center justify-between bg-primary/5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-              <KeyRound className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-lg">Change Password</h3>
-              <p className="text-xs text-foreground-muted">Update your account security</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-surface-raised rounded-full transition-colors text-foreground-muted">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSave} className="p-6 space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-foreground-muted ml-1">Current Password</label>
-            <input
-              type="password"
-              required
-              value={oldPassword}
-              onChange={(e) => setOldPassword(e.target.value)}
-              className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-              placeholder="••••••••"
-            />
-          </div>
-
-          <div className="space-y-1.5 pt-2">
-            <label className="text-xs font-semibold text-foreground-muted ml-1">New Password</label>
-            <input
-              type="password"
-              required
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-              placeholder="••••••••"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-foreground-muted ml-1">Confirm New Password</label>
-            <input
-              type="password"
-              required
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-              placeholder="••••••••"
-            />
-          </div>
-
-          <div className="pt-4 flex gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-3 rounded-xl border border-border font-bold text-sm hover:bg-surface-raised transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="flex-[2] bg-primary text-primary-foreground py-3 rounded-xl font-bold text-sm shadow-glow flex items-center justify-center gap-2 hover:bg-primary/90 transition-all disabled:opacity-50"
-            >
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Update Password
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}

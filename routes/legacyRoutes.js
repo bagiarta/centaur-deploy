@@ -1187,44 +1187,7 @@ router.post('/api/agent/deploy-status', async (req, res) => {
   }
 });
 
-// ── AUTHENTICATION ────────────────────────────────────────
-router.post('/api/auth/login', async (req, res) => {
-  const { username, password } = req.body;
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request()
-      .input('username', sql.NVarChar, username)
-      .query(`
-        SELECT u.id, u.username, u.full_name, u.role_id, u.password_hash,
-               r.name as role_name, r.menu_permissions, r.is_admin 
-        FROM Users u
-        JOIN Roles r ON u.role_id = r.id
-        WHERE u.username = @username
-      `);
-
-    const user = result.recordset[0];
-    if (user && user.password_hash === password) {
-      const { password_hash, ...userSafe } = user;
-      // Ensure ID is present in userSafe
-      userSafe.id = user.id;
-      
-      // Create local session
-      const sessionId = crypto.randomUUID();
-      await pool.request()
-        .input('sid', sql.VarChar, sessionId)
-        .input('user_id', sql.VarChar, userSafe.id)
-        .query('INSERT INTO UserSessions (id, user_id, is_active) VALUES (@sid, @user_id, 1)');
-
-      userSafe.sessionId = sessionId;
-      console.log('[DEBUG] Login Success. User ID:', userSafe.id, 'Session ID:', sessionId);
-      res.json({ success: true, user: userSafe });
-    } else {
-      res.status(401).json({ error: 'Invalid username or password' });
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// ── AUTHENTICATION (SSO ONLY) ─────────────────────────────
 
 router.get('/api/auth/sso-config', (req, res) => {
   const protocol = req.headers['x-forwarded-proto'] || req.protocol;
@@ -1562,41 +1525,11 @@ router.get('/api/users', async (req, res) => {
   }
 });
 
-router.post('/api/users', async (req, res) => {
-  const { username, password, full_name, role_id, division, location } = req.body;
-  try {
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.NVarChar, `user-${Date.now()}`)
-      .input('username', sql.NVarChar, username)
-      .input('password', sql.NVarChar, password)
-      .input('full_name', sql.NVarChar, full_name)
-      .input('role_id', sql.NVarChar, role_id)
-      .input('division', sql.NVarChar, division || 'IT')
-      .input('location', sql.NVarChar, location || null)
-      .query(`
-        INSERT INTO Users (id, username, password_hash, full_name, role_id, division, location)
-        VALUES (@id, @username, @password, @full_name, @role_id, @division, @location)
-      `);
 
-    // Log the user creation to ActivityLog
-    const reqUser = await getRequestUser(req, pool);
-    const actor = reqUser ? reqUser.username : 'admin';
-    const actionDesc = `Created user ${username} with division: ${division || 'IT'}, location: ${location || 'Head Office (HO)'}`;
-    await pool.request()
-      .input('actor', sql.NVarChar, actor)
-      .input('action', sql.NVarChar, actionDesc)
-      .query("INSERT INTO ActivityLog (time, [user], action) VALUES (GETDATE(), @actor, @action)");
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 router.put('/api/users/:id', async (req, res) => {
   const { id } = req.params;
-  const { username, full_name, role_id, password, division, location } = req.body;
+  const { username, full_name, role_id, division, location } = req.body;
   try {
     const pool = await poolPromise;
 
@@ -1610,9 +1543,6 @@ router.put('/api/users/:id', async (req, res) => {
       UPDATE Users 
       SET username = @username, full_name = @full_name, role_id = @role_id, division = @division, location = @location
     `;
-    if (password) {
-      query += `, password_hash = @password`;
-    }
     query += ` WHERE id = @id`;
 
     const request = pool.request()
@@ -1622,10 +1552,6 @@ router.put('/api/users/:id', async (req, res) => {
       .input('role_id', sql.NVarChar, role_id)
       .input('division', sql.NVarChar, division || 'IT')
       .input('location', sql.NVarChar, location || null);
-
-    if (password) {
-      request.input('password', sql.NVarChar, password);
-    }
 
     await request.query(query);
 
