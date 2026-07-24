@@ -38,6 +38,40 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/LoginPage";
 import SSOCallbackPage from "./pages/SSOCallbackPage";
 import { Navigate } from "react-router-dom";
+const originalFetch = window.fetch;
+window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
+  const savedUser = localStorage.getItem("pepi_user");
+  if (savedUser) {
+    try {
+      const user = JSON.parse(savedUser);
+      if (user && user.sessionId) {
+        init = init || {};
+        init.headers = init.headers || {};
+        if (init.headers instanceof Headers) {
+          init.headers.set('x-session-id', user.sessionId);
+        } else if (Array.isArray(init.headers)) {
+          init.headers.push(['x-session-id', user.sessionId]);
+        } else {
+          (init.headers as Record<string, string>)['x-session-id'] = user.sessionId;
+        }
+      }
+    } catch (e) {
+      console.error('[FETCH_OVERRIDE] Error parsing pepi_user:', e);
+    }
+  }
+
+  const response = await originalFetch(input, init);
+
+  if (response.status === 401) {
+    console.warn('[FETCH_OVERRIDE] Received 401 Unauthorized, logging out user.');
+    localStorage.removeItem("pepi_user");
+    if (!window.location.pathname.endsWith('/login') && !window.location.pathname.endsWith('/sso-callback')) {
+      window.location.href = '/login';
+    }
+  }
+
+  return response;
+};
 
 const queryClient = new QueryClient();
 

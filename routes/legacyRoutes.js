@@ -14,7 +14,7 @@ import PDFDocument from 'pdfkit';
 import cron from 'node-cron';
 import ExcelJS from 'exceljs';
 import { createRequire } from 'module';
-
+import crypto from 'crypto';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 const { runSync: runAbcSync } = require('../scripts/sync_abc_analysis.cjs');
@@ -1207,7 +1207,16 @@ router.post('/api/auth/login', async (req, res) => {
       const { password_hash, ...userSafe } = user;
       // Ensure ID is present in userSafe
       userSafe.id = user.id;
-      console.log('[DEBUG] Login Success. User ID:', userSafe.id);
+      
+      // Create local session
+      const sessionId = crypto.randomUUID();
+      await pool.request()
+        .input('sid', sql.VarChar, sessionId)
+        .input('user_id', sql.VarChar, userSafe.id)
+        .query('INSERT INTO UserSessions (id, user_id, is_active) VALUES (@sid, @user_id, 1)');
+
+      userSafe.sessionId = sessionId;
+      console.log('[DEBUG] Login Success. User ID:', userSafe.id, 'Session ID:', sessionId);
       res.json({ success: true, user: userSafe });
     } else {
       res.status(401).json({ error: 'Invalid username or password' });
@@ -1218,10 +1227,15 @@ router.post('/api/auth/login', async (req, res) => {
 });
 
 router.get('/api/auth/sso-config', (req, res) => {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.headers.host;
+  const redirectUri = `${protocol}://${host}/sso-callback`;
+  const authUrl = `${protocol}://${host}/sso-api/auth/authorize`;
+
   res.json({
     client_id: process.env.SSO_CLIENT_ID || '',
-    auth_url: process.env.SSO_AUTHORIZATION_URL || '',
-    redirect_uri: process.env.SSO_REDIRECT_URI || ''
+    auth_url: authUrl,
+    redirect_uri: redirectUri
   });
 });
 
@@ -1236,7 +1250,10 @@ router.post('/api/auth/sso-login', async (req, res) => {
     const userinfoUrl = process.env.SSO_USERINFO_URL;
     const clientId = process.env.SSO_CLIENT_ID;
     const clientSecret = process.env.SSO_CLIENT_SECRET;
-    const redirectUri = process.env.SSO_REDIRECT_URI;
+    
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers.host;
+    const redirectUri = `${protocol}://${host}/sso-callback`;
 
     // 1. Exchange authorization code for token
     const tokenParams = new URLSearchParams({
@@ -1336,11 +1353,82 @@ router.post('/api/auth/sso-login', async (req, res) => {
       user = userResult.recordset[0];
     }
 
-    console.log('[SSO_LOGIN] Login success for user:', username);
+    // Save OIDC session
+    const sessionId = tokenData.sid || crypto.randomUUID();
+    await pool.request()
+      .input('sid', sql.VarChar, sessionId)
+      .input('user_id', sql.VarChar, user.id)
+      .query('INSERT INTO UserSessions (id, user_id, is_active) VALUES (@sid, @user_id, 1)');
+
+    user.sessionId = sessionId;
+    console.log('[SSO_LOGIN] Login success for user:', username, 'Session ID:', sessionId);
     res.json({ success: true, user });
 
   } catch (err) {
     console.error('[SSO_LOGIN] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/auth/sso-logout', async (req, res) => {
+  const { sid } = req.body;
+  if (!sid) {
+    return res.status(400).json({ error: 'Session ID (sid) is required' });
+  }
+
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('sid', sql.VarChar, sid)
+      .query('UPDATE UserSessions SET is_active = 0, invalidated_at = GETDATE() WHERE id = @sid');
+    
+    console.log(`[SLO] Session ${sid} invalidated successfully via Backchannel Logout.`);
+    res.json({ success: true, message: 'Session invalidated' });
+  } catch (err) {
+    console.error('[SLO] Error invalidating session:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// User-initiated logout from Pepinet app - invalidates local session AND notifies SSO server
+router.post('/api/auth/logout', async (req, res) => {
+  const sessionId = req.headers['x-session-id'] || req.body?.session_id;
+  const userId = req.headers['x-user-id'];
+
+  try {
+    const pool = await poolPromise;
+
+    // 1. Invalidate local UserSession in Pepinet DB
+    if (sessionId) {
+      await pool.request()
+        .input('sid', sql.VarChar, sessionId)
+        .query('UPDATE UserSessions SET is_active = 0, invalidated_at = GETDATE() WHERE id = @sid');
+      console.log(`[LOGOUT] Local session ${sessionId} invalidated.`);
+    }
+
+    // 2. Notify SSO Server to revoke active_session so portal shows it as inactive
+    if (sessionId) {
+      try {
+        const ssoApiBase = process.env.SSO_TOKEN_URL?.replace('/auth/token', '') || 'http://localhost:3003/api';
+        const notifyRes = await fetch(`${ssoApiBase}/sessions/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId, user_id: userId })
+        });
+        if (notifyRes.ok) {
+          console.log(`[LOGOUT] SSO server notified to revoke session ${sessionId}`);
+        } else {
+          const errText = await notifyRes.text();
+          console.warn(`[LOGOUT] SSO notify non-critical failure: ${errText}`);
+        }
+      } catch (ssoErr) {
+        console.warn('[LOGOUT] Could not reach SSO server (non-critical):', ssoErr.message);
+      }
+    }
+
+    res.json({ success: true, message: 'Logged out successfully' });
+  } catch (err) {
+    console.error('[LOGOUT] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });

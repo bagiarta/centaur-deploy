@@ -11,6 +11,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { initDb, poolPromise } from './config/db.js';
 import { v4 as uuidv4 } from 'uuid';
 import sql from 'mssql';
+import proxy from 'express-http-proxy';
 
 // Route imports
 import deviceRoutes from './routes/deviceRoutes.js';
@@ -76,6 +77,31 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Proxy endpoints for Enterprise SSO Module
+app.use('/sso-api', proxy('http://localhost:3003', {
+  preserveHostHdr: true,
+  proxyReqPathResolver: function (req) {
+    return '/api' + req.url;
+  },
+  proxyReqOptDecorator: function(proxyReqOpts, srcReq) {
+    proxyReqOpts.headers['x-forwarded-proto'] = srcReq.protocol;
+    return proxyReqOpts;
+  }
+}));
+
+app.use('/sso', proxy('http://localhost:3000', {
+  preserveHostHdr: true,
+  proxyReqPathResolver: function (req) {
+    // Keep the full /sso prefix so serve.js can match /sso/static/js/...
+    return '/sso' + req.url;
+  },
+  proxyReqOptDecorator: function(proxyReqOpts, srcReq) {
+    proxyReqOpts.headers['x-forwarded-proto'] = srcReq.protocol;
+    return proxyReqOpts;
+  }
+}));
+
+
 // Configure Multer for package uploads
 const packageStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, REPO_PATH),
@@ -93,6 +119,51 @@ const templateUpload = multer({ storage: templateStorage });
 initDb().then(() => {
   startBackgroundTasks();
   startCCTVPollingJob();
+});
+
+// Session Validation Middleware
+app.use(async (req, res, next) => {
+  const excludedPaths = [
+    '/api/auth/login',
+    '/api/auth/sso-login',
+    '/api/auth/sso-config',
+    '/api/auth/sso-logout',
+    '/api/ssl/cert',
+    '/api/ssl/installer'
+  ];
+
+  if (excludedPaths.includes(req.path)) {
+    return next();
+  }
+
+  const sessionId = req.headers['x-session-id'] || req.headers['X-Session-Id'];
+  const userId = req.headers['x-user-id'] || req.headers['X-User-Id'];
+
+  if (userId) {
+    if (!sessionId) {
+      console.warn(`[AUTH] Blocked request from user ${userId}: Missing x-session-id header.`);
+      return res.status(401).json({ error: 'Unauthorized: Session required' });
+    }
+
+    try {
+      const pool = await poolPromise;
+      const sessionResult = await pool.request()
+        .input('sid', sql.VarChar, sessionId)
+        .input('user_id', sql.VarChar, userId)
+        .query('SELECT is_active FROM UserSessions WHERE id = @sid AND user_id = @user_id');
+
+      const session = sessionResult.recordset[0];
+      if (!session || !session.is_active) {
+        console.warn(`[AUTH] Session ${sessionId} is inactive or invalid for user ${userId}.`);
+        return res.status(401).json({ error: 'Unauthorized: Session expired or revoked' });
+      }
+    } catch (err) {
+      console.error('[AUTH] Session validation error:', err);
+      return res.status(500).json({ error: 'Internal server error during session validation' });
+    }
+  }
+
+  next();
 });
 
 // Register Routes
