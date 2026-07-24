@@ -13,7 +13,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   login: (user: User) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   loading: boolean;
   hasPermission: (menuKey: string) => boolean;
 }
@@ -41,7 +41,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem("pepi_user", JSON.stringify(userData));
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Notify backend to invalidate session on SSO server before clearing local data
+    const savedUser = user || JSON.parse(localStorage.getItem("pepi_user") || "null");
+    const sessionId = savedUser?.sessionId;
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sessionId ? { "x-session-id": sessionId } : {}),
+          ...(savedUser?.id ? { "x-user-id": savedUser.id } : {})
+        },
+        body: JSON.stringify({ session_id: sessionId })
+      });
+    } catch (e) {
+      console.warn("Logout API call failed (non-critical):", e);
+    }
     setUser(null);
     localStorage.removeItem("pepi_user");
   };
