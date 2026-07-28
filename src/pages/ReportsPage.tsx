@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LabelList
@@ -6,7 +7,7 @@ import {
 import {
   Activity, ShieldAlert, Package, CheckCircle, XCircle,
   Monitor, HardDrive, Cpu, AlertTriangle, ArrowUpRight, RefreshCw,
-  Database, Clock, ClipboardList
+  Database, Clock, ClipboardList, X, Info, Server
 } from "lucide-react";
 import {
   StatCard, SectionCard, PageHeader, StatusBadge
@@ -27,7 +28,6 @@ export default function ReportsPage() {
   const [dbwhFilter, setDbwhFilter] = useState<string | null>(null);
   const [expandedJobIndex, setExpandedJobIndex] = useState<number | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<any>(null);
-  const [drawerPosition, setDrawerPosition] = useState<{ top: number; right: number; show: boolean }>({ top: 0, right: 0, show: false });
 
   const fetchCrmSync = async () => {
     setCrmLoading(true);
@@ -145,24 +145,8 @@ export default function ReportsPage() {
     ? dbwhJobs.filter(j => j.StatusJob === dbwhFilter)
     : dbwhJobs;
 
-  const handleShowDetails = (e: React.MouseEvent, device: any) => {
-    e.stopPropagation();
-    const button = e.currentTarget as HTMLButtonElement;
-    const rect = button.getBoundingClientRect();
-    const drawerWidth = 384;
-    const spacing = 20;
-    let rightPos = window.innerWidth - rect.right - spacing;
-    if (rect.right + drawerWidth + spacing > window.innerWidth) {
-      rightPos = spacing;
-    }
-    const topPosition = rect.bottom + spacing;
-    setDrawerPosition({ top: topPosition, right: rightPos, show: true });
-    setSelectedDevice(device);
-  };
-
   const closeDrawer = () => {
     setSelectedDevice(null);
-    setDrawerPosition({ top: 0, right: 0, show: false });
   };
 
   // Custom tooltip for CRM bar chart
@@ -193,13 +177,16 @@ export default function ReportsPage() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard
-          label="Upgrade Alerts"
-          value={needsUpgrade.length}
-          sub={`${lowRam} Low RAM · ${lowDisk} Low Disk`}
-          icon={<ShieldAlert className="w-5 h-5" />}
-          variant={needsUpgrade.length > 0 ? "warning" : "success"}
-        />
+        <Link to="/support-manager/device-health" className="block hover:scale-[1.01] transition-transform">
+          <StatCard
+            label="Upgrade Alerts"
+            value={needsUpgrade.length}
+            sub={`${lowRam} Low RAM · ${lowDisk} Low Disk`}
+            icon={<ShieldAlert className="w-5 h-5" />}
+            variant={needsUpgrade.length > 0 ? "warning" : "success"}
+            className="cursor-pointer hover:border-warning/50 transition-all w-full h-full"
+          />
+        </Link>
         <StatCard
           label="Avg Deployment Success"
           value={
@@ -597,200 +584,6 @@ export default function ReportsPage() {
           </div>
         )}
       </SectionCard>
-
-      {/* Hardware Health Alerts Table */}
-      <SectionCard title="Hardware Health & Upgrade Recommendations" subtitle="Devices with low RAM or Disk space">
-        <div className="overflow-x-auto max-h-[500px] overflow-y-auto pr-1">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-border bg-surface/30">
-                <th className="px-6 py-3 text-xs font-semibold text-foreground-muted uppercase tracking-wider">Hostname</th>
-                <th className="px-6 py-3 text-xs font-semibold text-foreground-muted uppercase tracking-wider">RAM</th>
-                <th className="px-6 py-3 text-xs font-semibold text-foreground-muted uppercase tracking-wider">Disk (Free)</th>
-                <th className="px-6 py-3 text-xs font-semibold text-foreground-muted uppercase tracking-wider">Recommendation</th>
-                <th className="px-6 py-3 text-xs font-semibold text-foreground-muted uppercase tracking-wider">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {needsUpgrade.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-10 text-center text-foreground-muted">
-                    <div className="flex flex-col items-center gap-2">
-                      <CheckCircle className="w-8 h-8 text-success" />
-                      <p>All devices are healthy. No hardware upgrades needed.</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                needsUpgrade.map((d: any) => (
-                  <tr key={d.id} className="hover:bg-surface/40 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <Monitor className="w-4 h-4 text-foreground-muted" />
-                        <span className="font-medium text-foreground">{d.hostname}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <Cpu className={cn("w-3.5 h-3.5", d.isLowRam ? "text-warning" : "text-foreground-muted")} />
-                        <span className={cn("text-sm font-mono", d.isLowRam && "text-warning font-bold")}>
-                          {d.totalRam || "Unknown"}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <HardDrive className={cn("w-3.5 h-3.5", d.isLowDisk ? "text-danger" : "text-foreground-muted")} />
-                        <div className="flex flex-wrap gap-x-2 gap-y-1">
-                          {d.freeDisk && d.freeDisk.split(' | ').map((part: string, idx: number) => {
-                            const valMatch = part.match(/(\d+(?:\.\d+)?)/);
-                            const val = valMatch ? parseFloat(valMatch[1]) : 100;
-                            return (
-                              <span key={idx} className={cn("text-sm font-mono whitespace-nowrap", val < 50 ? "text-danger font-bold" : "text-foreground-muted")}>
-                                {part}{idx < d.freeDisk.split(' | ').length - 1 && <span className="text-foreground-muted ml-2">|</span>}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-warning/10 text-warning border border-warning/20">
-                        <AlertTriangle className="w-3 h-3" />
-                        {d.isLowRam && d.isLowDisk 
-                          ? `Upgrade RAM & Disk (${d.lowDiskDrives.join(', ')})` 
-                          : d.isLowRam ? "Upgrade RAM" 
-                          : `Upgrade Disk (${d.lowDiskDrives.join(', ')})`}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <button
-                        onClick={(e) => handleShowDetails(e, d)}
-                        className="text-primary hover:text-primary-hover flex items-center gap-1 text-xs font-semibold">
-                        Details <ArrowUpRight className="w-3 h-3" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
-
-      {/* Device Details Drawer */}
-      {selectedDevice && (
-        <div className="fixed inset-0 z-40 flex" onClick={closeDrawer}>
-          <div className="flex-1 bg-black/50 backdrop-blur-sm" />
-          <div
-            className="w-96 bg-surface border border-border rounded-lg shadow-xl overflow-y-auto flex flex-col max-h-[90vh] animate-fade-up"
-            style={{
-              position: "fixed",
-              top: `${drawerPosition.top}px`,
-              right: `${drawerPosition.right}px`,
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="p-5 border-b border-border flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-foreground font-mono">{selectedDevice.hostname}</p>
-                <p className="text-xs text-foreground-muted">{selectedDevice.ip}</p>
-              </div>
-              <button
-                onClick={closeDrawer}
-                className="text-foreground-muted hover:text-foreground ml-2 text-lg"
-              >
-                ×
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="p-5 space-y-4 flex-1">
-              <div className="space-y-3">
-                <p className="text-xs text-foreground-muted uppercase tracking-wider font-semibold">Hardware Information</p>
-
-                <div className="flex items-center gap-3">
-                  <div className="text-foreground-muted shrink-0"><Cpu className="w-4 h-4" /></div>
-                  <div>
-                    <p className="text-xs text-foreground-muted">RAM</p>
-                    <p className={cn("text-sm font-medium", selectedDevice.isLowRam ? "text-warning font-bold" : "text-foreground")}>
-                      {selectedDevice.totalRam || "Unknown"}
-                      {selectedDevice.isLowRam && " ⚠️ Low RAM"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="text-foreground-muted shrink-0"><HardDrive className="w-4 h-4" /></div>
-                  <div>
-                    <p className="text-xs text-foreground-muted">Disk (Free)</p>
-                    <div className="flex flex-wrap gap-x-2 gap-y-1">
-                      {selectedDevice.freeDisk && selectedDevice.freeDisk.split(' | ').map((part: string, idx: number) => {
-                        const valMatch = part.match(/(\d+(?:\.\d+)?)/);
-                        const val = valMatch ? parseFloat(valMatch[1]) : 100;
-                        return (
-                          <span key={idx} className={cn("text-sm font-medium", val < 50 ? "text-danger font-bold" : "text-foreground")}>
-                            {part}{selectedDevice.isLowDisk && val < 50 && " ⚠️"}
-                            {idx < selectedDevice.freeDisk.split(' | ').length - 1 && <span className="text-foreground-muted ml-2">|</span>}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-border">
-                <p className="text-xs text-foreground-muted uppercase tracking-wider font-semibold mb-2">Upgrade Recommendation</p>
-                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-warning/10 text-warning border border-warning/20">
-                  <AlertTriangle className="w-3 h-3" />
-                  {selectedDevice.isLowRam && selectedDevice.isLowDisk 
-                    ? `Upgrade RAM & Disk (${selectedDevice.lowDiskDrives.join(', ')})` 
-                    : selectedDevice.isLowRam ? "Upgrade RAM" 
-                    : `Upgrade Disk (${selectedDevice.lowDiskDrives.join(', ')})`}
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-border space-y-2">
-                <p className="text-xs text-foreground-muted uppercase tracking-wider font-semibold">Device Details</p>
-                <div className="text-xs space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-foreground-muted">Hostname:</span>
-                    <span className="font-mono text-foreground">{selectedDevice.hostname}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-foreground-muted">IP Address:</span>
-                    <span className="font-mono text-foreground">{selectedDevice.ip}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-foreground-muted">OS Version:</span>
-                    <span className="font-mono text-foreground">{selectedDevice.os_version || "Unknown"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-foreground-muted">Agent Version:</span>
-                    <span className="font-mono text-foreground">{selectedDevice.agent_version || "Unknown"}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-5 border-t border-border bg-surface-raised flex gap-3">
-              <button
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md hover:bg-surface hover:text-foreground text-foreground-muted transition-colors"
-              >
-                <Monitor className="w-4 h-4" /> View Full Details
-              </button>
-              <button
-                onClick={closeDrawer}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md hover:bg-surface-raised text-foreground-muted transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
