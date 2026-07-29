@@ -1115,7 +1115,7 @@ export default function CrmDevLoyaltyPage() {
                 <div className="text-foreground-muted text-[10px] leading-relaxed italic">
                   {ACHIEVEMENT_BADGES[selectedBadge.name]?.desc}
                 </div>
-                <div className="text-[10px] text-foreground-subtle bg-primary/5 border border-primary/20 rounded px-2 py-1 leading-normal">
+                <div className="text-[10px] text-foreground-subtle bg-primary/5 border border-primary/20 rounded px-2 py-1 leading-normal whitespace-pre-line">
                   <strong>Unlocked criteria:</strong><br />
                   {selectedBadge.criteria}
                 </div>

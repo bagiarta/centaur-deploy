@@ -27,6 +27,7 @@ import CrmSyncPage from "./pages/CrmSyncPage";
 import CrmDevLoyaltyPage from "./pages/CrmDevLoyaltyPage";
 import ActivitiesPage from "./pages/ActivitiesPage";
 import ScaleManagerPage from "./pages/ScaleManagerPage";
+import EslManagerPage from "./pages/EslManagerPage";
 import CCTVMonitoringPage from "./pages/CCTVMonitoringPage";
 import PMDashboardPage from "./pages/PMDashboardPage";
 import PMSchedulePage from "./pages/PMSchedulePage";
@@ -229,6 +230,13 @@ const App = () => (
               <ProtectedRoute>
                 <AppShell>
                   <ScaleManagerPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/esl" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <EslManagerPage />
                 </AppShell>
               </ProtectedRoute>
             } />
