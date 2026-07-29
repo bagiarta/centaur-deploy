@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Monitor, Package, Rocket, Download, ClipboardList,
   Terminal, History, Settings, ChevronLeft, ChevronRight,
-  Server, Shield, Bell, User, Activity, Users, Database, Scale,
+  Server, Shield, Bell, User, Activity, Users, Database, Scale, Tag,
   UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
   UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw, Wrench,
   Video, Trophy, HardDrive,
@@ -64,6 +64,7 @@ export const navItems = [
       { id: "groups", to: "/groups", icon: Users, label: "Device Groups" },
       { id: "sql", to: "/remote-sql", icon: Database, label: "Remote SQL" },
       { id: "scales", to: "/scales", icon: Scale, label: "Scale Manager" },
+      { id: "esl", to: "/esl", icon: Tag, label: "ESL Control Center" },
       { id: "agent", to: "/agent-installer", icon: Download, label: "Agent Installer" },
       { id: "installers", to: "/tools/installers", icon: Download, label: "Installation Files" },
       { id: "remote", to: "/remote", icon: Terminal, label: "Remote Commands" },

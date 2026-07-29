@@ -59,12 +59,14 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
     icon: UserPlus,
     endpoint: "member-enrollment",
     columns: [
-      { key: 'member_id', label: 'Member ID', type: 'string' },
-      { key: 'join_date', label: 'Join Date', type: 'date' },
-      { key: 'city', label: 'City', type: 'string' },
-      { key: 'acquisition_channel', label: 'Channel', type: 'string' },
-      { key: 'lifetime_txn', label: 'Lifetime Txn', type: 'number' },
-      { key: 'lifetime_sales', label: 'Lifetime Sales', type: 'currency' },
+      { key: 'STORE_NAME', label: 'Store Name', type: 'string' },
+      { key: 'MEMBER_ID', label: 'Member ID', type: 'string' },
+      { key: 'CUST_NAME', label: 'Customer Name', type: 'string' },
+      { key: 'PHONE_NUMBER', label: 'Phone', type: 'string' },
+      { key: 'JOIN_DATE', label: 'Join Date', type: 'date' },
+      { key: 'REGISTRATION_TYPE', label: 'Channel', type: 'string' },
+      { key: 'STARTING_POINTS', label: 'Starting Points', type: 'number' },
+      { key: 'IS_ACTIVE', label: 'Active', type: 'string' },
     ]
   },
   'top-spender': {

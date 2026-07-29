@@ -5790,6 +5790,42 @@ app.get('/api/dev/loyalty/profiles', async (req, res) => {
       summariesByMember[s.member_id].push(s);
     });
 
+    // Fetch all promo items for these member IDs within the selected filter range
+    let promoQuery = `
+      SELECT card_no, itm_cd, item_name, promo_detail, SUM(disc_amt) AS total_disc, SUM(qty) AS total_qty
+      FROM ITEM_SALES_MEMBER 
+      WHERE card_no IN (${idPlaceholders}) AND disc_amt > 0
+    `;
+    const promoRequest = pool.request();
+    memberIds.forEach((id, index) => {
+      promoRequest.input(`id_${index}`, sql.NVarChar, id);
+    });
+
+    if (fromDate && toDate) {
+      promoQuery += " AND bill_dt >= @fromDate AND bill_dt <= @toDate";
+      promoRequest.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+      promoRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+    }
+    if (store && store !== 'All Stores') {
+      promoQuery += " AND org_cd = @store";
+      promoRequest.input('store', sql.NVarChar, store);
+    }
+
+    promoQuery += `
+      GROUP BY card_no, itm_cd, item_name, promo_detail
+      ORDER BY total_disc DESC
+    `;
+
+    const promosRes = await promoRequest.query(promoQuery);
+    const allPromos = promosRes.recordset;
+
+    // Group promos by card_no (member_id)
+    const promosByMember = {};
+    allPromos.forEach(pr => {
+      if (!promosByMember[pr.card_no]) promosByMember[pr.card_no] = [];
+      promosByMember[pr.card_no].push(pr);
+    });
+
     // Evaluate achievements and compute stats dynamically
     const { evaluateAchievements } = require('./scripts/loyalty_achievements.cjs');
 
@@ -5816,11 +5852,21 @@ app.get('/api/dev/loyalty/profiles', async (req, res) => {
         ...p,
         total_spent: dynamicSpent,
         total_transactions: dynamicTxn,
-        achievements: dynamicAchievements.map(ach => ({
-          name: ach.name,
-          unlocked_at: new Date(),
-          criteria_met: ach.criteria
-        }))
+        achievements: dynamicAchievements.map(ach => {
+          let criteria = ach.criteria;
+          if (ach.name === 'Promo Hunter') {
+            const memberPromos = promosByMember[p.member_id] || [];
+            if (memberPromos.length > 0) {
+              const promoDetails = memberPromos.map(pr => `- ${pr.item_name} (${pr.promo_detail || 'Promo'}): Saved Rp ${Math.round(pr.total_disc).toLocaleString('id-ID')}`).join('\n');
+              criteria += `\n\nPromo items bought:\n${promoDetails}`;
+            }
+          }
+          return {
+            name: ach.name,
+            unlocked_at: new Date(),
+            criteria_met: criteria
+          };
+        })
       };
     });
 
@@ -6009,7 +6055,7 @@ app.get('/api/crm/reports/stores', async (req, res) => {
     const result = await crmPool.request().query(`
       SELECT DISTINCT ORG_CD AS org_cd, ORG_NAME AS org_name 
       FROM DimStore 
-      WHERE 1 = 1
+      WHERE ORG_STATUS = 'O' AND ORG_LEVEL_NUMBER = 3
       ORDER BY ORG_CD ASC
     `);
     res.json(result.recordset);
@@ -6128,27 +6174,26 @@ app.get('/api/crm/reports/:type', async (req, res) => {
     else if (type === 'member-enrollment') {
       // member-enrollment and top-spender typically use data warehouse tables
       // For trial, I'll implement member-enrollment
-      let where = "WHERE m.join_date BETWEEN @fromDate AND @toDate";
+      let where = "WHERE JOIN_DATE BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND STORE_NAME = @store";
+        params.store = store;
+      }
       if (search) {
-        where += " AND (m.member_id LIKE @search OR m.name LIKE @search)";
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search OR PHONE_NUMBER LIKE @search)";
         params.search = `%${search}%`;
       }
 
       query = `
-         SELECT m.member_id, m.join_date, m.city, m.acquisition_channel,
-                COALESCE(lt.lifetime_txn, 0) as lifetime_txn,
-                COALESCE(lt.lifetime_sales, 0) as lifetime_sales
-         FROM dim_member m
-         LEFT JOIN (
-           SELECT member_id, COUNT(DISTINCT transaction_id) as lifetime_txn, SUM(net_amount) as lifetime_sales
-           FROM fact_transactions
-           GROUP BY member_id
-         ) lt ON m.member_id = lt.member_id
+         SELECT STORE_NAME, MEMBER_ID, CUST_NAME, PHONE_NUMBER, 
+                JOIN_DATE, REGISTRATION_TYPE, STARTING_POINTS,
+                CASE WHEN IS_ACTIVE = 1 THEN 'Yes' ELSE 'No' END AS IS_ACTIVE
+         FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK)
          ${where}
-         ORDER BY m.join_date DESC
+         ORDER BY JOIN_DATE DESC, CREATED_AT DESC
          OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
        `;
-      countQuery = `SELECT COUNT(*) as total FROM dim_member m ${where}`;
+      countQuery = `SELECT COUNT(*) as total FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) ${where}`;
     }
     else if (type === 'top-spender') {
       const topLimit = parseInt(req.query.top) || 100;
@@ -6375,30 +6420,33 @@ app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
     else if (type === 'member-enrollment') {
       title = "Member Enrollment Analysis";
       columns = [
-        { header: 'Member ID', key: 'member_id', width: 15 },
-        { header: 'Join Date', key: 'join_date', width: 15 },
-        { header: 'City', key: 'city', width: 20 },
-        { header: 'Channel', key: 'acquisition_channel', width: 20 },
-        { header: 'Lifetime Txn', key: 'lifetime_txn', width: 15 },
-        { header: 'Lifetime Sales', key: 'lifetime_sales', width: 20, style: { numFmt: '#,##0' } },
+        { header: 'Store Name', key: 'STORE_NAME', width: 25 },
+        { header: 'Member ID', key: 'MEMBER_ID', width: 20 },
+        { header: 'Customer Name', key: 'CUST_NAME', width: 25 },
+        { header: 'Phone No', key: 'PHONE_NUMBER', width: 15 },
+        { header: 'Join Date', key: 'JOIN_DATE', width: 15 },
+        { header: 'Channel', key: 'REGISTRATION_TYPE', width: 20 },
+        { header: 'Starting Points', key: 'STARTING_POINTS', width: 15 },
+        { header: 'Active', key: 'IS_ACTIVE', width: 10 },
       ];
 
-      let where = "WHERE m.join_date BETWEEN @fromDate AND @toDate";
+      let where = "WHERE JOIN_DATE BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND STORE_NAME = @store";
+        params.store = store;
+      }
       if (search) {
-        where += " AND (m.member_id LIKE @search OR m.name LIKE @search)";
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search OR PHONE_NUMBER LIKE @search)";
         params.search = `%${search}%`;
       }
 
       query = `
-        SELECT m.member_id, m.join_date, m.city, m.acquisition_channel,
-               COALESCE(lt.lifetime_txn, 0) as lifetime_txn, COALESCE(lt.lifetime_sales, 0) as lifetime_sales
-        FROM dim_member m
-        LEFT JOIN (
-          SELECT member_id, COUNT(DISTINCT transaction_id) as lifetime_txn, SUM(net_amount) as lifetime_sales
-          FROM fact_transactions GROUP BY member_id
-        ) lt ON m.member_id = lt.member_id
+        SELECT STORE_NAME, MEMBER_ID, CUST_NAME, PHONE_NUMBER, 
+               JOIN_DATE, REGISTRATION_TYPE, STARTING_POINTS,
+               CASE WHEN IS_ACTIVE = 1 THEN 'Yes' ELSE 'No' END AS IS_ACTIVE
+        FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK)
         ${where}
-        ORDER BY m.join_date DESC
+        ORDER BY JOIN_DATE DESC, CREATED_AT DESC
       `;
     }
     else if (type === 'top-spender') {
@@ -7135,6 +7183,11 @@ app.get('/api/installers/:id/download', async (req, res) => {
   }
 });
 
+// ── ESL ROUTER ───────────────────────────────────────────────
+import('./routes/eslRoutes.js').then((routerModule) => {
+  app.use('/api/esl', routerModule.default);
+}).catch(err => console.error('Failed to load ESL router in server.cjs:', err));
+
 // ── STATIC FILES & SPA FALLBACK ───────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -7179,6 +7232,18 @@ app.listen(port, '0.0.0.0', async () => {
     setTimeout(logCleanupLoop, 24 * 60 * 60 * 1000);
   }
   logCleanupLoop();
+
+  // Start ESL pricing sync loop — runs every 10 minutes
+  async function eslSyncLoop() {
+    try {
+      const { syncPrices } = require('./scripts/sync_esl_engine.cjs');
+      await syncPrices();
+    } catch (err) {
+      console.error('ESL Price Sync Loop Error:', err);
+    }
+    setTimeout(eslSyncLoop, 10 * 60 * 1000);
+  }
+  eslSyncLoop();
 
   console.log('🔍 Offline detector started (monitoring heartbeats, with proactive ping check)');
 });
