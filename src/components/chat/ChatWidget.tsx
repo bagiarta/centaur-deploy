@@ -197,6 +197,25 @@ export default function ChatWidget() {
     e.target.value = '';
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          if (file.size > 10 * 1024 * 1024) { toast.error('Max file size is 10 MB'); return; }
+          setAttachFile(file);
+          const reader = new FileReader();
+          reader.onload = ev => setAttachPreview(ev.target?.result as string);
+          reader.readAsDataURL(file);
+          break;
+        }
+      }
+    }
+  };
+
   const clearAttach = () => { setAttachFile(null); setAttachPreview(null); };
 
   // ── Delete message ──────────────────────────────────────────────────
@@ -508,6 +527,7 @@ export default function ChatWidget() {
                       value={inputText}
                       onChange={e => setInputText(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                      onPaste={handlePaste}
                       placeholder={attachFile ? "Add a caption..." : "Type a message..."}
                       className="flex-1 bg-transparent text-xs outline-none text-foreground placeholder:text-foreground-muted"
                     />

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Trophy, Award, RefreshCw, Calendar, Search, Database,
   TrendingUp, Users, UserPlus, Activity, Sparkles, ChevronDown, 
-  ChevronUp, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight
+  ChevronUp, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, FileSpreadsheet
 } from "lucide-react";
 import { PageHeader, SectionCard, StatCard } from "@/components/ui-enterprise";
 import { toast } from "sonner";
@@ -123,8 +123,8 @@ export default function CrmDevLoyaltyPage() {
   const [sumSearchInput, setSumSearchInput] = useState("");
   const [sumPage, setSumPage] = useState(1);
   const [sumPerPage] = useState(50);
-  const [sumSortBy, setSumSortBy] = useState("summary_date");
-  const [sumSortDir, setSumSortDir] = useState<"asc" | "desc">("desc");
+  const [sumSortBy, setSumSortBy] = useState("org_cd");
+  const [sumSortDir, setSumSortDir] = useState<"asc" | "desc">("asc");
   const [sumTotal, setSumTotal] = useState(0);
 
   // Item Sales Tab State
@@ -133,6 +133,8 @@ export default function CrmDevLoyaltyPage() {
   const [itemSalesSearchInput, setItemSalesSearchInput] = useState("");
   const [itemSalesPage, setItemSalesPage] = useState(1);
   const [itemSalesPerPage] = useState(50);
+  const [itemSalesSortBy, setItemSalesSortBy] = useState("org_cd");
+  const [itemSalesSortDir, setItemSalesSortDir] = useState<"asc" | "desc">("asc");
   const [itemSalesTotal, setItemSalesTotal] = useState(0);
   const [deptStats, setDeptStats] = useState<any[]>([]);
   const [brandStats, setBrandStats] = useState<any[]>([]);
@@ -289,6 +291,8 @@ export default function CrmDevLoyaltyPage() {
         page: itemSalesPage.toString(),
         perPage: itemSalesPerPage.toString(),
         search: itemSalesSearch,
+        sortBy: itemSalesSortBy,
+        sortDir: itemSalesSortDir
       });
       if (store && store !== "All Stores") q.append("store", store);
       if (from) q.append("fromDate", from);
@@ -323,7 +327,8 @@ export default function CrmDevLoyaltyPage() {
           toast.success("ETL process finished. Refreshing data!");
           fetchStats(filterStore, filterFromDate, filterToDate);
           if (activeTab === 'profiles') fetchProfiles(filterStore, filterFromDate, filterToDate);
-          else fetchSummaries(filterStore, filterFromDate, filterToDate);
+          else if (activeTab === 'summaries') fetchSummaries(filterStore, filterFromDate, filterToDate);
+          else fetchItemSales(filterStore, filterFromDate, filterToDate);
         }
       }
     } catch (e) {
@@ -386,14 +391,24 @@ export default function CrmDevLoyaltyPage() {
     setProfPage(1);
   };
 
-  const toggleSumSort = (column: string) => {
-    if (sumSortBy === column) {
-      setSumSortDir(sumSortDir === 'asc' ? 'desc' : 'asc');
+  const toggleSumSort = (col: string) => {
+    if (sumSortBy === col) {
+      setSumSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
     } else {
-      setSumSortBy(column);
+      setSumSortBy(col);
       setSumSortDir('desc');
     }
     setSumPage(1);
+  };
+
+  const toggleItemSalesSort = (col: string) => {
+    if (itemSalesSortBy === col) {
+      setItemSalesSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setItemSalesSortBy(col);
+      setItemSalesSortDir('desc');
+    }
+    setItemSalesPage(1);
   };
 
   const formatCurrency = (value: number) => {
@@ -426,13 +441,124 @@ export default function CrmDevLoyaltyPage() {
         title="CRM Loyalty & Achievements Engine"
         subtitle="Developer Analytics Dashboard & Achievements evaluation"
         actions={
-          <button
-            onClick={() => { fetchStats(filterStore, filterFromDate, filterToDate); if (activeTab === 'profiles') fetchProfiles(filterStore, filterFromDate, filterToDate); else if (activeTab === 'summaries') fetchSummaries(filterStore, filterFromDate, filterToDate); else fetchItemSales(filterStore, filterFromDate, filterToDate); }}
-            disabled={loading}
-            className="flex items-center gap-2 px-3.5 py-2 bg-surface border border-border rounded-xl text-xs font-bold hover:bg-surface-raised transition-all"
-          >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} /> Refresh Tables
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  const q = new URLSearchParams();
+                  if (filterStore && filterStore !== "All Stores") q.append("store", filterStore);
+                  if (filterFromDate) q.append("fromDate", filterFromDate);
+                  if (filterToDate) q.append("toDate", filterToDate);
+                  
+                  if (activeTab === 'profiles') {
+                    if (profSearch) q.append("search", profSearch);
+                    q.append("sortBy", profSortBy);
+                    q.append("sortDir", profSortDir);
+                  } else if (activeTab === 'summaries') {
+                    if (sumSearch) q.append("search", sumSearch);
+                    q.append("sortBy", sumSortBy);
+                    q.append("sortDir", sumSortDir);
+                  } else if (activeTab === 'item-sales') {
+                    if (itemSalesSearch) q.append("search", itemSalesSearch);
+                    q.append("sortBy", itemSalesSortBy);
+                    q.append("sortDir", itemSalesSortDir);
+                  }
+
+                  let rows: any[] = [];
+                  let headers: string[] = [];
+                  let headerLabels: string[] = [];
+
+                  if (activeTab === 'profiles') {
+                    headers = ['member_id', 'city', 'name', 'mobile_no', 'total_spent', 'total_transactions', 'favorite_store', 'achievements'];
+                    headerLabels = ['Member Card', 'City', 'Customer Name', 'Phone', 'Total Spent', 'Total Txns', 'Favorite Store', 'Achievements Badges'];
+                  } else if (activeTab === 'summaries') {
+                    headers = ['summary_date', 'member_id', 'name', 'mobile_no', 'org_cd', 'total_sales', 'total_qty', 'total_txn'];
+                    headerLabels = ['Date', 'Member Card', 'Customer Name', 'Phone', 'Store', 'Sales Value', 'Qty', 'Txns'];
+                  } else if (activeTab === 'item-sales') {
+                    headers = ['org_cd', 'store_name', 'bill_dt', 'card_no', 'member_name', 'item_name', 'itm_cd', 'department', 'brand', 'division', 'qty', 'uom', 'promo_item_flag', 'promo_detail', 'disc_amt'];
+                    headerLabels = ['Store Code', 'Store Name', 'Date', 'Member Card', 'Customer Name', 'Item Name', 'Item Code', 'Department', 'Brand', 'Division', 'Qty', 'UOM', 'Promo Flag', 'Promo Detail', 'Disc Amount'];
+                  }
+                  
+                  const endpoint = activeTab === 'summaries' ? 'summary' : activeTab;
+                  const BATCH_SIZE = 5000;
+                  let page = 1;
+                  let fetching = true;
+                  toast.loading(`Fetching data for export...`, { id: 'export-toast' });
+
+                  while (fetching) {
+                    q.set("page", page.toString());
+                    q.set("perPage", BATCH_SIZE.toString());
+                    
+                    const res = await fetch(`/api/dev/loyalty/${endpoint}?${q.toString()}`);
+                    if (!res.ok) {
+                      toast.dismiss('export-toast');
+                      throw new Error("Failed to fetch data for export");
+                    }
+                    const data = await res.json();
+                    
+                    const batchRows = data.profiles || data.summaries || data.sales || [];
+                    if (batchRows.length > 0) {
+                      rows = rows.concat(batchRows);
+                    }
+                    
+                    if (batchRows.length < BATCH_SIZE) {
+                      fetching = false;
+                    } else {
+                      page++;
+                    }
+                  }
+                  toast.dismiss('export-toast');
+
+                  if (rows.length === 0) {
+                    toast.error("No data found to export.");
+                    return;
+                  }
+
+                  let csvContent = headerLabels.map(h => `"${h}"`).join(",") + "\n";
+                  rows.forEach(r => {
+                    csvContent += headers.map(h => {
+                      let val = r[h];
+                      if (h === 'achievements' && Array.isArray(val)) {
+                        val = val.map((a: any) => a.name).join(' | ');
+                      } else if (h === 'favorite_store') {
+                        const s = stores.find(st => st.org_cd === r.favorite_store);
+                        val = s ? `${r.favorite_store} - ${s.org_name}` : (r.favorite_store || '-');
+                      } else if (h === 'store_name') {
+                        const s = stores.find(st => st.org_cd === r.org_cd);
+                        val = s ? s.org_name : '-';
+                      } else if (h === 'org_cd' && activeTab === 'summaries') {
+                        const s = stores.find(st => st.org_cd === r.org_cd);
+                        val = s ? `${r.org_cd} - ${s.org_name}` : r.org_cd;
+                      } else {
+                        val = val !== undefined && val !== null ? String(val) : "";
+                      }
+                      return `"${String(val).replace(/"/g, '""')}"`;
+                    }).join(",") + "\n";
+                  });
+
+                  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${activeTab}-report.csv`;
+                  a.click();
+                  toast.success("Export downloaded!");
+                } catch (err: any) {
+                  toast.error(`Export failed: ${err.message}`);
+                }
+              }}
+              className="flex items-center gap-2 px-3.5 py-2 bg-surface border border-border rounded-xl text-xs font-bold hover:bg-surface-raised transition-all"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-success" /> Export Excel
+            </button>
+            <button
+              onClick={() => { fetchStats(filterStore, filterFromDate, filterToDate); if (activeTab === 'profiles') fetchProfiles(filterStore, filterFromDate, filterToDate); else if (activeTab === 'summaries') fetchSummaries(filterStore, filterFromDate, filterToDate); else fetchItemSales(filterStore, filterFromDate, filterToDate); }}
+              disabled={loading}
+              className="flex items-center gap-2 px-3.5 py-2 bg-surface border border-border rounded-xl text-xs font-bold hover:bg-surface-raised transition-all"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} /> Refresh Tables
+            </button>
+          </div>
         }
       />
 
@@ -694,7 +820,7 @@ export default function CrmDevLoyaltyPage() {
                       {p.total_transactions}
                     </td>
                     <td className="px-4 py-3 text-xs text-foreground-subtle font-medium">
-                      {p.favorite_store || '-'}
+                      {p.favorite_store ? (stores.find(s => s.org_cd === p.favorite_store)?.org_name || p.favorite_store) : '-'}
                     </td>
                     <td className="px-4 py-3 text-xs">
                       {p.achievements && p.achievements.length > 0 ? (
@@ -813,6 +939,9 @@ export default function CrmDevLoyaltyPage() {
                   <th onClick={() => toggleSumSort('member_id')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest cursor-pointer hover:text-foreground select-none">
                     Member Card {renderSortArrow('member_id', sumSortBy, sumSortDir)}
                   </th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-left">
+                    Customer Name
+                  </th>
                   <th onClick={() => toggleSumSort('org_cd')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest cursor-pointer hover:text-foreground select-none">
                     Store {renderSortArrow('org_cd', sumSortBy, sumSortDir)}
                   </th>
@@ -847,7 +976,13 @@ export default function CrmDevLoyaltyPage() {
                       {new Date(sum.summary_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </td>
                     <td className="px-4 py-3 text-xs font-bold font-mono text-primary">{sum.member_id}</td>
-                    <td className="px-4 py-3 text-xs text-foreground-subtle font-medium">{sum.org_cd}</td>
+                    <td className="px-4 py-3 text-xs">
+                      <div className="font-bold text-foreground">{sum.name || 'Anonymous member'}</div>
+                      <div className="text-[10px] text-foreground-muted mt-0.5">{sum.mobile_no || 'No Phone'}</div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-foreground-subtle font-medium">
+                      {stores.find(s => s.org_cd === sum.org_cd)?.org_name || sum.org_cd}
+                    </td>
                     <td className="px-4 py-3 text-xs font-mono text-success text-right font-bold">
                       {formatCurrency(sum.total_sales)}
                     </td>
@@ -965,7 +1100,7 @@ export default function CrmDevLoyaltyPage() {
               <Search className="w-4 h-4 text-foreground-muted" />
               <input
                 type="text"
-                placeholder="Search item name, brand, card, dept..."
+                placeholder="Search cust name, item name/code, brand..."
                 value={itemSalesSearchInput}
                 onChange={e => setItemSalesSearchInput(e.target.value)}
                 className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 flex-1"
@@ -984,8 +1119,10 @@ export default function CrmDevLoyaltyPage() {
               <thead>
                 <tr className="bg-surface-raised/50 border-b border-border">
                   <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-center w-12">#</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Store / Date</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Member Card</th>
+                  <th onClick={() => toggleItemSalesSort('org_cd')} className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest cursor-pointer hover:text-foreground select-none">
+                    Store / Date {renderSortArrow('org_cd', itemSalesSortBy, itemSalesSortDir)}
+                  </th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Member / Cust Name</th>
                   <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Item Name / Code</th>
                   <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Classification</th>
                   <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-right">Qty</th>
@@ -1009,10 +1146,13 @@ export default function CrmDevLoyaltyPage() {
                   <tr key={item.id} className="hover:bg-white/5 transition-colors group text-xs">
                     <td className="px-4 py-3 text-center text-foreground-muted font-mono">{itemSalesStartRecord + idx}</td>
                     <td className="px-4 py-3">
-                      <div className="font-bold text-foreground">{item.org_cd}</div>
+                      <div className="font-bold text-foreground">{stores.find(s => s.org_cd === item.org_cd)?.org_name || item.org_cd}</div>
                       <div className="text-[10px] text-foreground-muted mt-0.5">{new Date(item.bill_dt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-primary font-bold">{item.card_no}</td>
+                    <td className="px-4 py-3 text-xs">
+                      <div className="font-bold font-mono text-primary">{item.card_no}</div>
+                      <div className="text-[10px] text-foreground-muted mt-0.5">{item.member_name || 'Anonymous member'}</div>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="font-bold text-foreground">{item.item_name}</div>
                       <div className="text-[10px] text-foreground-muted mt-0.5 font-mono">{item.itm_cd}</div>

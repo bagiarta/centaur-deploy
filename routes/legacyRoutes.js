@@ -4578,7 +4578,7 @@ router.get('/api/dev/loyalty/summary', async (req, res) => {
   const offset = (parseInt(page) - 1) * parseInt(perPage);
   const limit = parseInt(perPage);
   const safeSortDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-  const allowedSortCols = ['summary_date', 'total_sales', 'total_margin', 'total_txn', 'member_id'];
+  const allowedSortCols = ['summary_date', 'total_sales', 'total_margin', 'total_txn', 'member_id', 'org_cd'];
   const safeSortCol = allowedSortCols.includes(sortBy) ? sortBy : 'summary_date';
 
   try {
@@ -4669,74 +4669,80 @@ router.get('/api/dev/loyalty/profiles', async (req, res) => {
     }
 
     const memberIds = profiles.map(p => p.member_id);
-    const idPlaceholders = memberIds.map((id, index) => {
-      return `@id_${index}`;
-    }).join(', ');
+    
+    const chunkArray = (arr, size) => {
+      const res = [];
+      for(let i = 0; i < arr.length; i += size) res.push(arr.slice(i, i + size));
+      return res;
+    };
+    const idChunks = chunkArray(memberIds, 500);
+    
+    const allSummaries = [];
+    const allPromos = [];
 
-    // Fetch all daily summaries for these member IDs within the selected filter range to compute dynamic stats & achievements
-    let summaryQuery = `
-      SELECT * FROM LOYAL_MEMBER_DAILY_SUMMARY 
-      WHERE member_id IN (${idPlaceholders})
-    `;
-    const sumRequest = pool.request();
-    memberIds.forEach((id, index) => {
-      sumRequest.input(`id_${index}`, sql.NVarChar, id);
-    });
+    for (const chunk of idChunks) {
+      if (chunk.length === 0) continue;
+      
+      const idPlaceholders = chunk.map((id, idx) => `@id_${idx}`).join(', ');
+      
+      let summaryQuery = `
+        SELECT * FROM LOYAL_MEMBER_DAILY_SUMMARY 
+        WHERE member_id IN (${idPlaceholders})
+      `;
+      const sumRequest = pool.request();
+      chunk.forEach((id, idx) => sumRequest.input(`id_${idx}`, sql.NVarChar, id));
 
-    if (fromDate && toDate) {
-      summaryQuery += " AND summary_date BETWEEN @fromDate AND @toDate";
-      sumRequest.input('fromDate', sql.Date, fromDate);
-      sumRequest.input('toDate', sql.Date, toDate);
+      if (fromDate && toDate) {
+        summaryQuery += " AND summary_date BETWEEN @fromDate AND @toDate";
+        sumRequest.input('fromDate', sql.Date, fromDate);
+        sumRequest.input('toDate', sql.Date, toDate);
+      }
+      if (store && store !== 'All Stores') {
+        summaryQuery += " AND org_cd = @store";
+        sumRequest.input('store', sql.NVarChar, store);
+      }
+
+      const sumRes = await sumRequest.query(summaryQuery);
+      allSummaries.push(...sumRes.recordset);
+
+      let promoQuery = `
+        SELECT card_no, itm_cd, item_name, promo_detail, SUM(disc_amt) AS total_disc, SUM(qty) AS total_qty
+        FROM ITEM_SALES_MEMBER 
+        WHERE card_no IN (${idPlaceholders}) AND disc_amt > 0
+      `;
+      const promoRequest = pool.request();
+      chunk.forEach((id, idx) => promoRequest.input(`id_${idx}`, sql.NVarChar, id));
+
+      if (fromDate && toDate) {
+        promoQuery += " AND bill_dt >= @fromDate AND bill_dt <= @toDate";
+        promoRequest.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+        promoRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+      }
+      if (store && store !== 'All Stores') {
+        promoQuery += " AND org_cd = @store";
+        promoRequest.input('store', sql.NVarChar, store);
+      }
+
+      promoQuery += `
+        GROUP BY card_no, itm_cd, item_name, promo_detail
+        ORDER BY total_disc DESC
+      `;
+      const promoRes = await promoRequest.query(promoQuery);
+      allPromos.push(...promoRes.recordset);
     }
-    if (store && store !== 'All Stores') {
-      summaryQuery += " AND org_cd = @store";
-      sumRequest.input('store', sql.NVarChar, store);
-    }
-
-    const summariesRes = await sumRequest.query(summaryQuery);
-    const allSummaries = summariesRes.recordset;
-
-    // Group summaries by member_id
-    const summariesByMember = {};
-    allSummaries.forEach(s => {
-      if (!summariesByMember[s.member_id]) summariesByMember[s.member_id] = [];
-      summariesByMember[s.member_id].push(s);
-    });
-
-    // Fetch all promo items for these member IDs within the selected filter range
-    let promoQuery = `
-      SELECT card_no, itm_cd, item_name, promo_detail, SUM(disc_amt) AS total_disc, SUM(qty) AS total_qty
-      FROM ITEM_SALES_MEMBER 
-      WHERE card_no IN (${idPlaceholders}) AND disc_amt > 0
-    `;
-    const promoRequest = pool.request();
-    memberIds.forEach((id, index) => {
-      promoRequest.input(`id_${index}`, sql.NVarChar, id);
-    });
-
-    if (fromDate && toDate) {
-      promoQuery += " AND bill_dt >= @fromDate AND bill_dt <= @toDate";
-      promoRequest.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
-      promoRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
-    }
-    if (store && store !== 'All Stores') {
-      promoQuery += " AND org_cd = @store";
-      promoRequest.input('store', sql.NVarChar, store);
-    }
-
-    promoQuery += `
-      GROUP BY card_no, itm_cd, item_name, promo_detail
-      ORDER BY total_disc DESC
-    `;
-
-    const promosRes = await promoRequest.query(promoQuery);
-    const allPromos = promosRes.recordset;
 
     // Group promos by card_no (member_id)
     const promosByMember = {};
     allPromos.forEach(pr => {
       if (!promosByMember[pr.card_no]) promosByMember[pr.card_no] = [];
       promosByMember[pr.card_no].push(pr);
+    });
+
+    // Group summaries by member_id
+    const summariesByMember = {};
+    allSummaries.forEach(s => {
+      if (!summariesByMember[s.member_id]) summariesByMember[s.member_id] = [];
+      summariesByMember[s.member_id].push(s);
     });
 
     // Evaluate achievements and compute stats dynamically
@@ -4790,9 +4796,12 @@ router.get('/api/dev/loyalty/profiles', async (req, res) => {
 });
 
 router.get('/api/dev/loyalty/item-sales', async (req, res) => {
-  const { page = 1, perPage = 50, search = '', fromDate, toDate, store = '' } = req.query;
+  const { page = 1, perPage = 50, search = '', sortBy = 'bill_dt', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(perPage);
   const limit = parseInt(perPage);
+  const safeSortDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  const allowedSortCols = ['bill_dt', 'org_cd', 'card_no', 'item_name', 'qty', 'gross_value'];
+  const safeSortCol = allowedSortCols.includes(sortBy) ? sortBy : 'bill_dt';
 
   try {
     const pool = await poolPromise;
@@ -4800,15 +4809,14 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
     const request = pool.request();
 
     if (search) {
-      // Allow searching by codes or descriptions (since we resolve them in the query)
       whereClause += ` AND (
         m.itm_cd LIKE @search OR 
         m.item_name LIKE @search OR 
         m.card_no LIKE @search OR 
-        m.department LIKE @search OR 
-        m.brand LIKE @search OR
         A4.anm_desc LIKE @search OR
-        A7.anm_desc LIKE @search
+        A7.anm_desc LIKE @search OR
+        p.name LIKE @search OR
+        p.mobile_no LIKE @search
       )`;
       request.input('search', sql.NVarChar, `%${search}%`);
     }
@@ -4825,6 +4833,7 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
     const countRes = await request.query(`
       SELECT COUNT(1) AS total 
       FROM ITEM_SALES_MEMBER m
+      LEFT JOIN LOYAL_MEMBER_PROFILE p ON m.card_no = p.member_id OR m.card_no = p.mobile_no
       LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
       LEFT JOIN attribute_nesting_mst A7 ON m.brand = A7.anm_attr_cd AND A7.anm_attr = 'ATTR7'
       ${whereClause}
@@ -4836,6 +4845,7 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
     const salesRes = await request.query(`
       SELECT 
           m.id, m.org_cd, m.itm_cd, m.item_name, m.qty, m.uom, m.promo_item_flag, m.promo_detail, m.disc_amt, m.bill_dt, m.card_no,
+          p.name as member_name,
           A2.anm_desc AS division,
           A3.anm_desc AS groups,
           A4.anm_desc AS department,
@@ -4849,6 +4859,7 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
           A13.anm_desc AS returnable,
           A18.anm_desc AS item_type
       FROM ITEM_SALES_MEMBER m
+      LEFT JOIN LOYAL_MEMBER_PROFILE p ON m.card_no = p.member_id OR m.card_no = p.mobile_no
       LEFT JOIN attribute_nesting_mst A2 ON m.division = A2.anm_attr_cd AND A2.anm_attr = 'ATTR2'
       LEFT JOIN attribute_nesting_mst A3 ON m.groups = A3.anm_attr_cd AND A3.anm_attr = 'ATTR3'
       LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
@@ -4862,9 +4873,35 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
       LEFT JOIN attribute_nesting_mst A13 ON m.returnable = A13.anm_attr_cd AND A13.anm_attr = 'ATTR13'
       LEFT JOIN attribute_nesting_mst A18 ON m.item_type = A18.anm_attr_cd AND A18.anm_attr = 'ATTR18'
       ${whereClause}
-      ORDER BY m.bill_dt DESC
+      ORDER BY m.${safeSortCol} ${safeSortDir}
       OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     `);
+
+    // Fetch names from DBWH_8555
+    const uniqueCards = [...new Set(salesRes.recordset.map(r => r.card_no))].filter(Boolean);
+    if (uniqueCards.length > 0) {
+      try {
+        const crmPool = await getCrmPool();
+        const nameReq = crmPool.request();
+        const cardParams = uniqueCards.map((c, i) => {
+          nameReq.input('c' + i, sql.NVarChar, c);
+          return '@c' + i;
+        }).join(',');
+        
+        const namesRes = await nameReq.query(`SELECT MEMBER_ID, PHONE_NUMBER, CUST_NAME FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) WHERE MEMBER_ID IN (${cardParams}) OR PHONE_NUMBER IN (${cardParams})`);
+        const nameMap = new Map();
+        namesRes.recordset.forEach(n => {
+          if (n.MEMBER_ID) nameMap.set(n.MEMBER_ID, n.CUST_NAME);
+          if (n.PHONE_NUMBER) nameMap.set(n.PHONE_NUMBER, n.CUST_NAME);
+        });
+        
+        salesRes.recordset.forEach(r => {
+          r.member_name = nameMap.get(r.card_no) || r.member_name;
+        });
+      } catch (err) {
+        console.error("Failed to fetch names from DBWH_8555:", err.message);
+      }
+    }
 
     // Top Departments Aggregation
     const deptRequest = pool.request();
