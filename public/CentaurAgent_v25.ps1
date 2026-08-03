@@ -1,4 +1,4 @@
-# --- Centaur Deploy Agent v2.8.0 ---
+# --- Centaur Deploy Agent v2.9.0 ---
 # Capabilities:
 #   1. Send hardware/resource heartbeat
 #   2. Self-update check (download new version if server has newer)
@@ -11,7 +11,7 @@ param(
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
-$Version = "2.8.0"
+$Version = "2.9.0"
 $Hostname = $env:COMPUTERNAME
 # --- IP Selection Logic (Prioritize Internal IPv4) ---
 $allIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" }

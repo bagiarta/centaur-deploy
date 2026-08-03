@@ -938,7 +938,7 @@ app.post('/api/deployments/:id/targets', async (req, res) => {
     }
   } catch (err) {
     console.error('Add targets error:', err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -957,7 +957,7 @@ app.get('/api/devices/:id/db-connection', async (req, res) => {
       res.json(null);
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -988,7 +988,7 @@ app.post('/api/devices/:id/db-connection', async (req, res) => {
       `);
     res.json({ message: 'Database connection settings saved successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1144,7 +1144,7 @@ app.get('/api/devices', async (req, res) => {
 
     res.json(devices);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1182,7 +1182,7 @@ app.post('/api/remote-commands', async (req, res) => {
 
     res.json({ success: true, output });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1217,7 +1217,7 @@ app.post('/api/devices', async (req, res) => {
 
     res.status(201).json({ message: 'Device created completely' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1256,7 +1256,7 @@ app.put('/api/devices/:id', async (req, res) => {
 
     res.status(200).json({ message: 'Device updated completely' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1302,7 +1302,7 @@ app.delete('/api/devices/:id', async (req, res) => {
       throw err;
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1345,7 +1345,7 @@ app.post('/api/devices/register', async (req, res) => {
 
     res.status(200).json({ message: 'Device registered successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1368,7 +1368,7 @@ app.get('/api/groups', async (req, res) => {
     `);
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1388,7 +1388,7 @@ app.post('/api/groups', async (req, res) => {
       `);
     res.status(201).json({ message: 'Group created successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1408,7 +1408,7 @@ app.put('/api/groups/:id', async (req, res) => {
       `);
     res.json({ message: 'Group updated successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1428,7 +1428,7 @@ app.delete('/api/groups/:id', async (req, res) => {
 
     res.json({ message: 'Group deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1439,7 +1439,7 @@ app.get('/api/packages', async (req, res) => {
     const result = await pool.request().query('SELECT * FROM Packages');
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1500,7 +1500,7 @@ app.post('/api/groups/:id/devices', async (req, res) => {
       throw err;
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1526,7 +1526,7 @@ app.post('/api/sql/test-connection', async (req, res) => {
     await testPool.close();
     res.json({ message: 'Connection successful' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1562,7 +1562,7 @@ app.get('/api/sql/databases/:deviceId', async (req, res) => {
     
     res.json(result.recordset.map(r => r.name));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1603,7 +1603,7 @@ app.get('/api/sql/tables/:deviceId/:databaseName', async (req, res) => {
     
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1724,7 +1724,7 @@ app.post('/api/sql/execute', async (req, res) => {
     await Promise.all(executionPromises);
     res.json({ results });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1739,7 +1739,7 @@ app.get('/api/deployments', async (req, res) => {
     res.json(result.recordset);
   } catch (err) {
     console.error('Error in /api/deployments:', err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1754,7 +1754,7 @@ app.get('/api/deployment-targets', async (req, res) => {
     `);
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1800,7 +1800,7 @@ app.get('/api/agent-jobs', async (req, res) => {
     const result = await pool.request().query('SELECT * FROM AgentJobs ORDER BY created_at DESC');
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1940,7 +1940,7 @@ app.post('/api/agent-jobs', async (req, res) => {
       await Promise.all(workers);
     })();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2029,7 +2029,7 @@ app.post('/api/agent-jobs/retry', async (req, res) => {
     })();
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2044,7 +2044,7 @@ app.delete('/api/agent-jobs/:id', async (req, res) => {
     `);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2058,7 +2058,7 @@ app.get('/api/agent-install-targets', async (req, res) => {
     `);
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2074,7 +2074,7 @@ app.get('/api/activity-log', async (req, res) => {
     const logs = await fetchActivityLogs(pool, requestUser, { date: req.query.date });
     res.json(logs);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2108,7 +2108,7 @@ app.get('/api/activity-log/export', async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(`\uFEFF${csv}`);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2121,7 +2121,7 @@ app.delete('/api/packages/:id', async (req, res) => {
       .query('DELETE FROM Packages WHERE id = @id');
     res.json({ message: 'Package deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2148,7 +2148,7 @@ app.delete('/api/deployments/:id', async (req, res) => {
       throw err;
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2184,7 +2184,7 @@ app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
     res.json({ success: true, id, file_path: fileName });
   } catch (err) {
     console.error('Package upload error:', err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2252,7 +2252,7 @@ app.post('/api/deployments', async (req, res) => {
       throw err;
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2345,7 +2345,7 @@ app.get('/api/devices/:id/software', async (req, res) => {
       .query(`SELECT name, version, publisher, updated_at FROM DeviceSoftware WHERE device_id = @device_id ORDER BY name ASC`);
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2397,7 +2397,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
     }
   } catch (err) {
     console.error(`[AGENT] Software inventory error for ${req.body?.hostname}:`, err.message);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2410,7 +2410,7 @@ app.get('/api/agent/config', async (req, res) => {
     result.recordset.forEach(r => configs[r.key] = r.value);
     res.json(configs);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2449,7 +2449,7 @@ app.post('/api/agent/config', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("Config save error:", err.message);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2485,7 +2485,7 @@ app.get('/api/agent/pending', async (req, res) => {
 
     res.json({ commands: cmdsRes.recordset });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2518,7 +2518,7 @@ app.get('/api/agent/pending-deployments', async (req, res) => {
 
     res.json({ deployments: depRes.recordset });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2555,7 +2555,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
     res.json({ status: 'ok', count: software.length });
   } catch (err) {
     console.error('Software inventory error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2600,7 +2600,7 @@ app.post('/api/agent/command-result', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2671,7 +2671,7 @@ app.post('/api/agent/deploy-status', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2701,7 +2701,7 @@ app.post('/api/auth/login', async (req, res) => {
       res.status(401).json({ error: 'Invalid username or password' });
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2737,7 +2737,7 @@ app.post('/api/auth/change-password', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2830,7 +2830,7 @@ app.get('/api/users', async (req, res) => {
     `);
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2850,7 +2850,7 @@ app.post('/api/users', async (req, res) => {
       `);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2881,7 +2881,7 @@ app.put('/api/users/:id', async (req, res) => {
     await request.query(query);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2892,7 +2892,7 @@ app.delete('/api/users/:id', async (req, res) => {
     await pool.request().input('id', sql.NVarChar, id).query('DELETE FROM Users WHERE id = @id');
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2903,7 +2903,7 @@ app.get('/api/roles', async (req, res) => {
     const result = await pool.request().query('SELECT * FROM Roles');
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2922,7 +2922,7 @@ app.post('/api/roles', async (req, res) => {
       `);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2943,7 +2943,7 @@ app.put('/api/roles/:id', async (req, res) => {
       `);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2959,7 +2959,7 @@ app.delete('/api/roles/:id', async (req, res) => {
     await pool.request().input('id', sql.NVarChar, id).query('DELETE FROM Roles WHERE id = @id');
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -2981,7 +2981,7 @@ app.get('/api/assistant-keywords', async (req, res) => {
       parameter_keys: parseKeywordParameterKeys(row.parameter_keys)
     })));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3023,7 +3023,7 @@ app.post('/api/assistant-keywords', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3069,7 +3069,7 @@ app.put('/api/assistant-keywords/:id', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3085,7 +3085,7 @@ app.delete('/api/assistant-keywords/:id', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3118,7 +3118,7 @@ app.post('/api/assistant-keywords/test', async (req, res) => {
       sources: result.sources || []
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3193,7 +3193,7 @@ app.post('/api/assistant-keywords/run', async (req, res) => {
       sources: result.sources || []
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3203,7 +3203,7 @@ app.get('/api/notification-settings', async (req, res) => {
     const result = await pool.request().query("SELECT * FROM NotificationSettings WHERE id = 'global'");
     res.json(result.recordset[0] || {});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3241,7 +3241,7 @@ app.post('/api/notification-settings', async (req, res) => {
       `);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3282,7 +3282,7 @@ app.get('/api/theme', async (req, res) => {
       appName: row.appName || DEFAULT_THEME_SETTINGS.appName
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3330,7 +3330,7 @@ app.post('/api/theme', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3438,7 +3438,7 @@ app.get('/api/sql/templates', async (req, res) => {
     const result = await pool.request().query('SELECT * FROM SqlTemplates ORDER BY name ASC');
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3467,7 +3467,7 @@ app.post('/api/sql/templates', async (req, res) => {
       res.json({ success: true, message: 'Template created' });
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3484,7 +3484,7 @@ app.put('/api/sql/templates/:id', async (req, res) => {
       .query(`UPDATE SqlTemplates SET name=@name, description=@description, script=@script WHERE id=@id`);
     res.json({ success: true, message: 'Template updated' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3494,7 +3494,7 @@ app.delete('/api/sql/templates/:id', async (req, res) => {
     await pool.request().input('id', sql.NVarChar, req.params.id).query('DELETE FROM SqlTemplates WHERE id = @id');
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3508,7 +3508,7 @@ app.get('/api/remote-commands/scripts', async (req, res) => {
     const result = await pool.request().query('SELECT * FROM RemoteCommandScripts ORDER BY name ASC');
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3535,7 +3535,7 @@ app.post('/api/remote-commands/scripts', async (req, res) => {
       res.json({ success: true, message: 'Script created' });
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3545,7 +3545,7 @@ app.delete('/api/remote-commands/scripts/:id', async (req, res) => {
     await pool.request().input('id', sql.NVarChar, req.params.id).query('DELETE FROM RemoteCommandScripts WHERE id = @id');
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3606,7 +3606,7 @@ async function executeRemoteCommand(targets, command, res) {
 
   } catch (err) {
     if (!res.headersSent) {
-      res.status(500).json({ error: err.message });
+      console.error("API_ERR:", err); res.status(500).json({ error: err.message });
     }
   }
 }
@@ -3630,7 +3630,7 @@ app.post('/api/remote-commands/run', async (req, res) => {
     // 2. Execute directly
     await executeRemoteCommand(targets, command, res);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3674,7 +3674,7 @@ app.post('/api/sql/schedules', async (req, res) => {
       .query(`INSERT INTO RemoteSqlSchedules (id, name, script, target_device_ids, next_run_at) VALUES (@id, @name, @script, @targets, @next_run)`);
     res.json({ success: true, message: 'SQL Job scheduled' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -3691,7 +3691,7 @@ app.post('/api/remote-commands/schedules', async (req, res) => {
       .query(`INSERT INTO RemoteCommandSchedules (id, name, script, target_device_ids, next_run_at) VALUES (@id, @name, @script, @targets, @next_run)`);
     res.json({ success: true, message: 'Command Job scheduled' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -4023,7 +4023,7 @@ app.get('/api/devices/offline-summary', async (req, res) => {
       `);
     res.json(result.recordset.map(d => ({ ...d, is_offline: d.minutes_since_seen > timeoutMins })));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -4454,7 +4454,7 @@ app.get('/api/workflows', async (req, res) => {
     const result = await pool.request().query("SELECT id, title, category, file_name, created_by, created_at, updated_at FROM Workflows ORDER BY category, title");
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -4465,7 +4465,7 @@ app.get('/api/workflows/categories', async (req, res) => {
     const result = await pool.request().query("SELECT DISTINCT category FROM Workflows WHERE category IS NOT NULL ORDER BY category");
     res.json(result.recordset.map(r => r.category));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -4482,7 +4482,7 @@ app.get('/api/workflows/:id', async (req, res) => {
       res.status(404).json({ error: "Workflow not found" });
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -4572,7 +4572,7 @@ app.post('/api/workflows', async (req, res) => {
       `);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -4603,7 +4603,7 @@ app.put('/api/workflows/:id', async (req, res) => {
       `);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -4615,7 +4615,7 @@ app.delete('/api/workflows/:id', async (req, res) => {
       .query("DELETE FROM Workflows WHERE id = @id");
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -5368,7 +5368,7 @@ app.get('/api/reports/deployments', async (req, res) => {
     res.json({ targets: result.recordset });
   } catch (err) {
     console.error('Reports Deployments Error:', err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -5479,7 +5479,7 @@ app.get('/api/reports/health', async (req, res) => {
     res.json(healthData);
   } catch (err) {
     console.error('Reports Health Error:', err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -5497,7 +5497,7 @@ app.get('/api/reports/inventory', async (req, res) => {
     res.json(result.recordset);
   } catch (err) {
     console.error('Reports Inventory Error:', err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -5514,7 +5514,7 @@ app.get('/api/reports/tickets', async (req, res) => {
     res.json(result.recordset);
   } catch (err) {
     console.error('Reports Tickets Error:', err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -5579,7 +5579,7 @@ app.get('/api/reports/crm-sync', async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error('Reports CRM Sync Error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -5656,7 +5656,7 @@ app.get('/api/dev/loyalty/stats', async (req, res) => {
       totalAchievements: totalAchievements
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -5705,11 +5705,11 @@ app.get('/api/dev/loyalty/summary', async (req, res) => {
     
     res.json({ summaries: result.recordset, total, page: parseInt(page), perPage: limit });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/dev/loyalty/profiles', async (req, res) => {
+app.get('/api/dev/loyalty/profiles', async (req, res) => { console.log('PROFILES API CALLED');
   const { page = 1, perPage = 50, search = '', sortBy = 'total_spent', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(perPage);
   const limit = parseInt(perPage);
@@ -5756,32 +5756,66 @@ app.get('/api/dev/loyalty/profiles', async (req, res) => {
     }
 
     const memberIds = profiles.map(p => p.member_id);
-    const idPlaceholders = memberIds.map((id, index) => {
-      return `@id_${index}`;
-    }).join(', ');
+    
+    const chunkArray = (arr, size) => {
+      const res = [];
+      for(let i = 0; i < arr.length; i += size) res.push(arr.slice(i, i + size));
+      return res;
+    };
+    const idChunks = chunkArray(memberIds, 500);
+    
+    const allSummaries = [];
+    const allPromos = [];
 
-    // Fetch all daily summaries for these member IDs within the selected filter range to compute dynamic stats & achievements
-    let summaryQuery = `
-      SELECT * FROM LOYAL_MEMBER_DAILY_SUMMARY 
-      WHERE member_id IN (${idPlaceholders})
-    `;
-    const sumRequest = pool.request();
-    memberIds.forEach((id, index) => {
-      sumRequest.input(`id_${index}`, sql.NVarChar, id);
-    });
+    for (const chunk of idChunks) {
+      if (chunk.length === 0) continue;
+      
+      const idPlaceholders = chunk.map((id, idx) => `@id_${idx}`).join(', ');
+      
+      let summaryQuery = `
+        SELECT * FROM LOYAL_MEMBER_DAILY_SUMMARY 
+        WHERE member_id IN (${idPlaceholders})
+      `;
+      const sumRequest = pool.request();
+      chunk.forEach((id, idx) => sumRequest.input(`id_${idx}`, sql.NVarChar, id));
 
-    if (fromDate && toDate) {
-      summaryQuery += " AND summary_date BETWEEN @fromDate AND @toDate";
-      sumRequest.input('fromDate', sql.Date, fromDate);
-      sumRequest.input('toDate', sql.Date, toDate);
+      if (fromDate && toDate) {
+        summaryQuery += " AND summary_date BETWEEN @fromDate AND @toDate";
+        sumRequest.input('fromDate', sql.Date, fromDate);
+        sumRequest.input('toDate', sql.Date, toDate);
+      }
+      if (store && store !== 'All Stores') {
+        summaryQuery += " AND org_cd = @store";
+        sumRequest.input('store', sql.NVarChar, store);
+      }
+
+      const sumRes = await sumRequest.query(summaryQuery);
+      allSummaries.push(...sumRes.recordset);
+
+      let promoQuery = `
+        SELECT card_no, itm_cd, item_name, promo_detail, SUM(disc_amt) AS total_disc, SUM(qty) AS total_qty
+        FROM ITEM_SALES_MEMBER 
+        WHERE card_no IN (${idPlaceholders}) AND disc_amt > 0
+      `;
+      const promoRequest = pool.request();
+      chunk.forEach((id, idx) => promoRequest.input(`id_${idx}`, sql.NVarChar, id));
+
+      if (fromDate && toDate) {
+        promoQuery += " AND bill_dt >= @fromDate AND bill_dt <= @toDate";
+        promoRequest.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+        promoRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+      }
+      if (store && store !== 'All Stores') {
+        promoQuery += " AND org_cd = @store";
+        promoRequest.input('store', sql.NVarChar, store);
+      }
+
+      promoQuery += `
+        GROUP BY card_no, itm_cd, item_name, promo_detail
+      `;
+      const promoRes = await promoRequest.query(promoQuery);
+      allPromos.push(...promoRes.recordset);
     }
-    if (store && store !== 'All Stores') {
-      summaryQuery += " AND org_cd = @store";
-      sumRequest.input('store', sql.NVarChar, store);
-    }
-
-    const summariesRes = await sumRequest.query(summaryQuery);
-    const allSummaries = summariesRes.recordset;
 
     // Group summaries by member_id
     const summariesByMember = {};
@@ -5789,35 +5823,6 @@ app.get('/api/dev/loyalty/profiles', async (req, res) => {
       if (!summariesByMember[s.member_id]) summariesByMember[s.member_id] = [];
       summariesByMember[s.member_id].push(s);
     });
-
-    // Fetch all promo items for these member IDs within the selected filter range
-    let promoQuery = `
-      SELECT card_no, itm_cd, item_name, promo_detail, SUM(disc_amt) AS total_disc, SUM(qty) AS total_qty
-      FROM ITEM_SALES_MEMBER 
-      WHERE card_no IN (${idPlaceholders}) AND disc_amt > 0
-    `;
-    const promoRequest = pool.request();
-    memberIds.forEach((id, index) => {
-      promoRequest.input(`id_${index}`, sql.NVarChar, id);
-    });
-
-    if (fromDate && toDate) {
-      promoQuery += " AND bill_dt >= @fromDate AND bill_dt <= @toDate";
-      promoRequest.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
-      promoRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
-    }
-    if (store && store !== 'All Stores') {
-      promoQuery += " AND org_cd = @store";
-      promoRequest.input('store', sql.NVarChar, store);
-    }
-
-    promoQuery += `
-      GROUP BY card_no, itm_cd, item_name, promo_detail
-      ORDER BY total_disc DESC
-    `;
-
-    const promosRes = await promoRequest.query(promoQuery);
-    const allPromos = promosRes.recordset;
 
     // Group promos by card_no (member_id)
     const promosByMember = {};
@@ -5872,14 +5877,17 @@ app.get('/api/dev/loyalty/profiles', async (req, res) => {
 
     res.json({ profiles: result, total, page: parseInt(page), perPage: limit });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
 app.get('/api/dev/loyalty/item-sales', async (req, res) => {
-  const { page = 1, perPage = 50, search = '', fromDate, toDate, store = '' } = req.query;
+  const { page = 1, perPage = 50, search = '', sortBy = 'org_cd', sortDir = 'asc', fromDate, toDate, store = '' } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(perPage);
   const limit = parseInt(perPage);
+  const safeSortDir = sortDir.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+  const allowedSortCols = ['org_cd', 'bill_dt', 'qty', 'card_no'];
+  const safeSortCol = allowedSortCols.includes(sortBy) ? sortBy : 'org_cd';
 
   try {
     const pool = await poolPromise;
@@ -5887,15 +5895,14 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
     const request = pool.request();
 
     if (search) {
-      // Allow searching by codes or descriptions (since we resolve them in the query)
       whereClause += ` AND (
         m.itm_cd LIKE @search OR 
         m.item_name LIKE @search OR 
         m.card_no LIKE @search OR 
-        m.department LIKE @search OR 
-        m.brand LIKE @search OR
         A4.anm_desc LIKE @search OR
-        A7.anm_desc LIKE @search
+        A7.anm_desc LIKE @search OR
+        p.name LIKE @search OR
+        p.mobile_no LIKE @search
       )`;
       request.input('search', sql.NVarChar, `%${search}%`);
     }
@@ -5912,6 +5919,7 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
     const countRes = await request.query(`
       SELECT COUNT(1) AS total 
       FROM ITEM_SALES_MEMBER m
+      LEFT JOIN LOYAL_MEMBER_PROFILE p ON m.card_no = p.member_id OR m.card_no = p.mobile_no
       LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
       LEFT JOIN attribute_nesting_mst A7 ON m.brand = A7.anm_attr_cd AND A7.anm_attr = 'ATTR7'
       ${whereClause}
@@ -5923,6 +5931,7 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
     const salesRes = await request.query(`
       SELECT 
           m.id, m.org_cd, m.itm_cd, m.item_name, m.qty, m.uom, m.promo_item_flag, m.promo_detail, m.disc_amt, m.bill_dt, m.card_no,
+          p.name as member_name,
           A2.anm_desc AS division,
           A3.anm_desc AS groups,
           A4.anm_desc AS department,
@@ -5936,6 +5945,7 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
           A13.anm_desc AS returnable,
           A18.anm_desc AS item_type
       FROM ITEM_SALES_MEMBER m
+      LEFT JOIN LOYAL_MEMBER_PROFILE p ON m.card_no = p.member_id OR m.card_no = p.mobile_no
       LEFT JOIN attribute_nesting_mst A2 ON m.division = A2.anm_attr_cd AND A2.anm_attr = 'ATTR2'
       LEFT JOIN attribute_nesting_mst A3 ON m.groups = A3.anm_attr_cd AND A3.anm_attr = 'ATTR3'
       LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
@@ -5949,7 +5959,7 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
       LEFT JOIN attribute_nesting_mst A13 ON m.returnable = A13.anm_attr_cd AND A13.anm_attr = 'ATTR13'
       LEFT JOIN attribute_nesting_mst A18 ON m.item_type = A18.anm_attr_cd AND A18.anm_attr = 'ATTR18'
       ${whereClause}
-      ORDER BY m.bill_dt DESC
+      ORDER BY m.${safeSortCol} ${safeSortDir}${safeSortCol === 'bill_dt' ? '' : ', m.bill_dt DESC'}
       OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     `);
 
@@ -6004,7 +6014,177 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
       perPage: limit
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/dev/loyalty/export/:tab/:format', async (req, res) => {
+  const { tab, format } = req.params;
+  if (format !== 'excel') return res.status(400).json({ error: 'Only excel supported for now' });
+
+  const { store, fromDate, toDate, search } = req.query;
+  const ExcelJS = require('exceljs');
+
+  try {
+    const pool = await getCrmPool();
+    const request = pool.request();
+    let query = "";
+    let columns = [];
+    let title = "";
+
+    if (tab === 'profiles') {
+      title = "Member Profiles";
+      columns = [
+        { header: 'Member ID', key: 'member_id', width: 20 },
+        { header: 'Name', key: 'name', width: 25 },
+        { header: 'Phone', key: 'mobile_no', width: 15 },
+        { header: 'Join Date', key: 'join_date', width: 15 },
+        { header: 'City', key: 'city', width: 15 },
+        { header: 'Total Spent', key: 'total_spent', width: 15 },
+        { header: 'Total Txn', key: 'total_transactions', width: 10 },
+        { header: 'Last Active', key: 'last_active_date', width: 15 },
+        { header: 'Fav Store', key: 'favorite_store', width: 15 }
+      ];
+
+      let where = "WHERE 1=1";
+      if (store && store !== 'All Stores') {
+        where += " AND favorite_store = @store";
+        request.input('store', sql.NVarChar, store);
+      }
+      if (fromDate && toDate) {
+        where += " AND join_date >= @fromDate AND join_date <= @toDate";
+        request.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+        request.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+      }
+      if (search) {
+        where += " AND (member_id LIKE @search OR name LIKE @search OR mobile_no LIKE @search)";
+        request.input('search', sql.NVarChar, `%${search}%`);
+      }
+
+      query = `
+        SELECT member_id, name, mobile_no, join_date, city,
+               ISNULL(total_spent, 0) as total_spent, ISNULL(total_transactions, 0) as total_transactions, last_active_date, favorite_store
+        FROM LOYAL_MEMBER_PROFILE WITH (NOLOCK)
+        ${where}
+        ORDER BY total_spent DESC
+      `;
+    } else if (tab === 'summaries') {
+      title = "Daily Summaries";
+      columns = [
+        { header: 'Member ID', key: 'member_id', width: 20 },
+        { header: 'Name', key: 'name', width: 25 },
+        { header: 'Phone', key: 'mobile_no', width: 15 },
+        { header: 'Date', key: 'summary_date', width: 15 },
+        { header: 'Store', key: 'org_cd', width: 10 },
+        { header: 'Total Sales', key: 'total_sales', width: 15 },
+        { header: 'Total Cost', key: 'total_cost', width: 15 },
+        { header: 'Total Qty', key: 'total_qty', width: 10 },
+        { header: 'Total Txn', key: 'total_txn', width: 10 }
+      ];
+
+      let where = "WHERE 1=1";
+      if (store && store !== 'All Stores') {
+        where += " AND s.org_cd = @store";
+        request.input('store', sql.NVarChar, store);
+      }
+      if (fromDate && toDate) {
+        where += " AND s.summary_date >= @fromDate AND s.summary_date <= @toDate";
+        request.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+        request.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+      }
+      if (search) {
+        where += " AND (s.member_id LIKE @search OR p.name LIKE @search)";
+        request.input('search', sql.NVarChar, `%${search}%`);
+      }
+
+      query = `
+        SELECT s.*, p.name as name, p.mobile_no as mobile_no
+        FROM LOYAL_MEMBER_DAILY_SUMMARY s WITH (NOLOCK)
+        LEFT JOIN LOYAL_MEMBER_PROFILE p WITH (NOLOCK) ON s.member_id = p.member_id
+        ${where}
+        ORDER BY s.summary_date DESC
+      `;
+    } else if (tab === 'item-sales') {
+      title = "Item Sales";
+      columns = [
+        { header: 'Member ID', key: 'card_no', width: 20 },
+        { header: 'Customer Name', key: 'member_name', width: 25 },
+        { header: 'Store', key: 'org_cd', width: 10 },
+        { header: 'Date', key: 'bill_dt', width: 15 },
+        { header: 'Item Code', key: 'item_cd', width: 15 },
+        { header: 'Item Name', key: 'item_name', width: 25 },
+        { header: 'Qty', key: 'qty', width: 10 },
+        { header: 'Gross Value', key: 'gross_value', width: 15 },
+        { header: 'Net Value', key: 'net_value', width: 15 },
+        { header: 'Department', key: 'department_name', width: 20 },
+        { header: 'Brand', key: 'brand_name', width: 20 }
+      ];
+
+      let where = "WHERE 1=1";
+      if (store && store !== 'All Stores') {
+        where += " AND m.org_cd = @store";
+        request.input('store', sql.NVarChar, store);
+      }
+      if (fromDate && toDate) {
+        where += " AND m.bill_dt >= @fromDate AND m.bill_dt <= @toDate";
+        request.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+        request.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+      }
+      if (search) {
+        where += " AND (m.member_id LIKE @search OR m.item_name LIKE @search)";
+        request.input('search', sql.NVarChar, `%${search}%`);
+      }
+
+      query = `
+        SELECT m.*, ISNULL(A4.anm_desc, 'UNKNOWN') as department_name, ISNULL(A7.anm_desc, 'UNKNOWN') as brand_name
+        FROM ITEM_SALES_MEMBER m
+        LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
+        LEFT JOIN attribute_nesting_mst A7 ON m.brand = A7.anm_attr_cd AND A7.anm_attr = 'ATTR7'
+        ${where}
+        ORDER BY m.bill_dt DESC
+      `;
+    } else {
+      return res.status(400).json({ error: 'Invalid tab' });
+    }
+
+    const result = await request.query(query);
+    const rows = result.recordset;
+
+    if (tab === 'item-sales') {
+      const uniqueCards = [...new Set(rows.map(r => r.card_no))].filter(Boolean);
+      if (uniqueCards.length > 0) {
+        try {
+          const crmPool = await getCrmPool();
+          const nameReq = crmPool.request();
+          const cardParams = uniqueCards.map((c, i) => { nameReq.input('c'+i, sql.NVarChar, c); return '@c'+i; }).join(',');
+          const namesRes = await nameReq.query(`SELECT MEMBER_ID, PHONE_NUMBER, CUST_NAME FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) WHERE MEMBER_ID IN (${cardParams}) OR PHONE_NUMBER IN (${cardParams})`);
+          const nameMap = new Map();
+          namesRes.recordset.forEach(n => {
+            if (n.MEMBER_ID) nameMap.set(n.MEMBER_ID, n.CUST_NAME);
+            if (n.PHONE_NUMBER) nameMap.set(n.PHONE_NUMBER, n.CUST_NAME);
+          });
+          rows.forEach(r => { r.member_name = nameMap.get(r.card_no) || 'Anonymous member'; });
+        } catch (err) {
+          console.error("Failed to fetch export names:", err.message);
+        }
+      }
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(title);
+
+    worksheet.columns = columns;
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+    worksheet.addRows(rows);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${tab}-report.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -6060,7 +6240,7 @@ app.get('/api/crm/reports/stores', async (req, res) => {
     `);
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -6315,7 +6495,7 @@ app.get('/api/crm/reports/:type', async (req, res) => {
 
   } catch (err) {
     console.error(`CRM Report Error (${type}):`, err.message);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -6605,7 +6785,7 @@ app.get('/api/tickets/updates', async (req, res) => {
 
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -6672,7 +6852,7 @@ app.get('/api/tickets', async (req, res) => {
 
     res.json(tickets);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -6735,7 +6915,7 @@ app.post('/api/tickets', async (req, res) => {
     res.status(201).json({ message: 'Ticket created successfully' });
   } catch (err) {
     console.error("POST /api/tickets Error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -6815,7 +6995,7 @@ app.put('/api/tickets/:id/status', async (req, res) => {
 
     res.json({ message: 'Status updated' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -6897,7 +7077,7 @@ app.put('/api/tickets/:id/targets', async (req, res) => {
     }
   } catch (err) {
     console.error("PUT /api/tickets/:id/targets Error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 // ── Individual Ticket Target Update ──────────────────────────
@@ -6969,7 +7149,7 @@ app.put('/api/tickets/:id/targets/:targetId', async (req, res) => {
     res.json({ message: 'Target status updated' });
   } catch (err) {
     console.error("PUT /api/tickets/:id/targets/:targetId Error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -6997,7 +7177,7 @@ app.put('/api/tickets/:id/assign', async (req, res) => {
 
     res.json({ message: 'Assignment updated' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -7007,7 +7187,7 @@ app.get('/api/users', async (req, res) => {
     const result = await pool.request().query("SELECT id, username, full_name, role_id FROM Users ORDER BY username ASC");
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -7019,7 +7199,7 @@ app.get('/api/tickets/:id/logs', async (req, res) => {
       .query('SELECT * FROM TicketLogs WHERE ticket_id = @ticket_id ORDER BY created_at ASC');
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -7029,7 +7209,7 @@ app.get('/api/installers', async (req, res) => {
     const result = await pool.request().query('SELECT * FROM Installers ORDER BY uploaded_at DESC');
     res.json(result.recordset);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -7083,7 +7263,7 @@ app.post('/api/installers', installerUpload.single('file'), async (req, res) => 
     res.json({ success: true, message: 'Installation file uploaded successfully' });
   } catch (err) {
     try { fs.unlinkSync(req.file.path); } catch (e) {}
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -7113,7 +7293,7 @@ app.put('/api/installers/:id', async (req, res) => {
 
     res.json({ success: true, message: 'Installer metadata updated successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -7158,7 +7338,7 @@ app.delete('/api/installers/:id', async (req, res) => {
 
     res.json({ success: true, message: 'Installer deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
@@ -7179,7 +7359,7 @@ app.get('/api/installers/:id/download', async (req, res) => {
       res.status(404).send('Physical file not found on server.');
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 
