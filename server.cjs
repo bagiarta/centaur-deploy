@@ -3861,12 +3861,11 @@ async function runOfflineDetector() {
       // OFFLINE RULE: Stale AND Ping Fails
       if (isHeartbeatStale && isPingFailing) {
         if (dev.status === 'online') {
-          // 1. Calculate Priority (Server/Network/Router groups)
+          // 1. Calculate Priority (Server/Network groups ONLY)
           const gids = (dev.group_ids || "").split(',').map((s) => s.trim());
           const isPriority = gids.some((gid) => {
-            if (gid === 'g2') return true; // Default Servers ID
-            const gName = groupsMap[gid] || "";
-            return gName.includes('server') || gName.includes('network') || gName.includes('router');
+            const gName = (groupsMap[gid] || "").toLowerCase();
+            return gName.includes('server') || gName.includes('network');
           });
 
           // 2. ALWAYS Update DB status to Offline for Dashboard visibility
@@ -3952,7 +3951,11 @@ async function runOfflineDetector() {
           .catch(() => { });
 
         // Add to list of devices that were actually recovered by THIS process
-        actualRecovered.push(dev);
+        if (dev.last_offline_alert_at) {
+          actualRecovered.push(dev);
+        } else {
+          console.log(`[DETECTOR] Silent recovery (non-priority) for: ${dev.hostname}`);
+        }
       }
 
       if (actualRecovered.length > 0) {

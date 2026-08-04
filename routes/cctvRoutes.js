@@ -15,6 +15,9 @@ router.put('/devices/:id', cctvController.updateCCTVDevice);
 router.post('/devices/:id/sync', cctvController.syncCCTVDevice);
 router.delete('/devices/:id', cctvController.deleteCCTVDevice);
 
+router.get('/ping', (req, res) => res.json({ ping: 'pong-v2' }));
+router.post('/channels/:id', cctvController.updateCCTVChannel);
+
 // ═══════════════════════════════════════════════════════════════
 // CCTV DASHBOARD
 // ═══════════════════════════════════════════════════════════════

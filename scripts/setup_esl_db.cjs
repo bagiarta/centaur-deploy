@@ -103,6 +103,29 @@ async function run() {
       console.log('[SETUP-ESL] ESL_SYNC_LOGS already exists.');
     }
 
+    // 4. Create ESL_TEMPLATES Table
+    const checkTemplates = await pool.request().query(`
+      SELECT * FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_NAME = 'ESL_TEMPLATES'
+    `);
+    if (checkTemplates.recordset.length === 0) {
+      console.log('[SETUP-ESL] Creating ESL_TEMPLATES table...');
+      await pool.request().query(`
+        CREATE TABLE ESL_TEMPLATES (
+          id INT IDENTITY(1,1) PRIMARY KEY,
+          name NVARCHAR(100) NOT NULL,
+          width INT NOT NULL,
+          height INT NOT NULL,
+          elements_json NVARCHAR(MAX) NOT NULL,
+          created_at DATETIME2 DEFAULT GETDATE(),
+          updated_at DATETIME2 DEFAULT GETDATE()
+        )
+      `);
+      console.log('[SETUP-ESL] Created ESL_TEMPLATES successfully.');
+    } else {
+      console.log('[SETUP-ESL] ESL_TEMPLATES already exists.');
+    }
+
     // Seed mock data if tables were just created
     console.log('[SETUP-ESL] Checking mock seed data...');
     const gatewaysCount = await pool.request().query('SELECT COUNT(1) AS count FROM ESL_GATEWAYS');

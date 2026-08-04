@@ -239,6 +239,112 @@ router.get('/labels', async (req, res) => {
 });
 
 /**
+ * GET /api/esl/products
+ * Fetch unique products mapped to ESLs
+ */
+router.get('/products', async (req, res) => {
+  try {
+    const { search = '', org_cd = '' } = req.query;
+    const pool = await poolPromise;
+    const request = pool.request();
+    
+    let queryStr = `
+      SELECT org_cd, itm_cd, MAX(item_name) as item_name, MAX(current_price) as current_price, COUNT(label_id) as linked_labels
+      FROM ESL_LABELS 
+      WHERE 1=1
+    `;
+
+    if (search) {
+      queryStr += ` AND (itm_cd LIKE @search OR item_name LIKE @search)`;
+      request.input('search', sql.NVarChar, `%${search}%`);
+    }
+
+    if (org_cd && org_cd !== 'All Stores') {
+      queryStr += ` AND org_cd = @org_cd`;
+      request.input('org_cd', sql.NVarChar, org_cd);
+    }
+
+    queryStr += ' GROUP BY org_cd, itm_cd ORDER BY org_cd, itm_cd';
+
+    const result = await request.query(queryStr);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/esl/templates
+ * Fetch all saved templates
+ */
+router.get('/templates', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM ESL_TEMPLATES ORDER BY updated_at DESC');
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/esl/templates
+ * Create or update a template
+ */
+router.post('/templates', async (req, res) => {
+  try {
+    const { id, name, width, height, elements_json } = req.body;
+    if (!name || !width || !height || !elements_json) {
+      return res.status(400).json({ error: 'Missing required template fields.' });
+    }
+    const pool = await poolPromise;
+    if (id) {
+      await pool.request()
+        .input('id', sql.Int, id)
+        .input('name', sql.NVarChar, name)
+        .input('width', sql.Int, width)
+        .input('height', sql.Int, height)
+        .input('elements_json', sql.NVarChar, elements_json)
+        .query(`
+          UPDATE ESL_TEMPLATES 
+          SET name = @name, width = @width, height = @height, elements_json = @elements_json, updated_at = GETDATE()
+          WHERE id = @id
+        `);
+      res.json({ success: true, message: 'Template updated.' });
+    } else {
+      await pool.request()
+        .input('name', sql.NVarChar, name)
+        .input('width', sql.Int, width)
+        .input('height', sql.Int, height)
+        .input('elements_json', sql.NVarChar, elements_json)
+        .query(`
+          INSERT INTO ESL_TEMPLATES (name, width, height, elements_json)
+          VALUES (@name, @width, @height, @elements_json)
+        `);
+      res.json({ success: true, message: 'Template saved.' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/esl/templates/:id
+ */
+router.delete('/templates/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.Int, id)
+      .query('DELETE FROM ESL_TEMPLATES WHERE id = @id');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /api/esl/logs
  * Retrieve recent sync logs
  */

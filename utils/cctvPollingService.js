@@ -387,9 +387,31 @@ async function updateChannelsInDatabase(deviceId, channels) {
       const channelNumber = parseInt(channel.channel_number || channel.id) || 1;
       const channelName = channel.channel_name || channel.name || `Channel ${channelNumber}`;
       
+      // Check if channel exists
+      const existingChannel = await pool.request()
+        .input('id', sql.NVarChar, channelId)
+        .query('SELECT status, channel_name, channel_settings FROM CCTVChannels WHERE id = @id');
+      
+      let customName = null;
+      let isEmptySlot = false;
+      let existingSettingsObj = {};
+
+      if (existingChannel.recordset.length > 0) {
+        const row = existingChannel.recordset[0];
+        if (row.channel_settings) {
+           try { existingSettingsObj = JSON.parse(row.channel_settings); } catch(e){}
+           customName = existingSettingsObj.custom_name || null;
+           isEmptySlot = existingSettingsObj.is_empty_slot === true;
+        }
+      }
+
+      channelName = customName || channelName;
+
       // Determine status
       let channelStatus = 'offline';
-      if (channel.status === 'online') {
+      if (isEmptySlot) {
+        channelStatus = 'empty_slot';
+      } else if (channel.status === 'online') {
         channelStatus = 'online';
       } else if (channel.online === 'true') {
         channelStatus = 'online';
@@ -405,14 +427,11 @@ async function updateChannelsInDatabase(deviceId, channels) {
         camera_ip: cameraIP,
         protocol: channel.protocol || channel.proxyProtocol || channel.transport || null,
         codec: channel.codec || channel.videoCodecType || null,
-        resolution: channel.resolution || null
+        resolution: channel.resolution || null,
+        custom_name: customName,
+        is_empty_slot: isEmptySlot
       };
       const channelSettings = JSON.stringify(settings);
-      
-      // Check if channel exists
-      const existingChannel = await pool.request()
-        .input('id', sql.NVarChar, channelId)
-        .query('SELECT status FROM CCTVChannels WHERE id = @id');
       
       if (existingChannel.recordset.length > 0) {
         // Update existing channel
