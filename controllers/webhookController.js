@@ -1,4 +1,3 @@
-
 import fs from 'fs';
 import path from 'path';
 import sql from 'mssql';
@@ -117,5 +116,75 @@ export const devicePing = async (req, res) => {
   } catch (err) {
     console.error('❌ Webhook processing error:', err);
     res.status(500).json({ error: 'Failed to process webhook', detail: err.message });
+  }
+};
+
+export const ssoUserSync = async (req, res) => {
+  console.log(`[DEBUG] Received SSO User Sync Webhook at ${new Date().toISOString()}`);
+  console.log(`[DEBUG] Body:`, JSON.stringify(req.body));
+  
+  const { username, first_name, last_name, email, roles } = req.body;
+  if (!username) {
+    return res.status(400).json({ error: 'username is required' });
+  }
+  
+  try {
+    const pool = await poolPromise;
+    // roles is an array of strings e.g. ["IT OPERATIONAL", "Manager"]
+    if (!roles || roles.length === 0) {
+      return res.json({ success: true, message: 'No roles provided, skipped.' });
+    }
+    
+    // Find matching role in Centaur
+    let matchedRoleId = null;
+    let matchedRoleName = null;
+    for (const roleName of roles) {
+      const roleCheck = await pool.request()
+        .input('role_name', sql.NVarChar, roleName)
+        .query('SELECT id, name FROM Roles WHERE name = @role_name');
+      if (roleCheck.recordset.length > 0) {
+        matchedRoleId = roleCheck.recordset[0].id;
+        matchedRoleName = roleCheck.recordset[0].name;
+        break; // Map to first matching role found
+      }
+    }
+    
+    if (!matchedRoleId) {
+      return res.json({ success: true, message: 'No matching role found in Centaur, skipped.' });
+    }
+    
+    // Check if user already exists
+    const userCheck = await pool.request()
+      .input('username', sql.NVarChar, username)
+      .query('SELECT id FROM Users WHERE username = @username');
+      
+    if (userCheck.recordset.length > 0) {
+      // Update existing user's role
+      await pool.request()
+        .input('username', sql.NVarChar, username)
+        .input('role_id', sql.NVarChar, matchedRoleId)
+        .query('UPDATE Users SET role_id = @role_id WHERE username = @username');
+      console.log(`[DEBUG] SSO User Sync: Updated existing user ${username} to role ${matchedRoleName}`);
+    } else {
+      // Create new user
+      const newId = 'user_sso_' + Date.now();
+      const fullName = (first_name && last_name) ? `${first_name} ${last_name}` : (first_name || username);
+      await pool.request()
+        .input('id', sql.NVarChar, newId)
+        .input('username', sql.NVarChar, username)
+        .input('full_name', sql.NVarChar, fullName)
+        .input('role_id', sql.NVarChar, matchedRoleId)
+        .input('password_hash', sql.NVarChar, 'SSO_AUTHENTICATED')
+        .query(`
+          INSERT INTO Users (id, username, full_name, role_id, password_hash, created_at, division)
+          VALUES (@id, @username, @full_name, @role_id, @password_hash, GETDATE(), 'SSO_SYNC')
+        `);
+      console.log(`[DEBUG] SSO User Sync: Created new user ${username} with role ${matchedRoleName}`);
+    }
+    
+    res.json({ success: true, message: `Synced user ${username} with role ${matchedRoleName}` });
+  } catch (err) {
+    console.error('❌ SSO Sync processing error:', err);
+    res.status(500).json({ error: 'Failed to process SSO sync', detail: err.message });
   }
 };

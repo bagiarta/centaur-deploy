@@ -144,6 +144,12 @@ export default function CCTVMonitoringPage() {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editChannelDialogOpen, setEditChannelDialogOpen] = useState(false);
+  const [selectedChannel, setSelectedChannel] = useState<CCTVChannel | null>(null);
+  const [channelFormData, setChannelFormData] = useState({
+    custom_name: '',
+    is_empty_slot: false
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [syncing, setSyncing] = useState(false);
   
@@ -509,6 +515,65 @@ export default function CCTVMonitoringPage() {
     } catch (error) {
       console.error('Error updating device:', error);
       toast.error('Failed to update device');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleEditChannel = (channel: CCTVChannel, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedChannel(channel);
+    
+    let customName = channel.channel_name;
+    let isEmptySlot = channel.status === 'empty_slot';
+    
+    if (channel.channel_settings) {
+      try {
+        const settings = JSON.parse(channel.channel_settings);
+        if (settings.custom_name) customName = settings.custom_name;
+        if (settings.is_empty_slot) isEmptySlot = settings.is_empty_slot;
+      } catch (err) {}
+    }
+    
+    setChannelFormData({
+      custom_name: customName,
+      is_empty_slot: isEmptySlot
+    });
+    setViewDialogOpen(false);
+    
+    // Slight delay to allow Radix UI to clear pointer-events locks
+    setTimeout(() => {
+      setEditChannelDialogOpen(true);
+    }, 100);
+  };
+
+  const handleUpdateChannel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedChannel) return;
+    setSubmitting(true);
+    try {
+      const response = await fetch(`/api/cctv/channels/${selectedChannel.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(channelFormData),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        toast.success('Channel updated successfully!');
+        setEditChannelDialogOpen(false);
+        if (selectedDevice) {
+          handleViewDevice(selectedDevice);
+        }
+      } else {
+        toast.error(result.error || 'Failed to update channel');
+      }
+    } catch (error) {
+      console.error('Error updating channel:', error);
+      toast.error('Failed to update channel');
     } finally {
       setSubmitting(false);
     }
@@ -1647,21 +1712,30 @@ export default function CCTVMonitoringPage() {
                           
                           return (
                             <div key={channel.id} className={cn(
-                              "flex flex-col p-3 border rounded-lg transition-colors",
+                              "flex flex-col p-3 border rounded-lg transition-colors relative group",
                               channel.status === 'offline' 
                                 ? "bg-red-50 border-red-200 hover:bg-red-100" 
+                                : channel.status === 'empty_slot'
+                                ? "bg-slate-50 border-slate-200 opacity-70"
                                 : "bg-card hover:bg-accent/5"
                             )}>
+                              <div className="absolute top-2 right-2 z-10">
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => handleEditChannel(channel, e)}>
+                                  <Edit className="w-3 h-3 text-muted-foreground hover:text-blue-500" />
+                                </Button>
+                              </div>
                               <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-3">
-                                  <div className={cn("w-2 h-2 rounded-full", channel.status === 'online' ? "bg-emerald-500" : (channel.status === 'recording' ? "bg-red-500 animate-pulse" : "bg-gray-400"))} />
+                                  <div className={cn("w-2 h-2 rounded-full", channel.status === 'online' ? "bg-emerald-500" : (channel.status === 'recording' ? "bg-red-500 animate-pulse" : (channel.status === 'empty_slot' ? "bg-slate-300" : "bg-gray-400")))} />
                                   <div>
-                                    <p className="text-sm font-semibold">CH {channel.channel_number}: {channel.channel_name || 'Camera'}</p>
-                                    <p className="text-xs text-muted-foreground capitalize">{channel.status}</p>
+                                    <p className="text-sm font-semibold pr-6">CH {channel.channel_number}: {channel.channel_name || 'Camera'}</p>
+                                    <p className="text-xs text-muted-foreground capitalize">{channel.status === 'empty_slot' ? 'Empty Slot' : channel.status}</p>
                                   </div>
                                 </div>
                                 {channel.status === 'offline' ? (
                                   <Badge variant="destructive" className="text-xs">Offline</Badge>
+                                ) : channel.status === 'empty_slot' ? (
+                                  <Badge variant="secondary" className="text-xs bg-slate-200">Empty Slot</Badge>
                                 ) : !channel.is_enabled ? (
                                   <Badge variant="outline" className="text-xs text-muted-foreground">Disabled</Badge>
                                 ) : null}
@@ -2030,6 +2104,54 @@ export default function CCTVMonitoringPage() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Channel Dialog */}
+      <Dialog open={editChannelDialogOpen} onOpenChange={setEditChannelDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Channel</DialogTitle>
+            <DialogDescription>
+              Modify channel details or mark it as an empty slot.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateChannel} className="space-y-4">
+            <div>
+              <Label htmlFor="custom_name">Custom Channel Name</Label>
+              <Input
+                id="custom_name"
+                value={channelFormData.custom_name || ''}
+                onChange={(e) => setChannelFormData(prev => ({ ...prev, custom_name: e.target.value }))}
+                placeholder="e.g. Lobby Camera"
+              />
+            </div>
+            <div className="flex flex-col mt-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="is_empty_slot"
+                  checked={channelFormData.is_empty_slot}
+                  onChange={(e) => setChannelFormData(prev => ({ ...prev, is_empty_slot: e.target.checked }))}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="is_empty_slot" className="cursor-pointer font-medium">
+                  Mark as Empty Slot
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 ml-6">
+                Empty slots are ignored in offline alerts.
+              </p>
+            </div>
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setEditChannelDialogOpen(false)} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
       </div>

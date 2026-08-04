@@ -1114,3 +1114,63 @@ export const triggerPollNow = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+// ═══════════════════════════════════════════════════════════════
+// UPDATE CCTV CHANNEL
+// ═══════════════════════════════════════════════════════════════
+export const updateCCTVChannel = async (req, res) => {
+  import('fs').then(fs => fs.appendFileSync('cctv_debug.log', `HIT: ${req.method} ${req.originalUrl}\n`));
+  console.log('[CCTV] updateCCTVChannel HIT with id:', req.params.id, 'body:', req.body);
+  try {
+    const { id } = req.params;
+    const { custom_name, is_empty_slot } = req.body;
+    const pool = await poolPromise;
+
+    // Get current settings
+    const current = await pool.request()
+      .input('id', sql.NVarChar, id)
+      .query('SELECT channel_settings, channel_name, status FROM CCTVChannels WHERE id = @id');
+    
+    if (current.recordset.length === 0) {
+      return res.status(404).json({ success: false, error: 'Channel not found' });
+    }
+
+    const row = current.recordset[0];
+    let settings = {};
+    if (row.channel_settings) {
+      try { settings = JSON.parse(row.channel_settings); } catch(e){}
+    }
+
+    if (custom_name !== undefined) settings.custom_name = custom_name;
+    if (is_empty_slot !== undefined) settings.is_empty_slot = is_empty_slot;
+
+    let newStatus = row.status;
+    if (settings.is_empty_slot) {
+      newStatus = 'empty_slot';
+    } else if (newStatus === 'empty_slot') {
+      newStatus = 'offline'; // Will be updated on next poll
+    }
+
+    const newChannelName = settings.custom_name || row.channel_name;
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('channel_name', sql.NVarChar, newChannelName)
+      .input('status', sql.NVarChar, newStatus)
+      .input('channel_settings', sql.NVarChar, JSON.stringify(settings))
+      .input('updated_at', sql.DateTime, new Date())
+      .query(`
+        UPDATE CCTVChannels 
+        SET channel_name = @channel_name,
+            status = @status,
+            channel_settings = @channel_settings,
+            updated_at = @updated_at
+        WHERE id = @id
+      `);
+
+    res.json({ success: true, message: 'Channel updated successfully' });
+  } catch (err) {
+    console.error('[CCTV] Error updating channel:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};

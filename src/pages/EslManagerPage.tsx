@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { PageHeader, SectionCard, StatCard } from "@/components/ui-enterprise";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { TemplateDesigner } from "@/components/TemplateDesigner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -43,8 +44,16 @@ interface EslSyncLog {
   synced_at: string;
 }
 
+interface EslProduct {
+  org_cd: string;
+  itm_cd: string;
+  item_name: string;
+  current_price: number;
+  linked_labels: number;
+}
+
 export default function EslManagerPage() {
-  const [activeTab, setActiveTab] = useState<'labels' | 'gateways' | 'logs'>('labels');
+  const [activeTab, setActiveTab] = useState<'overview' | 'labels' | 'products' | 'gateways' | 'templates' | 'logs'>('overview');
   const [loading, setLoading] = useState(false);
   const [syncRunning, setSyncRunning] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -53,6 +62,7 @@ export default function EslManagerPage() {
 
   const [gateways, setGateways] = useState<EslGateway[]>([]);
   const [labels, setLabels] = useState<EslLabel[]>([]);
+  const [products, setProducts] = useState<EslProduct[]>([]);
   const [logs, setLogs] = useState<EslSyncLog[]>([]);
 
   // Dialog state
@@ -142,9 +152,26 @@ export default function EslManagerPage() {
     }
   };
 
+  const fetchProducts = async () => {
+    try {
+      const q = new URLSearchParams();
+      if (searchQuery) q.append("search", searchQuery);
+      if (storeFilter && storeFilter !== "All Stores") q.append("org_cd", storeFilter);
+      
+      const res = await fetch(`/api/esl/products?${q}`);
+      if (res.ok) {
+        const data = await res.json();
+        setProducts(data);
+      }
+    } catch (e) {
+      console.error("Error fetching ESL products", e);
+    }
+  };
+
   const loadAllData = () => {
     fetchGateways();
     fetchLabels();
+    fetchProducts();
     fetchLogs();
   };
 
@@ -481,37 +508,18 @@ export default function EslManagerPage() {
         }
       />
 
-      {/* Analytics dashboard widgets */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard
-          label="Total Active Labels"
-          value={totalLabels}
-          icon={<Tag className="w-4 h-4 text-primary" />}
-          variant="primary"
-        />
-        <StatCard
-          label="Gateways Online"
-          value={`${onlineGateways} / ${gateways.length}`}
-          icon={<Radio className="w-4 h-4 text-success" />}
-          variant="success"
-        />
-        <StatCard
-          label="Low Battery Alerts"
-          value={lowBatteryCount}
-          icon={<BatteryLow className="w-4 h-4 text-warning" />}
-          variant="warning"
-        />
-        <StatCard
-          label="Sync Failure Alerts"
-          value={syncFailedCount}
-          icon={<AlertCircle className="w-4 h-4 text-danger" />}
-          variant="danger"
-        />
-      </div>
-
       {/* Tabs configuration and filter selection */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-border gap-4 pb-2">
         <div className="flex border-b border-transparent">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={cn(
+              "px-4 py-2 text-xs font-bold border-b-2 transition-all -mb-px flex items-center gap-1.5",
+              activeTab === 'overview' ? "border-primary text-primary" : "border-transparent text-foreground-muted hover:text-foreground"
+            )}
+          >
+            <Activity className="w-4 h-4" /> Overview Dashboard
+          </button>
           <button
             onClick={() => setActiveTab('labels')}
             className={cn(
@@ -522,13 +530,31 @@ export default function EslManagerPage() {
             <Tag className="w-4 h-4" /> Shelf Labels ({labels.length})
           </button>
           <button
+            onClick={() => setActiveTab('products')}
+            className={cn(
+              "px-4 py-2 text-xs font-bold border-b-2 transition-all -mb-px flex items-center gap-1.5",
+              activeTab === 'products' ? "border-primary text-primary" : "border-transparent text-foreground-muted hover:text-foreground"
+            )}
+          >
+            <Database className="w-4 h-4" /> Product Info ({products.length})
+          </button>
+          <button
             onClick={() => setActiveTab('gateways')}
             className={cn(
               "px-4 py-2 text-xs font-bold border-b-2 transition-all -mb-px flex items-center gap-1.5",
               activeTab === 'gateways' ? "border-primary text-primary" : "border-transparent text-foreground-muted hover:text-foreground"
             )}
           >
-            <Cpu className="w-4 h-4" /> Access Point Gateways ({gateways.length})
+            <Cpu className="w-4 h-4" /> Gateways ({gateways.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('templates')}
+            className={cn(
+              "px-4 py-2 text-xs font-bold border-b-2 transition-all -mb-px flex items-center gap-1.5",
+              activeTab === 'templates' ? "border-primary text-primary" : "border-transparent text-foreground-muted hover:text-foreground"
+            )}
+          >
+            <LayoutGrid className="w-4 h-4" /> Templates
           </button>
           <button
             onClick={() => setActiveTab('logs')}
@@ -580,6 +606,94 @@ export default function EslManagerPage() {
       </div>
 
       {/* Main Tab content switch */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+            <StatCard
+              label="Total Active Labels"
+              value={totalLabels}
+              icon={<Tag className="w-4 h-4 text-primary" />}
+              variant="primary"
+            />
+            <StatCard
+              label="Gateways Online"
+              value={`${onlineGateways} / ${gateways.length}`}
+              icon={<Radio className="w-4 h-4 text-success" />}
+              variant="success"
+            />
+            <StatCard
+              label="Low Battery Alerts"
+              value={lowBatteryCount}
+              icon={<BatteryLow className="w-4 h-4 text-warning" />}
+              variant="warning"
+            />
+            <StatCard
+              label="Sync Failure Alerts"
+              value={syncFailedCount}
+              icon={<AlertCircle className="w-4 h-4 text-danger" />}
+              variant="danger"
+            />
+          </div>
+
+          {/* Quick Actions & Status Summary */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <SectionCard title="Quick Actions">
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => { setActiveTab('labels'); setShowAssociateModal(true); }}
+                  className="p-4 bg-surface hover:bg-surface-raised border border-border rounded-2xl flex flex-col items-center justify-center gap-2 transition-all hover:border-primary/50 group"
+                >
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <span className="text-sm font-bold text-foreground">Link New Label</span>
+                </button>
+                <button
+                  onClick={handleTriggerSync}
+                  disabled={syncRunning}
+                  className="p-4 bg-surface hover:bg-surface-raised border border-border rounded-2xl flex flex-col items-center justify-center gap-2 transition-all hover:border-primary/50 group disabled:opacity-50"
+                >
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                    <RefreshCw className={cn("w-5 h-5", syncRunning && "animate-spin")} />
+                  </div>
+                  <span className="text-sm font-bold text-foreground">Force Sync POS Data</span>
+                </button>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="System Health">
+              <div className="space-y-4">
+                <div className="flex justify-between items-center p-3 rounded-xl bg-surface border border-border">
+                  <div className="flex items-center gap-3">
+                    <Radio className={cn("w-5 h-5", gateways.some(g => g.status === 'offline') ? 'text-danger' : 'text-success')} />
+                    <div>
+                      <div className="text-sm font-bold">Gateway Connection</div>
+                      <div className="text-xs text-foreground-muted">
+                        {onlineGateways === gateways.length ? 'All Gateways Online' : `${gateways.length - onlineGateways} Gateway(s) Offline`}
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => setActiveTab('gateways')} className="text-xs text-primary font-bold">View</button>
+                </div>
+                
+                <div className="flex justify-between items-center p-3 rounded-xl bg-surface border border-border">
+                  <div className="flex items-center gap-3">
+                    <BatteryLow className={cn("w-5 h-5", lowBatteryCount > 0 ? 'text-warning' : 'text-success')} />
+                    <div>
+                      <div className="text-sm font-bold">Label Batteries</div>
+                      <div className="text-xs text-foreground-muted">
+                        {lowBatteryCount > 0 ? `${lowBatteryCount} label(s) need battery replacement` : 'All batteries healthy'}
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => { setActiveTab('labels'); setStatusFilter('low_battery'); }} className="text-xs text-primary font-bold">View</button>
+                </div>
+              </div>
+            </SectionCard>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'labels' && (
         <SectionCard>
           {/* Label Search controls */}
@@ -695,6 +809,71 @@ export default function EslManagerPage() {
             </table>
           </div>
         </SectionCard>
+      )}
+
+      {activeTab === 'products' && (
+        <SectionCard title="Product Master Data">
+          <div className="flex items-center gap-2 mb-4 max-w-md">
+            <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2 flex-1">
+              <Search className="w-4 h-4 text-foreground-muted" />
+              <input
+                type="text"
+                placeholder="Search Product SKU or name..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && fetchProducts()}
+                className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 flex-1 text-foreground"
+              />
+            </div>
+            <button
+              onClick={fetchProducts}
+              className="px-4 py-2 bg-primary hover:bg-primary/95 text-primary-foreground text-xs font-bold rounded-xl transition-all shadow-glow"
+            >
+              Search
+            </button>
+          </div>
+          
+          <div className="w-full overflow-x-auto rounded-xl border border-border bg-surface">
+            <table className="w-full text-left whitespace-nowrap">
+              <thead className="bg-surface-raised border-b border-border">
+                <tr>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest w-24">Store</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest w-32">Product ID</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest">Description</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-right">Price</th>
+                  <th className="px-4 py-3 text-[10px] font-bold text-foreground-muted uppercase tracking-widest text-center">Linked Labels</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {products.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-16 text-center text-foreground-muted italic text-xs">
+                      No matching products found.
+                    </td>
+                  </tr>
+                ) : products.map((prod, i) => (
+                  <tr key={`${prod.org_cd}-${prod.itm_cd}-${i}`} className="hover:bg-white/5 transition-colors">
+                    <td className="px-4 py-3 text-xs font-bold font-mono text-foreground/80">{prod.org_cd}</td>
+                    <td className="px-4 py-3 text-xs font-semibold text-primary font-mono">{prod.itm_cd}</td>
+                    <td className="px-4 py-3 text-xs font-bold text-foreground">{prod.item_name || 'N/A'}</td>
+                    <td className="px-4 py-3 text-xs font-bold text-right text-success font-mono">
+                      {formatCurrency(prod.current_price)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-center font-mono">
+                      <span className="inline-flex items-center justify-center bg-primary/10 text-primary w-6 h-6 rounded-full font-bold">
+                        {prod.linked_labels}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
+
+      {activeTab === 'templates' && (
+        <TemplateDesigner />
       )}
 
       {activeTab === 'gateways' && (
