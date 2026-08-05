@@ -4815,8 +4815,8 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
         m.card_no LIKE @search OR 
         A4.anm_desc LIKE @search OR
         A7.anm_desc LIKE @search OR
-        p.name LIKE @search OR
-        p.mobile_no LIKE @search
+        COALESCE(p1.name, p2.name) LIKE @search OR
+        COALESCE(p1.mobile_no, p2.mobile_no) LIKE @search
       )`;
       request.input('search', sql.NVarChar, `%${search}%`);
     }
@@ -4833,7 +4833,8 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
     const countRes = await request.query(`
       SELECT COUNT(1) AS total 
       FROM ITEM_SALES_MEMBER m
-      LEFT JOIN LOYAL_MEMBER_PROFILE p ON m.card_no = p.member_id OR m.card_no = p.mobile_no
+      LEFT JOIN LOYAL_MEMBER_PROFILE p1 ON m.card_no = p1.member_id
+      LEFT JOIN LOYAL_MEMBER_PROFILE p2 ON m.card_no = p2.mobile_no
       LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
       LEFT JOIN attribute_nesting_mst A7 ON m.brand = A7.anm_attr_cd AND A7.anm_attr = 'ATTR7'
       ${whereClause}
@@ -4845,7 +4846,7 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
     const salesRes = await request.query(`
       SELECT 
           m.id, m.org_cd, m.itm_cd, m.item_name, m.qty, m.uom, m.promo_item_flag, m.promo_detail, m.disc_amt, m.bill_dt, m.card_no,
-          p.name as member_name,
+          COALESCE(p1.name, p2.name) as member_name,
           A2.anm_desc AS division,
           A3.anm_desc AS groups,
           A4.anm_desc AS department,
@@ -4859,7 +4860,8 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
           A13.anm_desc AS returnable,
           A18.anm_desc AS item_type
       FROM ITEM_SALES_MEMBER m
-      LEFT JOIN LOYAL_MEMBER_PROFILE p ON m.card_no = p.member_id OR m.card_no = p.mobile_no
+      LEFT JOIN LOYAL_MEMBER_PROFILE p1 ON m.card_no = p1.member_id
+      LEFT JOIN LOYAL_MEMBER_PROFILE p2 ON m.card_no = p2.mobile_no
       LEFT JOIN attribute_nesting_mst A2 ON m.division = A2.anm_attr_cd AND A2.anm_attr = 'ATTR2'
       LEFT JOIN attribute_nesting_mst A3 ON m.groups = A3.anm_attr_cd AND A3.anm_attr = 'ATTR3'
       LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
@@ -4985,15 +4987,24 @@ router.post('/api/dev/loyalty/trigger-etl', async (req, res) => {
 
   logFn(`Starting manual ETL trigger for range: ${fromDate} to ${toDate}`);
   
-  runDevEtl(fromDate, toDate, logFn)
-    .then(() => {
+  (async () => {
+    try {
+      logFn(`Step 1/3: Syncing HOSERVER DIM_ITEM...`);
+      await runHoServerDimItemSync();
+      
+      logFn(`Step 2/3: Syncing ITEM_SALES_MEMBER...`);
+      await runItemSalesSync(fromDate, toDate, logFn);
+
+      logFn(`Step 3/3: Running DEV_LOYALTY ETL...`);
+      await runDevEtl(fromDate, toDate, logFn);
+
       logFn(`ETL completed successfully!`);
       devEtlRunning = false;
-    })
-    .catch((err) => {
+    } catch (err) {
       logFn(`ETL failed: ${err.message}`);
       devEtlRunning = false;
-    });
+    }
+  })();
 
   res.json({ message: 'ETL process started in background' });
 });
