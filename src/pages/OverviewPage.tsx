@@ -365,7 +365,7 @@ export default function OverviewPage() {
             style={{ transform: `translateX(-${currentSlide * 100}%)` }}>
             
             {/* Slide 1 - Device Stats */}
-            <div className="w-full flex-shrink-0 space-y-6 pr-6">
+            <div className="w-full h-full overflow-y-auto flex-shrink-0 space-y-6 pr-2 sm:pr-6 pb-24">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                   <Monitor className="w-6 h-6 text-blue-600" />
@@ -477,7 +477,7 @@ export default function OverviewPage() {
             </div>
 
             {/* Slide 2 - Deployment & Tickets */}
-            <div className="w-full flex-shrink-0 space-y-6 px-6">
+            <div className="w-full h-full overflow-y-auto flex-shrink-0 space-y-6 px-2 sm:px-6 pb-24">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                   <BarChart3 className="w-6 h-6 text-blue-600" />
@@ -617,7 +617,7 @@ export default function OverviewPage() {
             </div>
 
             {/* Slide 3 - CRM Sync Monitoring */}
-            <div className="w-full flex-shrink-0 space-y-6 px-6">
+            <div className="w-full h-full overflow-y-auto flex-shrink-0 space-y-6 px-2 sm:px-6 pb-24">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                   <RefreshCw className="w-6 h-6 text-blue-600" />
@@ -776,7 +776,7 @@ export default function OverviewPage() {
             </div>
 
             {/* Slide 4 - DBWH Jobs Monitoring */}
-            <div className="w-full flex-shrink-0 space-y-6 px-6">
+            <div className="w-full h-full overflow-y-auto flex-shrink-0 space-y-6 px-2 sm:px-6 pb-24">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                   <Database className="w-6 h-6 text-blue-600" />
@@ -922,7 +922,7 @@ export default function OverviewPage() {
             </div>
 
             {/* Slide 5 - CCTV Monitoring Dashboard */}
-            <div className="w-full flex-shrink-0 space-y-6 px-6">
+            <div className="w-full h-full overflow-y-auto flex-shrink-0 space-y-6 px-2 sm:px-6 pb-24">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                   <Video className="w-6 h-6 text-blue-600" />
@@ -1064,7 +1064,7 @@ export default function OverviewPage() {
             </div>
 
             {/* Slide 6 - Wise Customer Transaction */}
-            <div className="w-full flex-shrink-0 space-y-6 px-6">
+            <div className="w-full h-full overflow-y-auto flex-shrink-0 space-y-6 px-2 sm:px-6 pb-24">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                   <ShoppingCart className="w-6 h-6 text-blue-600" />

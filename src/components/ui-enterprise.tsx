@@ -112,12 +112,12 @@ export function PageHeader({ title, subtitle, actions }: {
   title: string; subtitle?: string; actions?: React.ReactNode
 }) {
   return (
-    <div className="flex items-start justify-between mb-6">
+    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
       <div>
         <h1 className="text-xl font-bold text-foreground">{title}</h1>
         {subtitle && <p className="text-sm text-foreground-muted mt-0.5">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 w-full md:w-auto shrink-0">{actions}</div>}
     </div>
   );
 }
@@ -129,12 +129,12 @@ export function SectionCard({ title, subtitle, children, actions, className, id,
   return (
     <div id={id} className={cn("card-enterprise overflow-hidden", className)} style={style}>
       {(title || actions) && (
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-3 border-b border-border">
           <div>
             {title && <h2 className="text-sm font-semibold text-foreground">{title}</h2>}
             {subtitle && <p className="text-xs text-foreground-muted">{subtitle}</p>}
           </div>
-          {actions && <div className="flex items-center gap-2">{actions}</div>}
+          {actions && <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">{actions}</div>}
         </div>
       )}
       {children}

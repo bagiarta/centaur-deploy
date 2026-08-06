@@ -44,7 +44,7 @@ export default function LoginPage() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[120px] animate-pulse-slow"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/10 rounded-full blur-[120px] animate-pulse-slow active"></div>
 
-      <div className="w-full max-w-md p-8 relative z-10 animate-fade-in-up">
+      <div className="w-full max-w-md px-4 sm:px-8 py-8 relative z-10 animate-fade-in-up">
         {/* Branding */}
         <div className="flex flex-col items-center mb-10">
           <div className="relative mb-4 group transform transition-all duration-500 hover:scale-110">
@@ -56,11 +56,11 @@ export default function LoginPage() {
             />
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">PepiNetUpdater</h1>
-          <p className="text-foreground-muted text-sm mt-2">Tools Management & Monitoring</p>
+          <p className="text-foreground-muted text-sm mt-2 text-center">Tools Management & Monitoring</p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-surface/40 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl overflow-hidden relative group">
+        <div className="bg-surface/40 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl overflow-hidden relative group">
           <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
 
           <div className="space-y-6 relative z-10 text-center">
