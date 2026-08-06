@@ -80,10 +80,10 @@ export function StatCard({ label, value, sub, icon, variant = "default", classNa
       onClick={onClick}
     >
       <div className="flex items-start justify-between">
-        <div className="min-w-0">
-          <p className="text-xs text-foreground-muted font-medium uppercase tracking-wider mb-1">{label}</p>
-          <p className="text-3xl font-bold text-foreground">{value}</p>
-          {sub && <p className="text-xs text-foreground-muted mt-1">{sub}</p>}
+        <div className="min-w-0 flex-1 pr-2">
+          <p className="text-xs text-foreground-muted font-medium uppercase tracking-wider mb-1 truncate" title={label}>{label}</p>
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-foreground truncate" title={String(value)}>{value}</p>
+          {sub && <p className="text-xs text-foreground-muted mt-1 truncate" title={sub}>{sub}</p>}
         </div>
         {icon && (
           <div className={cn("flex items-center justify-center w-10 h-10 rounded-lg shrink-0", iconBg[variant])}>

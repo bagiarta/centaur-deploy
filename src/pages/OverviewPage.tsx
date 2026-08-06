@@ -1089,18 +1089,20 @@ export default function OverviewPage() {
                   {/* Period Info */}
                   <div className="border-0 shadow-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white overflow-hidden relative rounded-xl p-6">
                     <div className="absolute inset-0 bg-black/10"></div>
-                    <div className="relative z-10 flex items-center gap-4">
-                      <div className="p-3 bg-white/20 rounded-lg">
-                        <Calendar className="w-6 h-6" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-lg font-bold">Transaction Period</h3>
-                        <p className="text-sm text-indigo-100">{wiseTransactions.period}</p>
+                    <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-4">
+                        <div className="p-3 bg-white/20 rounded-lg shrink-0">
+                          <Calendar className="w-6 h-6" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-base sm:text-lg font-bold">Transaction Period</h3>
+                          <p className="text-xs sm:text-sm text-indigo-100">{wiseTransactions.period}</p>
+                        </div>
                       </div>
                       <button
                         onClick={fetchWiseTransactions}
                         disabled={wiseLoading}
-                        className="flex items-center gap-1.5 text-xs bg-white/20 hover:bg-white/30 px-3 py-2 rounded-lg transition-colors"
+                        className="flex items-center justify-center gap-1.5 text-xs bg-white/20 hover:bg-white/30 px-3 py-2 rounded-lg transition-colors w-full sm:w-auto"
                       >
                         <RefreshCw className={cn("w-3.5 h-3.5", wiseLoading && "animate-spin")} />
                         Refresh
@@ -1114,12 +1116,12 @@ export default function OverviewPage() {
                       <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
                       <div className="relative z-10">
                         <div className="flex items-center gap-3 mb-4">
-                          <div className="p-3 bg-white/20 rounded-lg">
+                          <div className="p-3 bg-white/20 rounded-lg shrink-0">
                             <ShoppingCart className="w-6 h-6" />
                           </div>
-                          <div>
-                            <div className="text-4xl font-bold">{wiseTransactions.totalTransactions.toLocaleString()}</div>
-                            <p className="text-sm text-cyan-100 mt-1">Total Transactions</p>
+                          <div className="min-w-0">
+                            <div className="text-2xl sm:text-3xl lg:text-4xl font-bold truncate">{wiseTransactions.totalTransactions.toLocaleString()}</div>
+                            <p className="text-xs sm:text-sm text-cyan-100 mt-1 truncate">Total Transactions</p>
                           </div>
                         </div>
                         <p className="text-xs text-cyan-100/80">This month period</p>
@@ -1130,12 +1132,12 @@ export default function OverviewPage() {
                       <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
                       <div className="relative z-10">
                         <div className="flex items-center gap-3 mb-4">
-                          <div className="p-3 bg-white/20 rounded-lg">
+                          <div className="p-3 bg-white/20 rounded-lg shrink-0">
                             <Users className="w-6 h-6" />
                           </div>
-                          <div>
-                            <div className="text-4xl font-bold">{wiseTransactions.totalCustomers.toLocaleString()}</div>
-                            <p className="text-sm text-purple-100 mt-1">Unique Customers</p>
+                          <div className="min-w-0">
+                            <div className="text-2xl sm:text-3xl lg:text-4xl font-bold truncate">{wiseTransactions.totalCustomers.toLocaleString()}</div>
+                            <p className="text-xs sm:text-sm text-purple-100 mt-1 truncate">Unique Customers</p>
                           </div>
                         </div>
                         <p className="text-xs text-purple-100/80">Active members</p>
@@ -1146,12 +1148,12 @@ export default function OverviewPage() {
                       <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
                       <div className="relative z-10">
                         <div className="flex items-center gap-3 mb-4">
-                          <div className="p-3 bg-white/20 rounded-lg">
+                          <div className="p-3 bg-white/20 rounded-lg shrink-0">
                             <TrendingUp className="w-6 h-6" />
                           </div>
-                          <div>
-                            <div className="text-4xl font-bold">{wiseTransactions.totalPoints.toLocaleString()}</div>
-                            <p className="text-sm text-emerald-100 mt-1">Points Earned</p>
+                          <div className="min-w-0">
+                            <div className="text-2xl sm:text-3xl lg:text-4xl font-bold truncate">{wiseTransactions.totalPoints.toLocaleString()}</div>
+                            <p className="text-xs sm:text-sm text-emerald-100 mt-1 truncate">Points Earned</p>
                           </div>
                         </div>
                         <p className="text-xs text-emerald-100/80">Loyalty rewards</p>
@@ -1162,16 +1164,16 @@ export default function OverviewPage() {
                   {/* Transaction Summary */}
                   <div className="border-0 shadow-xl bg-white/80 backdrop-blur-sm rounded-xl overflow-hidden p-6">
                     <h3 className="font-semibold text-gray-800 mb-4">Transaction Summary</h3>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="p-4 bg-blue-50 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Avg. Transaction/Day</p>
-                        <p className="text-2xl font-bold text-blue-600">
+                        <p className="text-xs sm:text-sm text-gray-600 mb-1">Avg. Transaction/Day</p>
+                        <p className="text-xl sm:text-2xl font-bold text-blue-600">
                           {Math.round(wiseTransactions.totalTransactions / new Date().getDate())}
                         </p>
                       </div>
                       <div className="p-4 bg-purple-50 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Avg. Points/Transaction</p>
-                        <p className="text-2xl font-bold text-purple-600">
+                        <p className="text-xs sm:text-sm text-gray-600 mb-1">Avg. Points/Transaction</p>
+                        <p className="text-xl sm:text-2xl font-bold text-purple-600">
                           {wiseTransactions.totalTransactions > 0 ? Math.round(wiseTransactions.totalPoints / wiseTransactions.totalTransactions) : 0}
                         </p>
                       </div>
