@@ -32,6 +32,7 @@ import CCTVMonitoringPage from "./pages/CCTVMonitoringPage";
 import PMDashboardPage from "./pages/PMDashboardPage";
 import PMSchedulePage from "./pages/PMSchedulePage";
 import PMActionItemsPage from "./pages/PMActionItemsPage";
+import StorePMApprovalPage from "./pages/StorePMApprovalPage";
 import DeviceHealthPage from "./pages/DeviceHealthPage";
 import InstallersPage from "./pages/InstallersPage";
 import NotFound from "./pages/NotFound";
@@ -272,6 +273,13 @@ const App = () => (
               <ProtectedRoute>
                 <AppShell>
                   <PMActionItemsPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/support-manager/approvals" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <StorePMApprovalPage />
                 </AppShell>
               </ProtectedRoute>
             } />

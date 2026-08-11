@@ -18,6 +18,7 @@ const statusConfig: Record<string, { label: string; dot: string; bg: string; tex
   failed:     { label: "Failed",     dot: "bg-danger",   bg: "bg-danger-dim",   text: "text-danger" },
   scheduled:  { label: "Scheduled",  dot: "bg-info",     bg: "bg-info-dim",     text: "text-info" },
   cancelled:  { label: "Cancelled",  dot: "bg-danger",   bg: "bg-danger-dim",   text: "text-danger" },
+  'pending approval': { label: "Pending Approval", dot: "bg-warning", bg: "bg-warning-dim", text: "text-warning" },
   // agent
   queued:     { label: "Queued",     dot: "bg-foreground-subtle", bg: "bg-surface-raised", text: "text-foreground-muted" },
   connecting: { label: "Connecting", dot: "bg-warning",  bg: "bg-warning-dim",  text: "text-warning" },

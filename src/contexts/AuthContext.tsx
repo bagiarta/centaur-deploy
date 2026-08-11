@@ -8,6 +8,8 @@ interface User {
   role_name: string;
   menu_permissions: string; // JSON or '*'
   is_admin: boolean;
+  store_code?: string; // Links manager to specific store location
+  sessionId?: string; // SSO session ID for backchannel logout
 }
 
 interface AuthContextType {

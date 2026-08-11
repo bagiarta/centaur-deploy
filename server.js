@@ -85,6 +85,8 @@ app.use('/sso-api', proxy('http://localhost:3003', {
     return '/api' + req.url;
   },
   proxyReqOptDecorator: function(proxyReqOpts, srcReq) {
+    console.log(`[PROXY /sso-api] Proxying ${srcReq.method} ${srcReq.url}`);
+    console.log(`[PROXY /sso-api] Received Cookies: ${srcReq.headers.cookie || 'NONE'}`);
     proxyReqOpts.headers['x-forwarded-proto'] = srcReq.protocol;
     return proxyReqOpts;
   }

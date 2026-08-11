@@ -30,7 +30,13 @@ export default function LoginPage() {
         throw new Error("SSO config is incomplete");
       }
       
-      const ssoUrl = `${config.auth_url}?client_id=${config.client_id}&redirect_uri=${encodeURIComponent(config.redirect_uri)}&response_type=code&scope=openid profile email`;
+      // Generate a CSRF state token and store it for verification on callback
+      const state = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+        ? crypto.randomUUID() 
+        : Math.random().toString(36).substring(2) + Date.now().toString(36);
+      sessionStorage.setItem("sso_state", state);
+
+      const ssoUrl = `${config.auth_url}?client_id=${config.client_id}&redirect_uri=${encodeURIComponent(config.redirect_uri)}&response_type=code&scope=openid profile email&state=${state}`;
       window.location.href = ssoUrl;
     } catch (err: any) {
       setError(err.message || "Unable to connect to SSO Server.");

@@ -279,6 +279,21 @@ export default function PMSchedulePage() {
 
   const handleOpenChecklistModal = (schedule: Schedule) => {
     setActiveSchedule(schedule);
+
+    const draftData = localStorage.getItem(`pm_draft_${schedule.id}`);
+    if (draftData) {
+      try {
+        const parsed = JSON.parse(draftData);
+        setChecklist(parsed.checklist);
+        setGeneralNotes(parsed.generalNotes || "");
+        setIsChecklistOpen(true);
+        toast.info("Resumed from saved draft");
+        return;
+      } catch (e) {
+        console.error("Failed to parse draft", e);
+      }
+    }
+
     setGeneralNotes("");
 
     // Initialize checklist items
@@ -292,6 +307,20 @@ export default function PMSchedulePage() {
 
     setChecklist(initialChecklist);
     setIsChecklistOpen(true);
+  };
+
+  const handleSaveDraft = () => {
+    if (!activeSchedule) return;
+    try {
+      const draftData = {
+        checklist,
+        generalNotes
+      };
+      localStorage.setItem(`pm_draft_${activeSchedule.id}`, JSON.stringify(draftData));
+      toast.success("Progress saved as draft");
+    } catch (e) {
+      toast.error("Failed to save draft");
+    }
   };
 
   const handleChecklistStatusChange = (idx: number, status: ChecklistItem["status"]) => {
@@ -376,7 +405,7 @@ export default function PMSchedulePage() {
     try {
       // Determine overall status
       const hasBroken = checklist.some(item => item.status === "Needs Repair" || item.status === "Needs Replacement");
-      const overall_status = hasBroken ? "Pending Action" : "Success";
+      const overall_status = hasBroken ? "Pending Action" : "Pending Approval";
 
       const res = await fetch("/api/trial/support-manager/results", {
         method: "POST",
@@ -398,6 +427,7 @@ export default function PMSchedulePage() {
 
       if (res.ok) {
         toast.success("Preventive Maintenance completed and logged!");
+        localStorage.removeItem(`pm_draft_${activeSchedule.id}`);
         setIsChecklistOpen(false);
         fetchData();
       } else {
@@ -654,7 +684,7 @@ export default function PMSchedulePage() {
                         )}
 
                         {/* Edit Button: Admin OR Creator */}
-                        {(user?.is_admin || s.created_by === user?.id) && (
+                        {(user?.is_admin || s.created_by === user?.id) && s.status?.toLowerCase() !== "completed" && (
                           <button
                             onClick={() => handleOpenEditModal(s)}
                             className="p-1.5 text-foreground-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
@@ -1124,6 +1154,13 @@ export default function PMSchedulePage() {
             {/* Actions footer */}
             <div className="flex items-center justify-end gap-2 border-t border-border pt-4 shrink-0">
               <button
+                onClick={handleSaveDraft}
+                className="px-4 py-2 border border-primary text-primary hover:bg-primary/5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5"
+              >
+                <Save className="w-4 h-4" />
+                Save as Draft
+              </button>
+              <button
                 onClick={() => setIsChecklistOpen(false)}
                 className="px-4 py-2 border border-border hover:bg-surface-raised rounded-lg text-sm text-foreground transition-all"
               >
@@ -1196,7 +1233,7 @@ export default function PMSchedulePage() {
               )}
 
               {/* Edit Option: Admin or Creator */}
-              {(user?.is_admin || activeActionSchedule.created_by === user?.id) && (
+              {(user?.is_admin || activeActionSchedule.created_by === user?.id) && activeActionSchedule.status?.toLowerCase() !== "completed" && (
                 <button
                   onClick={() => {
                     const sched = activeActionSchedule;

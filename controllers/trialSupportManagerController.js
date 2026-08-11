@@ -360,12 +360,13 @@ export const submitPMResult = async (req, res) => {
       }
     }
 
-    // 5. Update PM Schedule Status to Completed
+    // 5. Update PM Schedule Status to overall_status
     await transaction.request()
       .input('schedule_id', sql.NVarChar, schedule_id)
+      .input('status', sql.NVarChar, overall_status || 'Pending Approval')
       .query(`
         UPDATE Trial_PMSchedules 
-        SET status = 'Completed', updated_at = GETDATE()
+        SET status = @status, updated_at = GETDATE()
         WHERE id = @schedule_id
       `);
 
@@ -433,6 +434,29 @@ export const resolveActionItem = async (req, res) => {
             updated_at = GETDATE()
         WHERE id = @id
       `);
+
+    // Check if all action items for this result are resolved
+    const aiQuery = await pool.request()
+      .input('id', sql.Int, id)
+      .query(`SELECT result_id FROM Trial_PMActionItems WHERE id = @id`);
+    
+    if (aiQuery.recordset.length > 0) {
+      const result_id = aiQuery.recordset[0].result_id;
+      const pendingQuery = await pool.request()
+        .input('result_id', sql.NVarChar, result_id)
+        .query(`SELECT COUNT(*) as pendingCount FROM Trial_PMActionItems WHERE result_id = @result_id AND status = 'Pending'`);
+      
+      if (pendingQuery.recordset[0].pendingCount === 0) {
+        await pool.request()
+          .input('result_id', sql.NVarChar, result_id)
+          .query(`
+            UPDATE Trial_PMSchedules 
+            SET status = 'Pending Approval', updated_at = GETDATE()
+            WHERE id = (SELECT schedule_id FROM Trial_PMResults WHERE id = @result_id)
+          `);
+      }
+    }
+
     res.json({ success: true });
   } catch (err) {
     console.error('[SupportManager] resolveActionItem error:', err.message);
@@ -565,6 +589,61 @@ export const getDeviceHealth = async (req, res) => {
     });
   } catch (err) {
     console.error('[SupportManager] getDeviceHealth error:', err.message);
-    res.status(500).json({ error: 'Failed to retrieve device health telemetry', details: err.message });
+    res.status(500).json({ error: 'Failed to fetch device health logs', details: err.message });
+  }
+};
+
+// 12. PUT /api/trial/support-manager/schedules/:id/approve
+export const approveSchedule = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.headers['x-user-id'] || 'system';
+
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .query(`
+        UPDATE Trial_PMSchedules
+        SET status = 'Completed', updated_at = GETDATE()
+        WHERE id = @id
+      `);
+    res.json({ success: true, message: 'Schedule approved successfully' });
+  } catch (err) {
+    console.error('[SupportManager] approveSchedule error:', err.message);
+    res.status(500).json({ error: 'Failed to approve schedule', details: err.message });
+  }
+};
+
+// 13. GET /api/trial/support-manager/schedules/:id/result
+export const getScheduleResult = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = await poolPromise;
+    const resultQuery = await pool.request()
+      .input('schedule_id', sql.NVarChar, id)
+      .query(`SELECT * FROM Trial_PMResults WHERE schedule_id = @schedule_id`);
+      
+    if (resultQuery.recordset.length === 0) {
+      return res.status(404).json({ error: 'Result not found for this schedule' });
+    }
+    
+    const result = resultQuery.recordset[0];
+    
+    const checksQuery = await pool.request()
+      .input('result_id', sql.NVarChar, result.id)
+      .query(`SELECT * FROM Trial_PMDeviceChecks WHERE result_id = @result_id`);
+      
+    const actionItemsQuery = await pool.request()
+      .input('result_id', sql.NVarChar, result.id)
+      .query(`SELECT * FROM Trial_PMActionItems WHERE result_id = @result_id`);
+      
+    res.json({
+      ...result,
+      device_checks: checksQuery.recordset,
+      action_items: actionItemsQuery.recordset
+    });
+  } catch (err) {
+    console.error('[SupportManager] getScheduleResult error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch schedule result', details: err.message });
   }
 };

@@ -1317,11 +1317,23 @@ router.post('/api/auth/sso-login', async (req, res) => {
     }
 
     // Save OIDC session
-    const sessionId = tokenData.sid || crypto.randomUUID();
+    // We append a random UUID to the SSO sid to ensure every login is a unique PepiNet session.
+    // This allows enforcing the "1 user 1 device" rule locally, while still allowing backchannel logout
+    // to find the session using a LIKE clause.
+    const ssoSid = tokenData.sid || crypto.randomUUID();
+    const sessionId = ssoSid + '_' + crypto.randomUUID();
+
+    // Invalidate all previous local sessions for this user to enforce 1-user-1-device rule
+    await pool.request()
+      .input('user_id', sql.VarChar, user.id)
+      .query('UPDATE UserSessions SET is_active = 0, invalidated_at = GETDATE() WHERE user_id = @user_id AND is_active = 1');
+
     await pool.request()
       .input('sid', sql.VarChar, sessionId)
       .input('user_id', sql.VarChar, user.id)
-      .query('INSERT INTO UserSessions (id, user_id, is_active) VALUES (@sid, @user_id, 1)');
+      .query(`
+        INSERT INTO UserSessions (id, user_id, is_active) VALUES (@sid, @user_id, 1)
+      `);
 
     user.sessionId = sessionId;
     console.log('[SSO_LOGIN] Login success for user:', username, 'Session ID:', sessionId);
@@ -1341,11 +1353,12 @@ router.post('/api/auth/sso-logout', async (req, res) => {
 
   try {
     const pool = await poolPromise;
+    // Match any composite session that starts with the SSO sid using LIKE
     await pool.request()
-      .input('sid', sql.VarChar, sid)
-      .query('UPDATE UserSessions SET is_active = 0, invalidated_at = GETDATE() WHERE id = @sid');
+      .input('sid_pattern', sql.VarChar, sid + '%')
+      .query('UPDATE UserSessions SET is_active = 0, invalidated_at = GETDATE() WHERE id LIKE @sid_pattern');
     
-    console.log(`[SLO] Session ${sid} invalidated successfully via Backchannel Logout.`);
+    console.log(`[SLO] Session(s) starting with ${sid} invalidated successfully via Backchannel Logout.`);
     res.json({ success: true, message: 'Session invalidated' });
   } catch (err) {
     console.error('[SLO] Error invalidating session:', err);
@@ -1373,10 +1386,14 @@ router.post('/api/auth/logout', async (req, res) => {
     if (sessionId) {
       try {
         const ssoApiBase = process.env.SSO_TOKEN_URL?.replace('/auth/token', '') || 'http://localhost:3003/api';
+        
+        // Extract the original SSO sid from the composite sessionId
+        const originalSsoSid = sessionId.split('_')[0];
+        
         const notifyRes = await fetch(`${ssoApiBase}/sessions/logout`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId, user_id: userId })
+          body: JSON.stringify({ session_id: originalSsoSid, user_id: userId })
         });
         if (notifyRes.ok) {
           console.log(`[LOGOUT] SSO server notified to revoke session ${sessionId}`);
