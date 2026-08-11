@@ -9,6 +9,8 @@ router.get('/cctv-devices', smController.getCctvDevices);
 router.get('/schedules', smController.getSchedules);
 router.post('/schedules', smController.createSchedule);
 router.put('/schedules/:id', smController.updateSchedule);
+router.put('/schedules/:id/approve', smController.approveSchedule);
+router.get('/schedules/:id/result', smController.getScheduleResult);
 router.delete('/schedules/:id', smController.deleteSchedule);
 router.post('/results', smController.submitPMResult);
 router.get('/action-items', smController.getActionItems);

@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { SmartAssistantWidget } from "./SmartAssistantWidget";
 import { ReportTroubleModal } from "./ReportTroubleModal";
 import ChatWidget from "./chat/ChatWidget";
-import { Ticket, LifeBuoy } from "lucide-react";
+import { Ticket, LifeBuoy, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export const navItems = [
@@ -33,6 +33,7 @@ export const navItems = [
       { id: "sm_dashboard", to: "/support-manager/dashboard", icon: LayoutDashboard, label: "PM Dashboard" },
       { id: "sm_schedule", to: "/support-manager/schedule", icon: ClipboardList, label: "PM Schedule & Checklist" },
       { id: "sm_actions", to: "/support-manager/action-items", icon: Wrench, label: "Action Items Tracking" },
+      { id: "sm_approvals", to: "/support-manager/approvals", icon: CheckCircle, label: "Store PM Approvals" },
     ]
   },
   {

@@ -13,10 +13,21 @@ export default function SSOCallbackPage() {
 
   useEffect(() => {
     const code = searchParams.get("code");
+    const returnedState = searchParams.get("state");
+
     if (!code) {
       setError("No authorization code found in callback URL.");
       return;
     }
+
+    // Verify CSRF state token
+    const savedState = sessionStorage.getItem("sso_state");
+    if (returnedState && savedState && returnedState !== savedState) {
+      setError("SSO state mismatch. Possible CSRF attack. Please try logging in again.");
+      return;
+    }
+    // Clear state after use
+    sessionStorage.removeItem("sso_state");
 
     if (processedRef.current) return;
     processedRef.current = true;
@@ -37,7 +48,7 @@ export default function SSOCallbackPage() {
         const data = await res.json();
         if (data.success && data.user) {
           login(data.user);
-          toast.success("Welcome back! Logged in with SSO successfully.");
+          toast.success(`Welcome back, ${data.user.full_name || data.user.username}!`);
           navigate("/");
         } else {
           throw new Error("Invalid response from login server");
