@@ -170,13 +170,37 @@ export default function CrmDevLoyaltyPage() {
     };
     fetchStores();
 
-    // Check ETL status every 3 seconds if running
-    const interval = setInterval(() => {
-      checkEtlStatus();
-    }, 3000);
-
-    return () => clearInterval(interval);
+    // The ETL polling is now handled by a dedicated useEffect below.
   }, []);
+
+  // Poll ETL status every 3 seconds while it is running
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (etlRunning) {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/dev/loyalty/etl-status');
+          if (res.ok) {
+            const status = await res.json();
+            setEtlLogs(status.logs || []);
+            
+            if (!status.running) {
+              setEtlRunning(false);
+              toast.success("ETL process finished. Refreshing data!");
+              fetchStats(filterStore, filterFromDate, filterToDate);
+              if (activeTab === 'profiles') fetchProfiles(filterStore, filterFromDate, filterToDate);
+              else if (activeTab === 'summaries') fetchSummaries(filterStore, filterFromDate, filterToDate);
+              else fetchItemSales(filterStore, filterFromDate, filterToDate);
+            }
+          }
+        } catch (e) {
+          // fail silently
+        }
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [etlRunning, activeTab, filterStore, filterFromDate, filterToDate]);
+
 
   // Close badge popover on scroll so it doesn't detach
   useEffect(() => {
@@ -314,27 +338,7 @@ export default function CrmDevLoyaltyPage() {
     }
   };
 
-  const checkEtlStatus = async () => {
-    try {
-      const res = await fetch('/api/dev/loyalty/etl-status');
-      if (res.ok) {
-        const status = await res.json();
-        setEtlRunning(status.running);
-        setEtlLogs(status.logs || []);
-        
-        // Auto refresh stats and tables once ETL finishes
-        if (etlRunning && !status.running) {
-          toast.success("ETL process finished. Refreshing data!");
-          fetchStats(filterStore, filterFromDate, filterToDate);
-          if (activeTab === 'profiles') fetchProfiles(filterStore, filterFromDate, filterToDate);
-          else if (activeTab === 'summaries') fetchSummaries(filterStore, filterFromDate, filterToDate);
-          else fetchItemSales(filterStore, filterFromDate, filterToDate);
-        }
-      }
-    } catch (e) {
-      // fail silently
-    }
-  };
+  // checkEtlStatus was removed as it's now embedded in the polling useEffect.
 
   const handleTriggerEtl = async () => {
     if (etlRunning) return;
@@ -352,7 +356,7 @@ export default function CrmDevLoyaltyPage() {
 
       if (res.ok) {
         toast.info("ETL sync started in the background");
-        checkEtlStatus();
+        // No need to manually check here, setEtlRunning(true) triggers the polling useEffect
       } else {
         const err = await res.json();
         throw new Error(err.error || "Failed to start ETL");
