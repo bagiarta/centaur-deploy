@@ -307,7 +307,7 @@ async function runSync(fromDateStr, toDateStr) {
     console.log('[ITEM_SALES_SYNC] Sync completed successfully!');
   } catch (err) {
     console.error('[ITEM_SALES_SYNC] Sync failed:', err.message);
-    process.exit(1);
+    throw err;
   } finally {
     if (localPool) await localPool.close();
     if (crmPool) await crmPool.close();
