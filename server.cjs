@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const cors = require('cors');
@@ -16,7 +16,7 @@ const pdfParse = require('pdf-parse');
 const cron = require('node-cron');
 const ExcelJS = require('exceljs');
 
-// ── TIMEZONE HELPER FUNCTIONS ──────────────────────────────
+// â”€â”€ TIMEZONE HELPER FUNCTIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function getCurrentTimestamp() {
   // Return timestamp in configured timezone
   return new Date().toLocaleString('id-ID', {
@@ -87,7 +87,7 @@ function isValidSafeSQL(script) {
   return true;
 }
 
-// ── H2H CRM INTEGRATION ──────────────────────────────
+// â”€â”€ H2H CRM INTEGRATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const h2hConfig = {
   baseUrl: (process.env.H2H_BASE_URL || '').replace(/\/$/, ''),
   clientId: process.env.H2H_CLIENT_ID,
@@ -109,7 +109,7 @@ async function getH2hToken() {
     return h2hTokenCache.token;
   }
 
-  console.log('🔄 Fetching new H2H CRM token...');
+  console.log('ðŸ”„ Fetching new H2H CRM token...');
 
   // Custom agent to handle verifySsl if needed
   const fetchOptions = {
@@ -145,7 +145,7 @@ async function getH2hToken() {
   return h2hTokenCache.token;
 }
 
-// ── CRM REPORTS DATABASE POOL ──────────────────────────────
+// â”€â”€ CRM REPORTS DATABASE POOL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let crmPoolPromise = null;
 
 async function getCrmPool() {
@@ -168,7 +168,7 @@ async function getCrmPool() {
     let config;
 
     if (device && device.db_user && device.db_password) {
-      console.log('✅ Found CRM Server (DBWH SERVER) in Devices table. Using dynamic connection.');
+      console.log('âœ… Found CRM Server (DBWH SERVER) in Devices table. Using dynamic connection.');
       config = {
         user: device.db_user,
         password: device.db_password,
@@ -183,7 +183,7 @@ async function getCrmPool() {
         requestTimeout: 60000
       };
     } else {
-      console.warn('⚠️ CRM Server (DBWH SERVER) not found or missing DB credentials. Using fallback.');
+      console.warn('âš ï¸ CRM Server (DBWH SERVER) not found or missing DB credentials. Using fallback.');
       config = {
         user: process.env.CRM_DB_USER || 'sa',
         password: process.env.CRM_DB_PASS || 'default_pass',
@@ -203,7 +203,7 @@ async function getCrmPool() {
     crmPoolPromise = crmPool.connect();
     return crmPoolPromise;
   } catch (err) {
-    console.error('❌ Failed to initialize CRM Pool:', err.message);
+    console.error('âŒ Failed to initialize CRM Pool:', err.message);
     crmPoolPromise = null; // Allow retry
     throw err;
   }
@@ -312,13 +312,13 @@ async function initDb() {
 
     // Connectivity Event listener
     pool.on('error', err => {
-      console.error('⚠️ [SQL POOL ERROR]:', err.message);
+      console.error('âš ï¸ [SQL POOL ERROR]:', err.message);
       if (err.message.includes('broken') || err.message.includes('Connection loss')) {
         console.warn('-- Possible Network Instability detected with ' + dbConfig.server + ' --');
       }
     });
 
-    console.log('✅ Connected to SQL Server:', dbConfig.server);
+    console.log('âœ… Connected to SQL Server:', dbConfig.server);
 
     const tables = [
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Devices' AND xtype='U')
@@ -715,9 +715,9 @@ async function initDb() {
       await pool.request().query('ALTER TABLE TicketTargets ADD solved_by NVARCHAR(100)');
     }
 
-    console.log('✅ Database fully initialized (DBWH_8529)');
+    console.log('âœ… Database fully initialized (DBWH_8529)');
   } catch (err) {
-    console.error('❌ Database Connection Failed! Bad Config: ', err);
+    console.error('âŒ Database Connection Failed! Bad Config: ', err);
   }
 }
 
@@ -803,7 +803,7 @@ async function seedData(pool) {
     console.log('Seeding AgentJobs...');
     await pool.request().query(`
       INSERT INTO AgentJobs (id, created_at, created_by, ip_range, total, success_count, failed_count, pending_count) VALUES 
-      ('aj1', '2025-03-09 08:30', 'admin', '192.168.1.1–254', 24, 20, 2, 2)
+      ('aj1', '2025-03-09 08:30', 'admin', '192.168.1.1â€“254', 24, 20, 2, 2)
     `);
   }
 
@@ -876,7 +876,7 @@ async function seedData(pool) {
   }
 }
 
-// ── POST /api/deployments/:id/targets ──────────────────────
+// â”€â”€ POST /api/deployments/:id/targets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/deployments/:id/targets', async (req, res) => {
   const { id } = req.params;
   const { targets } = req.body;
@@ -942,7 +942,7 @@ app.post('/api/deployments/:id/targets', async (req, res) => {
   }
 });
 
-// ── GET /api/devices/:id/db-connection ──────────────────
+// â”€â”€ GET /api/devices/:id/db-connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/devices/:id/db-connection', async (req, res) => {
   const { id } = req.params;
   try {
@@ -961,7 +961,7 @@ app.get('/api/devices/:id/db-connection', async (req, res) => {
   }
 });
 
-// ── POST /api/devices/:id/db-connection ─────────────────
+// â”€â”€ POST /api/devices/:id/db-connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/devices/:id/db-connection', async (req, res) => {
   const { id } = req.params;
   const { db_name, db_user, db_password } = req.body;
@@ -992,7 +992,7 @@ app.post('/api/devices/:id/db-connection', async (req, res) => {
   }
 });
 
-// ── POST /api/webhook/test-device-ping (TRIAL EXPERIMENT) ─
+// â”€â”€ POST /api/webhook/test-device-ping (TRIAL EXPERIMENT) â”€
 app.post('/api/webhook/test-device-ping', (req, res) => {
   const payload = req.body;
 
@@ -1007,12 +1007,12 @@ app.post('/api/webhook/test-device-ping', (req, res) => {
   }
 
   fs.appendFileSync(logFile, logEntry);
-  console.log('✅ Trial Webhook Data Received:', finalPayload);
+  console.log('âœ… Trial Webhook Data Received:', finalPayload);
 
   res.json({ success: true, message: 'Trial data received', data: finalPayload });
 });
 
-// ── GET /api/webhook/test-results (VIEW EXPERIMENT) ─
+// â”€â”€ GET /api/webhook/test-results (VIEW EXPERIMENT) â”€
 app.get('/api/webhook/test-results', (req, res) => {
   const logFile = path.join(__dirname, 'scratch', 'test_webhook_log.txt');
   if (fs.existsSync(logFile)) {
@@ -1024,7 +1024,7 @@ app.get('/api/webhook/test-results', (req, res) => {
   }
 });
 
-// ──  POST /api/webhook/device-ping (LIVE SYSTEM) ──────────
+// â”€â”€  POST /api/webhook/device-ping (LIVE SYSTEM) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/webhook/device-ping', async (req, res) => {
   console.log(`[DEBUG] Received Live Ping at ${new Date().toISOString()}`);
   console.log(`[DEBUG] Body:`, JSON.stringify(req.body));
@@ -1076,7 +1076,7 @@ app.post('/api/webhook/device-ping', async (req, res) => {
         `);
 
       if (oldStatus !== 'online') {
-        console.log(`✅ Network Hook: Device ${hostname} is back online.`);
+        console.log(`âœ… Network Hook: Device ${hostname} is back online.`);
       }
     } else {
       // Create new network device if doesn't exist
@@ -1095,17 +1095,17 @@ app.post('/api/webhook/device-ping', async (req, res) => {
           INSERT INTO Devices (id, hostname, ip, os_version, status, last_seen, device_type, network_ports)
           VALUES (@id, @hostname, @ip, @os_version, @status, @last_seen, @device_type, @network_ports)
         `);
-      console.log(`✅ Network Hook: Registered new device ${hostname}`);
+      console.log(`âœ… Network Hook: Registered new device ${hostname}`);
     }
 
     res.json({ success: true, message: 'Device status updated' });
   } catch (err) {
-    console.error('❌ Webhook processing error:', err);
+    console.error('âŒ Webhook processing error:', err);
     res.status(500).json({ error: 'Failed to process webhook', detail: err.message });
   }
 });
 
-// ── GET /api/devices ──────────────────────────────────────
+// â”€â”€ GET /api/devices â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/devices', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1148,7 +1148,7 @@ app.get('/api/devices', async (req, res) => {
   }
 });
 
-// ── POST /api/remote-commands ─────────────────────────────
+// â”€â”€ POST /api/remote-commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/remote-commands', async (req, res) => {
   try {
     const { devices, command } = req.body;
@@ -1176,9 +1176,9 @@ app.post('/api/remote-commands', async (req, res) => {
     devices.forEach((hostname, i) => {
       // Small simulated delay time strings
       const timeStr = new Date(Date.now() + i * 1000).toISOString().slice(11, 19);
-      output.push(`[${timeStr}] ${hostname.padEnd(15)} → OK`);
+      output.push(`[${timeStr}] ${hostname.padEnd(15)} â†’ OK`);
     });
-    output.push(`[${new Date().toISOString().slice(11, 19)}] ✓ Command completed on ${devices.length}/${devices.length} selected devices`);
+    output.push(`[${new Date().toISOString().slice(11, 19)}] âœ“ Command completed on ${devices.length}/${devices.length} selected devices`);
 
     res.json({ success: true, output });
   } catch (err) {
@@ -1186,7 +1186,7 @@ app.post('/api/remote-commands', async (req, res) => {
   }
 });
 
-// ── POST /api/devices ─────────────────────────────────────
+// â”€â”€ POST /api/devices â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/devices', async (req, res) => {
   try {
     const { id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude } = req.body;
@@ -1221,7 +1221,7 @@ app.post('/api/devices', async (req, res) => {
   }
 });
 
-// ── PUT /api/devices/:id ──────────────────────────────────
+// â”€â”€ PUT /api/devices/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.put('/api/devices/:id', async (req, res) => {
   try {
     const { hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude } = req.body;
@@ -1260,7 +1260,7 @@ app.put('/api/devices/:id', async (req, res) => {
   }
 });
 
-// ── DELETE /api/devices/:id ───────────────────────────────
+// â”€â”€ DELETE /api/devices/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.delete('/api/devices/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1306,7 +1306,7 @@ app.delete('/api/devices/:id', async (req, res) => {
   }
 });
 
-// ── POST /api/devices/register ────────────────────────────
+// â”€â”€ POST /api/devices/register â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Endpoint for the manual powershell installer to hit
 app.post('/api/devices/register', async (req, res) => {
   try {
@@ -1349,7 +1349,7 @@ app.post('/api/devices/register', async (req, res) => {
   }
 });
 
-// ── GET /api/groups ───────────────────────────────────────
+// â”€â”€ GET /api/groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/groups', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1372,7 +1372,7 @@ app.get('/api/groups', async (req, res) => {
   }
 });
 
-// ── POST /api/groups ──────────────────────────────────────
+// â”€â”€ POST /api/groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/groups', async (req, res) => {
   try {
     const { id, name, description, color } = req.body;
@@ -1392,7 +1392,7 @@ app.post('/api/groups', async (req, res) => {
   }
 });
 
-// ── PUT /api/groups/:id ───────────────────────────────────
+// â”€â”€ PUT /api/groups/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.put('/api/groups/:id', async (req, res) => {
   try {
     const { name, description, color } = req.body;
@@ -1412,7 +1412,7 @@ app.put('/api/groups/:id', async (req, res) => {
   }
 });
 
-// ── DELETE /api/groups/:id ────────────────────────────────
+// â”€â”€ DELETE /api/groups/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.delete('/api/groups/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1432,7 +1432,7 @@ app.delete('/api/groups/:id', async (req, res) => {
   }
 });
 
-// ── GET /api/packages ─────────────────────────────────────
+// â”€â”€ GET /api/packages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/packages', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1443,7 +1443,7 @@ app.get('/api/packages', async (req, res) => {
   }
 });
 
-// ── GET /api/packages/download/:filename ──────────────────
+// â”€â”€ GET /api/packages/download/:filename â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/packages/download/:filename', async (req, res) => {
   const { filename } = req.params;
   const filePath = path.join(REPO_PATH, filename);
@@ -1455,7 +1455,7 @@ app.get('/api/packages/download/:filename', async (req, res) => {
   }
 });
 
-// ── POST /api/groups/:id/devices ─────────────────────────
+// â”€â”€ POST /api/groups/:id/devices â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/groups/:id/devices', async (req, res) => {
   const groupId = req.params.id;
   const { device_ids } = req.body; // Array of device IDs that should belong to this group
@@ -1504,7 +1504,7 @@ app.post('/api/groups/:id/devices', async (req, res) => {
   }
 });
 
-// ── POST /api/sql/test-connection ──────────────────────
+// â”€â”€ POST /api/sql/test-connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/sql/test-connection', async (req, res) => {
   const { server, database, user, password } = req.body;
   const config = {
@@ -1530,7 +1530,7 @@ app.post('/api/sql/test-connection', async (req, res) => {
   }
 });
 
-// ── GET /api/sql/databases/:deviceId ─────────────────────
+// â”€â”€ GET /api/sql/databases/:deviceId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/sql/databases/:deviceId', async (req, res) => {
   try {
     const { deviceId } = req.params;
@@ -1566,7 +1566,7 @@ app.get('/api/sql/databases/:deviceId', async (req, res) => {
   }
 });
 
-// ── GET /api/sql/tables/:deviceId/:databaseName ──────────
+// â”€â”€ GET /api/sql/tables/:deviceId/:databaseName â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/sql/tables/:deviceId/:databaseName', async (req, res) => {
   try {
     const { deviceId, databaseName } = req.params;
@@ -1607,7 +1607,7 @@ app.get('/api/sql/tables/:deviceId/:databaseName', async (req, res) => {
   }
 });
 
-// ── POST /api/sql/execute ──────────────────────────────
+// â”€â”€ POST /api/sql/execute â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/sql/execute', async (req, res) => {
   const { script, target_device_ids, force } = req.body;
   const userId = req.headers['x-user-id'] || 'anonymous';
@@ -1634,8 +1634,8 @@ app.post('/api/sql/execute', async (req, res) => {
 
     // 1. SECURITY ENFORCEMENT
     // Simple rule: Global Safe Mode from DB is the single source of truth.
-    // - Global ON  → only SELECT allowed (no bypass)
-    // - Global OFF → all queries allowed
+    // - Global ON  â†’ only SELECT allowed (no bypass)
+    // - Global OFF â†’ all queries allowed
 
 
     if (isGlobalSafeMode && !isValidSafeSQL(script)) {
@@ -1728,7 +1728,7 @@ app.post('/api/sql/execute', async (req, res) => {
   }
 });
 
-// ── GET /api/deployments ──────────────────────────────────
+// â”€â”€ GET /api/deployments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/deployments', async (req, res) => {
   try {
     console.log('GET /api/deployments called');
@@ -1743,7 +1743,7 @@ app.get('/api/deployments', async (req, res) => {
   }
 });
 
-// ── GET /api/deployment-targets ───────────────────────────
+// â”€â”€ GET /api/deployment-targets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/deployment-targets', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1762,7 +1762,7 @@ app.get('/api/deployment-targets', async (req, res) => {
 function parseIPRange(input) {
   if (!input) return [];
   const allIps = [];
-  const normalized = input.replace(/[–—]/g, '-').replace(/\s*-\s*/g, '-');
+  const normalized = input.replace(/[â€“â€”]/g, '-').replace(/\s*-\s*/g, '-');
   const parts = normalized.split(/[,;\s]+/).filter(Boolean);
   for (const part of parts) {
     let m = part.match(/^(\d+\.\d+\.\d+\.\d+)-(\d+\.\d+\.\d+\.\d+)$/);
@@ -1793,7 +1793,7 @@ function parseIPRange(input) {
   return [...new Set(allIps)];
 }
 
-// ── GET /api/agent-jobs ───────────────────────────────────
+// â”€â”€ GET /api/agent-jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/agent-jobs', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1804,7 +1804,7 @@ app.get('/api/agent-jobs', async (req, res) => {
   }
 });
 
-// ── POST /api/agent-jobs ──────────────────────────────────
+// â”€â”€ POST /api/agent-jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/agent-jobs', async (req, res) => {
   try {
     const { id, ip_range, created_by, username, password, device_targets } = req.body;
@@ -1816,7 +1816,7 @@ app.post('/api/agent-jobs', async (req, res) => {
     const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
     const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
 
-    // ── MODE A: device_targets (per-device, from device list) ──
+    // â”€â”€ MODE A: device_targets (per-device, from device list) â”€â”€
     if (device_targets && Array.isArray(device_targets) && device_targets.length > 0) {
       const total = device_targets.length;
 
@@ -1881,7 +1881,7 @@ app.post('/api/agent-jobs', async (req, res) => {
       return;
     }
 
-    // ── MODE B: IP Range (legacy) ──────────────────────────
+    // â”€â”€ MODE B: IP Range (legacy) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const ips = parseIPRange(ip_range);
     const total = ips.length;
     if (total === 0) return res.status(400).json({ error: "No valid IPs found." });
@@ -1944,7 +1944,7 @@ app.post('/api/agent-jobs', async (req, res) => {
   }
 });
 
-// ── POST /api/agent-jobs/retry ──────────────────────────
+// â”€â”€ POST /api/agent-jobs/retry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/agent-jobs/retry', async (req, res) => {
   const { job_id, device_ip, username, password } = req.body;
   console.log(`[AGENT] Retry requested for Job: ${job_id}, IP: ${device_ip}, User: ${username}`);
@@ -2033,7 +2033,7 @@ app.post('/api/agent-jobs/retry', async (req, res) => {
   }
 });
 
-// ── DELETE /api/agent-jobs/:id ───────────────────────────
+// â”€â”€ DELETE /api/agent-jobs/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.delete('/api/agent-jobs/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -2048,7 +2048,7 @@ app.delete('/api/agent-jobs/:id', async (req, res) => {
   }
 });
 
-// ── GET /api/agent-install-targets ────────────────────────
+// â”€â”€ GET /api/agent-install-targets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/agent-install-targets', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2062,7 +2062,7 @@ app.get('/api/agent-install-targets', async (req, res) => {
   }
 });
 
-// ── GET /api/activity-log ─────────────────────────────────
+// â”€â”€ GET /api/activity-log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/activity-log', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2112,7 +2112,7 @@ app.get('/api/activity-log/export', async (req, res) => {
   }
 });
 
-// ── DELETE /api/packages/:id ──────────────────────────────
+// â”€â”€ DELETE /api/packages/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.delete('/api/packages/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2125,7 +2125,7 @@ app.delete('/api/packages/:id', async (req, res) => {
   }
 });
 
-// ── DELETE /api/deployments/:id ───────────────────────────
+// â”€â”€ DELETE /api/deployments/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.delete('/api/deployments/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2152,7 +2152,7 @@ app.delete('/api/deployments/:id', async (req, res) => {
   }
 });
 
-// ── POST /api/packages ─────────────────────────────────────
+// â”€â”€ POST /api/packages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
   try {
     const { id, name, version, type, uploaded_by } = req.body;
@@ -2188,7 +2188,7 @@ app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
   }
 });
 
-// ── POST /api/deployments ──────────────────────────────────
+// â”€â”€ POST /api/deployments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/deployments', async (req, res) => {
   try {
     const {
@@ -2258,7 +2258,7 @@ app.post('/api/deployments', async (req, res) => {
 
 
 
-// ── POST /api/agent/heartbeat ──────────────────────────
+// â”€â”€ POST /api/agent/heartbeat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/agent/heartbeat', async (req, res) => {
   const hostname = req.body?.hostname || 'unknown';
   try {
@@ -2308,9 +2308,9 @@ app.post('/api/agent/heartbeat', async (req, res) => {
 
     // Verify update was successful
     if (result.rowsAffected && result.rowsAffected[0] > 0) {
-      console.log(`[AGENT_HEARTBEAT] ✓ Database updated for ${hostname} (${result.rowsAffected[0]} row(s) affected)`);
+      console.log(`[AGENT_HEARTBEAT] âœ“ Database updated for ${hostname} (${result.rowsAffected[0]} row(s) affected)`);
     } else {
-      console.warn(`[AGENT_HEARTBEAT] ⚠ No rows affected for ${hostname} - possible DB issue`);
+      console.warn(`[AGENT_HEARTBEAT] âš  No rows affected for ${hostname} - possible DB issue`);
     }
 
     // Fetch config for auto-update response
@@ -2326,7 +2326,7 @@ app.post('/api/agent/heartbeat', async (req, res) => {
     });
 
   } catch (err) {
-    console.error(`[AGENT_HEARTBEAT] ✗ Error for ${hostname}:`);
+    console.error(`[AGENT_HEARTBEAT] âœ— Error for ${hostname}:`);
     console.error(`  Message: ${err.message}`);
     console.error(`  Code: ${err.code}`);
     console.error(`  State: ${err.state}`);
@@ -2335,7 +2335,7 @@ app.post('/api/agent/heartbeat', async (req, res) => {
   }
 });
 
-// ── GET /api/devices/:id/software ──────────────────────────
+// â”€â”€ GET /api/devices/:id/software â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/devices/:id/software', async (req, res) => {
   try {
     const { id } = req.params;
@@ -2349,7 +2349,7 @@ app.get('/api/devices/:id/software', async (req, res) => {
   }
 });
 
-// ── POST /api/agent/software-inventory ─────────────────────
+// â”€â”€ POST /api/agent/software-inventory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/agent/software-inventory', async (req, res) => {
   try {
     const { hostname, software } = req.body;
@@ -2401,7 +2401,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
   }
 });
 
-// ── GET /api/agent/config ──────────────────────────────
+// â”€â”€ GET /api/agent/config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/agent/config', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2414,7 +2414,7 @@ app.get('/api/agent/config', async (req, res) => {
   }
 });
 
-// ── POST /api/agent/config ─────────────────────────────
+// â”€â”€ POST /api/agent/config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/agent/config', async (req, res) => {
   const { LATEST_AGENT_VERSION, AGENT_UPDATE_URL } = req.body;
   try {
@@ -2453,7 +2453,7 @@ app.post('/api/agent/config', async (req, res) => {
   }
 });
 
-// ── GET /api/agent/version ───────────────────────────────
+// â”€â”€ GET /api/agent/version â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/agent/version', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2465,7 +2465,7 @@ app.get('/api/agent/version', async (req, res) => {
   }
 });
 
-// ── GET /api/agent/pending?hostname=... ──────────────────
+// â”€â”€ GET /api/agent/pending?hostname=... â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/agent/pending', async (req, res) => {
   const { hostname } = req.query;
   if (!hostname) return res.json({ commands: [] });
@@ -2489,7 +2489,7 @@ app.get('/api/agent/pending', async (req, res) => {
   }
 });
 
-// ── GET /api/agent/pending-deployments?hostname=... ──────
+// â”€â”€ GET /api/agent/pending-deployments?hostname=... â”€â”€â”€â”€â”€â”€
 app.get('/api/agent/pending-deployments', async (req, res) => {
   const { hostname } = req.query;
   if (!hostname) return res.json({ deployments: [] });
@@ -2522,7 +2522,7 @@ app.get('/api/agent/pending-deployments', async (req, res) => {
   }
 });
 
-// ── POST /api/agent/software-inventory ───────────────────
+// â”€â”€ POST /api/agent/software-inventory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/agent/software-inventory', async (req, res) => {
   const { hostname, software } = req.body;
   if (!hostname || !Array.isArray(software)) return res.status(400).json({ error: 'Missing hostname or software list' });
@@ -2559,7 +2559,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
   }
 });
 
-// ── POST /api/agent/command-result ───────────────────────
+// â”€â”€ POST /api/agent/command-result â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/agent/command-result', async (req, res) => {
   const { command_id, exec_id, hostname, status, result_log } = req.body;
   if (!command_id) return res.status(400).json({ error: 'Missing command_id' });
@@ -2604,7 +2604,7 @@ app.post('/api/agent/command-result', async (req, res) => {
   }
 });
 
-// ── POST /api/agent/deploy-status ─────────────────────────
+// â”€â”€ POST /api/agent/deploy-status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/agent/deploy-status', async (req, res) => {
   const { deployment_id, device_id, status, progress, log } = req.body;
   try {
@@ -2675,7 +2675,7 @@ app.post('/api/agent/deploy-status', async (req, res) => {
   }
 });
 
-// ── AUTHENTICATION ────────────────────────────────────────
+// â”€â”€ AUTHENTICATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   try {
@@ -2741,7 +2741,7 @@ app.post('/api/auth/change-password', async (req, res) => {
   }
 });
 
-// ── USER MANAGEMENT ────────────────────────────────────────
+// â”€â”€ USER MANAGEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function getRequestUser(req, pool) {
   const headerUserId = req.headers['x-user-id'];
   const userId = (typeof headerUserId === 'string' && headerUserId) || req.body?.userId || req.query?.userId;
@@ -2896,7 +2896,7 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// ── ROLE MANAGEMENT ────────────────────────────────────────
+// â”€â”€ ROLE MANAGEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/roles', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2963,7 +2963,7 @@ app.delete('/api/roles/:id', async (req, res) => {
   }
 });
 
-// ── NOTIFICATION SETTINGS ────────────────────────────────────
+// â”€â”€ NOTIFICATION SETTINGS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/assistant-keywords', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -3245,7 +3245,7 @@ app.post('/api/notification-settings', async (req, res) => {
   }
 });
 
-// ── POST /api/test-notification (Discord/Webhook) ─────────────
+// â”€â”€ POST /api/test-notification (Discord/Webhook) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const DEFAULT_THEME_SETTINGS = {
   sidebarBg: "#10331f",
   sidebarText: "#d1fae5",
@@ -3346,7 +3346,7 @@ app.post('/api/test-notification', async (req, res) => {
 
     const payload = JSON.stringify({
       embeds: [{
-        title: '🔔 Test Notification',
+        title: 'ðŸ”” Test Notification',
         description: 'This is a test notification from **Centaur Deploy**. Your webhook is working correctly!',
         color: 0x10b981,
         timestamp: getISOTimestamp(),
@@ -3378,7 +3378,7 @@ app.post('/api/test-notification', async (req, res) => {
   }
 });
 
-// ── POST /api/test-whatsapp ───────────────────────────────────
+// â”€â”€ POST /api/test-whatsapp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/test-whatsapp', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -3394,7 +3394,7 @@ app.post('/api/test-whatsapp', async (req, res) => {
       return res.status(400).json({ success: false, error: 'No WhatsApp target or group configured.' });
     }
 
-    const message = `🔔 *Test Notification*\n\nIni adalah pesan test dari *Centaur Deploy*.\nNotifikasi WhatsApp Anda berfungsi dengan benar!\n\n_${new Date().toLocaleString('id-ID')}_`;
+    const message = `ðŸ”” *Test Notification*\n\nIni adalah pesan test dari *Centaur Deploy*.\nNotifikasi WhatsApp Anda berfungsi dengan benar!\n\n_${new Date().toLocaleString('id-ID')}_`;
     const payload = JSON.stringify({ token: settings.whatsapp_token, target: targets, message, countryCode: '62' });
 
     await new Promise((resolve, reject) => {
@@ -3431,7 +3431,7 @@ app.post('/api/test-whatsapp', async (req, res) => {
   }
 });
 
-// ── SQL TEMPLATES ─────────────────────────────────────────────
+// â”€â”€ SQL TEMPLATES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/sql/templates', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -3501,7 +3501,7 @@ app.delete('/api/sql/templates/:id', async (req, res) => {
 // Alias for older/other parts if needed
 app.get('/api/sql-templates', (req, res) => res.redirect('/api/sql/templates'));
 
-// ── REMOTE COMMAND SCRIPTS ──────────────────────────────────────
+// â”€â”€ REMOTE COMMAND SCRIPTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/remote-commands/scripts', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -3549,7 +3549,7 @@ app.delete('/api/remote-commands/scripts/:id', async (req, res) => {
   }
 });
 
-// Helper for remote command execution (DB-based polling — no WinRM needed)
+// Helper for remote command execution (DB-based polling â€” no WinRM needed)
 async function executeRemoteCommand(targets, command, res) {
   if (!targets || !command || targets.length === 0) {
     return res.status(400).json({ error: 'Missing targets or command' });
@@ -3567,7 +3567,7 @@ async function executeRemoteCommand(targets, command, res) {
   try {
     res.json({ success: true, exec_id });
 
-    // Insert pending commands into DB — agent will pick these up on next poll (≤5 min)
+    // Insert pending commands into DB â€” agent will pick these up on next poll (â‰¤5 min)
     const pool = await poolPromise;
     for (const t of targets) {
       const cmdId = `cmd-${Date.now()}-${t.id}`;
@@ -3598,7 +3598,7 @@ async function executeRemoteCommand(targets, command, res) {
         // Finalize execData for timed-out entries
         const execD = commandExecutions.get(exec_id);
         if (execD && !execD.is_complete) {
-          execD.logs.forEach(l => { if (l.status === 'pending') { l.status = 'failed'; l.log = 'Timed out — agent did not respond within 30 minutes.'; } });
+          execD.logs.forEach(l => { if (l.status === 'pending') { l.status = 'failed'; l.log = 'Timed out â€” agent did not respond within 30 minutes.'; } });
           execD.is_complete = true;
         }
       } catch (e) { /* silent */ }
@@ -3634,10 +3634,10 @@ app.post('/api/remote-commands/run', async (req, res) => {
   }
 });
 
-// ── AGENT REMOTE COMMANDS ─────────────────────────────────────
+// â”€â”€ AGENT REMOTE COMMANDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const commandExecutions = new Map();
 
-// ── SQL EXPORT & SCHEDULES ────────────────────────────────────
+// â”€â”€ SQL EXPORT & SCHEDULES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/sql/export', (req, res) => {
   const { results } = req.body;
   if (!results) return res.status(400).json({ error: 'No results to export' });
@@ -3720,7 +3720,7 @@ app.get('/api/agent/commands/results', (req, res) => {
   res.json(data);
 });
 
-// ── OFFLINE DETECTOR (Background Loop) ──────────────────────
+// â”€â”€ OFFLINE DETECTOR (Background Loop) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function sendWebhook(title, description, color = 0x5865F2) {
   try {
@@ -3900,7 +3900,7 @@ async function runOfflineDetector() {
       const ts = getCurrentTimeHHMM();
       await pool.request()
         .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
-        .input('action', sql.NVarChar, `⚠️ Device offline (${dev.reason}): ${dev.hostname} (${dev.ip})`)
+        .input('action', sql.NVarChar, `âš ï¸ Device offline (${dev.reason}): ${dev.hostname} (${dev.ip})`)
         .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
         .catch(() => { });
     }
@@ -3946,7 +3946,7 @@ async function runOfflineDetector() {
         const ts = getCurrentTimeHHMM();
         await pool.request()
           .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
-          .input('action', sql.NVarChar, `✅ Device recovered: ${dev.hostname} (${dev.ip})`)
+          .input('action', sql.NVarChar, `âœ… Device recovered: ${dev.hostname} (${dev.ip})`)
           .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
           .catch(() => { });
 
@@ -3959,7 +3959,7 @@ async function runOfflineDetector() {
       }
 
       if (actualRecovered.length > 0) {
-        let recoveryWA = `✅ *NET RECOVERY: ${actualRecovered.length} DEVICES ONLINE*\n`;
+        let recoveryWA = `âœ… *NET RECOVERY: ${actualRecovered.length} DEVICES ONLINE*\n`;
         for (const dev of actualRecovered) {
           let durationStr = "";
           if (dev.last_offline_alert_at) {
@@ -3972,7 +3972,7 @@ async function runOfflineDetector() {
         }
 
         console.log(`[NOTIF] Sending recovery summary for ${actualRecovered.length} devices.`);
-        await sendWebhook(`✅ Network Recovery Report`, recoveryWA.replace(/\*/g, '**'), 0x22c55e);
+        await sendWebhook(`âœ… Network Recovery Report`, recoveryWA.replace(/\*/g, '**'), 0x22c55e);
         await sendWhatsapp(recoveryWA);
       }
     }
@@ -3983,7 +3983,7 @@ async function runOfflineDetector() {
       const allOfflineRes = await pool.request().query("SELECT hostname, ip, last_seen FROM Devices WHERE status = 'offline'");
       const allOffline = allOfflineRes.recordset || [];
 
-      let summaryWA = `🚨 *NETWORK ALERT: ${newlyOffline.length} NEW OFFLINE*\n`;
+      let summaryWA = `ðŸš¨ *NETWORK ALERT: ${newlyOffline.length} NEW OFFLINE*\n`;
       summaryWA += `Total currently offline: *${allOffline.length} devices*\n\n`;
 
       summaryWA += `*Detected Just Now:*\n`;
@@ -4003,11 +4003,11 @@ async function runOfflineDetector() {
       const summaryDiscord = summaryWA.replace(/\*/g, '**');
 
       console.log(`[NOTIF] Sending summary alert for ${allOffline.length} total offline devices.`);
-      await sendWebhook(`🚨 Network Connectivity Report`, summaryDiscord, 0xef4444);
+      await sendWebhook(`ðŸš¨ Network Connectivity Report`, summaryDiscord, 0xef4444);
       await sendWhatsapp(summaryWA);
     }
   } catch (err) {
-    console.error('⚠️ Offline detector error:', err.message);
+    console.error('âš ï¸ Offline detector error:', err.message);
   }
 }
 
@@ -4030,7 +4030,7 @@ app.get('/api/devices/offline-summary', async (req, res) => {
   }
 });
 
-// ── WEEKLY REPORT PDF GENERATOR ───────────────────────────────
+// â”€â”€ WEEKLY REPORT PDF GENERATOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function generateWeeklyReportPDF() {
   console.log('[REPORT] V2 - Generating Automated Weekly Report PDF...');
   try {
@@ -4091,9 +4091,9 @@ async function generateWeeklyReportPDF() {
     doc.fontSize(16).fillColor('#3b82f6').font('Helvetica-Bold').text('System Health Overview');
     doc.moveDown(0.5);
     doc.fontSize(12).fillColor('#000000').font('Helvetica');
-    doc.text(`• Overall Uptime: ${uptime}%`);
-    doc.text(`• Total Monitored Devices: ${totalDevices}`);
-    doc.text(`• Currently Offline: ${offlineDevices}`);
+    doc.text(`â€¢ Overall Uptime: ${uptime}%`);
+    doc.text(`â€¢ Total Monitored Devices: ${totalDevices}`);
+    doc.text(`â€¢ Currently Offline: ${offlineDevices}`);
     doc.moveDown();
 
     // Problematic Stores
@@ -4111,33 +4111,33 @@ async function generateWeeklyReportPDF() {
     doc.fontSize(16).fillColor('#8b5cf6').font('Helvetica-Bold').text('Helpdesk Ticket Summary (Last 7 Days)');
     doc.moveDown(0.5);
     doc.fontSize(12).fillColor('#000000').font('Helvetica');
-    doc.text(`• Total Tickets Created: ${ticketSummary.Total}`);
-    doc.text(`• Open: ${ticketSummary.Open}`);
-    doc.text(`• In Progress: ${ticketSummary['In Progress']}`);
-    doc.text(`• Resolved: ${ticketSummary.Resolved}`);
-    doc.text(`• Closed: ${ticketSummary.Closed}`);
+    doc.text(`â€¢ Total Tickets Created: ${ticketSummary.Total}`);
+    doc.text(`â€¢ Open: ${ticketSummary.Open}`);
+    doc.text(`â€¢ In Progress: ${ticketSummary['In Progress']}`);
+    doc.text(`â€¢ Resolved: ${ticketSummary.Resolved}`);
+    doc.text(`â€¢ Closed: ${ticketSummary.Closed}`);
     doc.moveDown();
 
     doc.end();
 
     stream.on('finish', async () => {
       console.log(`[REPORT] Weekly PDF saved: ${filePath}`);
-      const summary = `📊 *WEEKLY SYSTEM REPORT IS READY*\n` +
+      const summary = `ðŸ“Š *WEEKLY SYSTEM REPORT IS READY*\n` +
         `Period: Last 7 Days\n` +
         `Avg Uptime: *${uptime}%*\n` +
         `Total Devices: ${totalDevices}\n` +
         `Critical Incidents: ${problematicRes.recordset.length}\n\n` +
-        `🎟️ *Helpdesk Tickets (7d):*\n` +
+        `ðŸŽŸï¸ *Helpdesk Tickets (7d):*\n` +
         `- Created: ${ticketSummary.Total}\n` +
         `- Resolved/Closed: ${ticketSummary.Resolved + ticketSummary.Closed}\n` +
         `- Active (Open/IP): ${ticketSummary.Open + ticketSummary['In Progress']}\n\n` +
         `_Weekly PDF has been archived on the server._`;
 
-      await sendWebhook(`📊 Weekly Performance Report`, summary.replace(/\*/g, '**'), 0x3b82f6);
+      await sendWebhook(`ðŸ“Š Weekly Performance Report`, summary.replace(/\*/g, '**'), 0x3b82f6);
       await sendWhatsapp(summary);
     });
   } catch (err) {
-    console.error('⚠️ Weekly report error:', err.message);
+    console.error('âš ï¸ Weekly report error:', err.message);
   }
 }
 
@@ -4205,7 +4205,7 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
     const devicesRes = await pool.request().query('SELECT hostname, group_ids FROM Devices');
     const allDevices = devicesRes.recordset;
 
-    let summary = `🎟️ *DAILY OUTSTANDING TICKETS SUMMARY*\n`;
+    let summary = `ðŸŽŸï¸ *DAILY OUTSTANDING TICKETS SUMMARY*\n`;
     summary += `_Date: ${new Date().toLocaleDateString('id-ID')}_\n\n`;
 
     for (const ticket of tickets) {
@@ -4242,20 +4242,20 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
         progress = ticket.status === 'In Progress' ? 50 : 0;
       }
 
-      const statusEmoji = ticket.status === 'In Progress' ? '🚧' : '📋';
+      const statusEmoji = ticket.status === 'In Progress' ? 'ðŸš§' : 'ðŸ“‹';
       summary += `${statusEmoji} *[${ticket.id}]* ${ticket.title}\n`;
-      summary += `   • Status: _${ticket.status}_\n`;
-      summary += `   • Progress: *${progress}%*\n`;
-      summary += `   • Assigned To: ${ticket.assigned_to || '*Unassigned*'}\n`;
-      if (ticket.outlet_name) summary += `   • Outlet: ${ticket.outlet_name}\n`;
+      summary += `   â€¢ Status: _${ticket.status}_\n`;
+      summary += `   â€¢ Progress: *${progress}%*\n`;
+      summary += `   â€¢ Assigned To: ${ticket.assigned_to || '*Unassigned*'}\n`;
+      if (ticket.outlet_name) summary += `   â€¢ Outlet: ${ticket.outlet_name}\n`;
       summary += `\n`;
     }
 
     if (tickets.length === 0) {
-      summary += `✅ Tidak ada ticket yang outstanding saat ini.\n\n`;
+      summary += `âœ… Tidak ada ticket yang outstanding saat ini.\n\n`;
     }
 
-    // ── 3. LOYAL CRM SYNC STATUS (HOSERVER) — 2 Hari ──────────
+    // â”€â”€ 3. LOYAL CRM SYNC STATUS (HOSERVER) â€” 2 Hari â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try {
       const hoDevRes = await pool.request()
         .input('hostname', sql.NVarChar, 'HOSERVER')
@@ -4293,8 +4293,8 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
           `);
           await hoPool.close();
 
-          summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          summary += `🔄 *LOYAL CRM ITEM SYNC (HOSERVER VS LOYAL CRM)*\n`;
+          summary += `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n`;
+          summary += `ðŸ”„ *LOYAL CRM ITEM SYNC (HOSERVER VS LOYAL CRM)*\n`;
 
           const todayDate = new Date().toDateString();
           for (const row of crmRes.recordset) {
@@ -4304,13 +4304,13 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
             const pending = row.pending_count || 0;
             const total = synced + pending;
             const pct = total > 0 ? Math.round((synced / total) * 100) : 0;
-            const emoji = pending === 0 ? '✅' : (pending > 5 ? '🔴' : '⚠️');
+            const emoji = pending === 0 ? 'âœ…' : (pending > 5 ? 'ðŸ”´' : 'âš ï¸');
 
             summary += `\n${emoji} *${dayLabel}* (${rowDate.toLocaleDateString('id-ID')})\n`;
-            summary += `   • Sync Success : *${synced}* / ${total} (${pct}%)\n`;
-            summary += `   • Pending/Failed : *${pending}*\n`;
+            summary += `   â€¢ Sync Success : *${synced}* / ${total} (${pct}%)\n`;
+            summary += `   â€¢ Pending/Failed : *${pending}*\n`;
             if (row.sample_error) {
-              summary += `   ⚠️ Error: _${String(row.sample_error).substring(0, 100)}_\n`;
+              summary += `   âš ï¸ Error: _${String(row.sample_error).substring(0, 100)}_\n`;
             }
           }
 
@@ -4322,11 +4322,11 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
       }
     } catch (crmErr) {
       console.error('[REPORT] CRM Sync section error (non-fatal):', crmErr.message);
-      summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      summary += `⚠️ *LOYAL CRM SYNC*: Data tidak tersedia.\n\n`;
+      summary += `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n`;
+      summary += `âš ï¸ *LOYAL CRM SYNC*: Data tidak tersedia.\n\n`;
     }
 
-    // ── 3.5 CRM FRAUD ANALYSIS (YESTERDAY) ──────────
+    // â”€â”€ 3.5 CRM FRAUD ANALYSIS (YESTERDAY) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try {
       const crmPool = await getCrmPool();
       const fraudRes = await crmPool.request().query(`
@@ -4374,18 +4374,18 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
       `);
 
       if (fraudRes.recordset.length > 0) {
-        summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-        summary += `🚨 *CRM FRAUD ANALYSIS: Suspicious Activity Detected*\n`;
+        summary += `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n`;
+        summary += `ðŸš¨ *CRM FRAUD ANALYSIS: Suspicious Activity Detected*\n`;
         summary += `_Kriteria: >3 trx/hari selama 2 hari berturut-turut (Sesi & Salesman sama)_\n\n`;
 
         for (const row of fraudRes.recordset) {
-          summary += `👤 *${row.cust_name || 'Unknown Member'}*\n`;
-          summary += `💳 No Kartu: ${row.card_no}\n`;
-          summary += `🏪 Store: (${row.org_cd}) ${row.store_name}\n`;
+          summary += `ðŸ‘¤ *${row.cust_name || 'Unknown Member'}*\n`;
+          summary += `ðŸ’³ No Kartu: ${row.card_no}\n`;
+          summary += `ðŸª Store: (${row.org_cd}) ${row.store_name}\n`;
           const prevD = new Date(row.prev_date).toLocaleDateString('id-ID');
           const lateD = new Date(row.latest_date).toLocaleDateString('id-ID');
-          summary += `📅 Periode: ${prevD} s/d ${lateD}\n`;
-          summary += `📊 Trx: *${row.prev_count} trx* & *${row.latest_count} trx*\n\n`;
+          summary += `ðŸ“… Periode: ${prevD} s/d ${lateD}\n`;
+          summary += `ðŸ“Š Trx: *${row.prev_count} trx* & *${row.latest_count} trx*\n\n`;
         }
       }
     } catch (fraudErr) {
@@ -4395,13 +4395,13 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
     summary += `_Pantau detail di http://192.168.85.30:3001/tickets_`;
 
     // 4. Send Notifications
-    await sendWebhook(`🎟️ Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
+    await sendWebhook(`ðŸŽŸï¸ Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
     await sendWhatsapp(summary);
 
     console.log('[REPORT] Daily ticket + CRM notification sent.');
 
   } catch (err) {
-    console.error('⚠️ Daily ticket report error:', err.message);
+    console.error('âš ï¸ Daily ticket report error:', err.message);
   }
 }
 
@@ -4450,7 +4450,7 @@ app.post('/api/reports/trigger-item-sales-sync', async (req, res) => {
 // Serve Weekly Reports Folder
 app.use('/reports/weekly', express.static(path.join(__dirname, 'reports', 'weekly')));
 
-// ── WORKFLOW KNOWLEDGE BASE ──────────────────────────────────
+// â”€â”€ WORKFLOW KNOWLEDGE BASE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/workflows', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -4622,7 +4622,7 @@ app.delete('/api/workflows/:id', async (req, res) => {
   }
 });
 
-// ── AI SMART ASSISTANT (Groq Llama) ──────────────────────────
+// â”€â”€ AI SMART ASSISTANT (Groq Llama) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function normalizeAssistantKeywordText(value = '') {
   return value.toString().trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -5345,10 +5345,10 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
     let userFriendlyMessage = "Maaf, AI Assistant mengalami kendala teknis. ";
     
     if (err.message && err.message.includes('404 No endpoints found')) {
-      userFriendlyMessage = "ℹ️ AI Assistant ini bersifat local-based yang berfungsi sebagai tools bantu khusus untuk sistem Pepinet saja. " +
+      userFriendlyMessage = "â„¹ï¸ AI Assistant ini bersifat local-based yang berfungsi sebagai tools bantu khusus untuk sistem Pepinet saja. " +
                            "Fitur ini dirancang untuk membantu operasional internal dan tidak terhubung dengan layanan AI eksternal.";
     } else if (err.message && (err.message.includes('openrouter') || err.message.includes('API'))) {
-      userFriendlyMessage = "ℹ️ AI Assistant ini adalah sistem internal Pepinet yang berfungsi sebagai tools bantu operasional. " +
+      userFriendlyMessage = "â„¹ï¸ AI Assistant ini adalah sistem internal Pepinet yang berfungsi sebagai tools bantu operasional. " +
                            "Sistem ini dirancang khusus untuk kebutuhan internal dan tidak memerlukan koneksi ke layanan AI eksternal.";
     } else {
       userFriendlyMessage += "Silakan coba lagi dalam beberapa saat atau hubungi tim IT jika masalah berlanjut.";
@@ -5358,7 +5358,7 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
   }
 });
 
-// ── GET /api/reports/deployments ──────────────────────────
+// â”€â”€ GET /api/reports/deployments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/reports/deployments', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -5375,7 +5375,7 @@ app.get('/api/reports/deployments', async (req, res) => {
   }
 });
 
-// ── GET /api/reports/health ───────────────────────────────
+// â”€â”€ GET /api/reports/health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/reports/health', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -5486,7 +5486,7 @@ app.get('/api/reports/health', async (req, res) => {
   }
 });
 
-// ── GET /api/reports/inventory ────────────────────────────
+// â”€â”€ GET /api/reports/inventory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/reports/inventory', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -5504,7 +5504,7 @@ app.get('/api/reports/inventory', async (req, res) => {
   }
 });
 
-// ── GET /api/reports/tickets ──────────────────────────────
+// â”€â”€ GET /api/reports/tickets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/reports/tickets', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -5521,7 +5521,7 @@ app.get('/api/reports/tickets', async (req, res) => {
   }
 });
 
-// ── GET /api/reports/crm-sync ─────────────────────────────
+// â”€â”€ GET /api/reports/crm-sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Returns LOYAL_CRM_ITEM_MST sync stats grouped by day (today + yesterday)
 app.get('/api/reports/crm-sync', async (req, res) => {
   try {
@@ -5570,7 +5570,7 @@ app.get('/api/reports/crm-sync', async (req, res) => {
     `);
     await hoPool.close();
 
-    // Label is determined by SQL Server (is_today flag) — no JS timezone issues
+    // Label is determined by SQL Server (is_today flag) â€” no JS timezone issues
     const rows = crmRes.recordset.map(r => ({
       label: r.is_today === 1 ? 'Today' : 'Yesterday',
       synced_count: r.synced_count || 0,
@@ -5586,7 +5586,7 @@ app.get('/api/reports/crm-sync', async (req, res) => {
   }
 });
 
-// ── GET /api/crm/customer/:phone ──────────────────────────────
+// â”€â”€ GET /api/crm/customer/:phone â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/crm/customer/:phone', async (req, res) => {
   const { phone } = req.params;
 
@@ -5621,7 +5621,7 @@ app.get('/api/crm/customer/:phone', async (req, res) => {
   }
 });
 
-// ── DEV CRM Loyalty & Achievements Endpoints ──────────────────
+// â”€â”€ DEV CRM Loyalty & Achievements Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/dev/loyalty/stats', async (req, res) => {
   const { fromDate, toDate, store = '' } = req.query;
   try {
@@ -6237,7 +6237,7 @@ app.post('/api/dev/loyalty/trigger-etl', async (req, res) => {
   res.json({ message: 'ETL process started in background' });
 });
 
-// ── GET /api/crm/reports/stores ──────────────────────────────
+// â”€â”€ GET /api/crm/reports/stores â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/crm/reports/stores', async (req, res) => {
   try {
     const crmPool = await getCrmPool();
@@ -6253,7 +6253,7 @@ app.get('/api/crm/reports/stores', async (req, res) => {
   }
 });
 
-// ── GET /api/crm/reports/:type ──────────────────────────────
+// â”€â”€ GET /api/crm/reports/:type â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/crm/reports/:type', async (req, res) => {
   const { type } = req.params;
   const { fromDate, toDate, store, search, page = 1, perPage = 100, sortBy, sortDir = 'desc' } = req.query;
@@ -6508,7 +6508,7 @@ app.get('/api/crm/reports/:type', async (req, res) => {
   }
 });
 
-// ── GET /api/crm/reports/:type/export/:format ─────────────────
+// â”€â”€ GET /api/crm/reports/:type/export/:format â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
   const { type, format } = req.params;
   const { fromDate, toDate, store, search, sortBy, sortDir = 'desc' } = req.query;
@@ -6775,7 +6775,7 @@ app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
   }
 });
 
-// ── HELPDESK TICKETS API ──────────────────────────────────────
+// â”€â”€ HELPDESK TICKETS API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/tickets/updates', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -7008,7 +7008,7 @@ app.put('/api/tickets/:id/status', async (req, res) => {
   }
 });
 
-// ── NEW: Bulk update targets and groups ───────────────────────
+// â”€â”€ NEW: Bulk update targets and groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.put('/api/tickets/:id/targets', async (req, res) => {
   try {
     const { id } = req.params;
@@ -7089,7 +7089,7 @@ app.put('/api/tickets/:id/targets', async (req, res) => {
     console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
-// ── Individual Ticket Target Update ──────────────────────────
+// â”€â”€ Individual Ticket Target Update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.put('/api/tickets/:id/targets/:targetId', async (req, res) => {
   try {
     const { id, targetId } = req.params;
@@ -7372,12 +7372,12 @@ app.get('/api/installers/:id/download', async (req, res) => {
   }
 });
 
-// ── ESL ROUTER ───────────────────────────────────────────────
+// â”€â”€ ESL ROUTER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import('./routes/eslRoutes.js').then((routerModule) => {
   app.use('/api/esl', routerModule.default);
 }).catch(err => console.error('Failed to load ESL router in server.cjs:', err));
 
-// ── STATIC FILES & SPA FALLBACK ───────────────────────────────
+// â”€â”€ STATIC FILES & SPA FALLBACK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -7385,12 +7385,12 @@ app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-// ── START SERVER ──────────────────────────────────────────────
+// â”€â”€ START SERVER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.listen(port, '0.0.0.0', async () => {
-  console.log(`🚀 Server running on http://0.0.0.0:${port}`);
+  console.log(`ðŸš€ Server running on http://0.0.0.0:${port}`);
   await initDb();
 
-  // Start offline detector — runs every 60 seconds (safe version)
+  // Start offline detector â€” runs every 60 seconds (safe version)
   async function detectorLoop() {
     try {
       await runOfflineDetector();
@@ -7400,7 +7400,7 @@ app.listen(port, '0.0.0.0', async () => {
     setTimeout(detectorLoop, 60 * 1000);
   }
   detectorLoop();
-  // Start log cleanup loop — runs every 24 hours
+  // Start log cleanup loop â€” runs every 24 hours
   async function logCleanupLoop() {
     try {
       const pool = await poolPromise;
@@ -7413,7 +7413,7 @@ app.listen(port, '0.0.0.0', async () => {
         `);
 
       if (result.rowsAffected[0] > 0) {
-        console.log(`🧹 [Cleanup] Deleted ${result.rowsAffected[0]} old ActivityLog entries (kept latest 1000)`);
+        console.log(`ðŸ§¹ [Cleanup] Deleted ${result.rowsAffected[0]} old ActivityLog entries (kept latest 1000)`);
       }
     } catch (err) {
       console.error('Log Cleanup Loop Error:', err);
@@ -7422,7 +7422,7 @@ app.listen(port, '0.0.0.0', async () => {
   }
   logCleanupLoop();
 
-  // Start ESL pricing sync loop — runs every 10 minutes
+  // Start ESL pricing sync loop â€” runs every 10 minutes
   async function eslSyncLoop() {
     try {
       const { syncPrices } = require('./scripts/sync_esl_engine.cjs');
@@ -7434,6 +7434,6 @@ app.listen(port, '0.0.0.0', async () => {
   }
   eslSyncLoop();
 
-  console.log('🔍 Offline detector started (monitoring heartbeats, with proactive ping check)');
+  console.log('ðŸ” Offline detector started (monitoring heartbeats, with proactive ping check)');
 });
 

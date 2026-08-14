@@ -106,6 +106,7 @@ export default function CrmDevLoyaltyPage() {
   const [filterFromDate, setFilterFromDate] = useState(getFirstDayOfCurrentMonth());
   const [filterToDate, setFilterToDate] = useState(getTodayDateString());
   const [stores, setStores] = useState<Store[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Profiles Tab State
   const [profiles, setProfiles] = useState<MemberProfile[]>([]);
@@ -256,6 +257,7 @@ export default function CrmDevLoyaltyPage() {
 
   const fetchProfiles = async (store = filterStore, from = filterFromDate, to = filterToDate) => {
     setLoading(true);
+    setProfiles([]);
     try {
       const q = new URLSearchParams({
         page: profPage.toString(),
@@ -283,6 +285,7 @@ export default function CrmDevLoyaltyPage() {
 
   const fetchSummaries = async (store = filterStore, from = filterFromDate, to = filterToDate) => {
     setLoading(true);
+    setSummaries([]);
     try {
       const q = new URLSearchParams({
         page: sumPage.toString(),
@@ -310,6 +313,12 @@ export default function CrmDevLoyaltyPage() {
 
   const fetchItemSales = async (store = filterStore, from = filterFromDate, to = filterToDate) => {
     setLoading(true);
+    // Clear existing data while loading to avoid showing stale data (like 'org 002') if fetch fails or takes time
+    setItemSales([]);
+    setItemSalesTotal(0);
+    setDeptStats([]);
+    setBrandStats([]);
+    
     try {
       const q = new URLSearchParams({
         page: itemSalesPage.toString(),
@@ -447,25 +456,63 @@ export default function CrmDevLoyaltyPage() {
         actions={
           <div className="flex gap-2">
             <button
-              onClick={() => {
-                const q = new URLSearchParams();
-                if (filterStore && filterStore !== "All Stores") q.append("store", filterStore);
-                if (filterFromDate) q.append("fromDate", filterFromDate);
-                if (filterToDate) q.append("toDate", filterToDate);
-                
-                if (activeTab === 'profiles') {
-                  if (profSearch) q.append("search", profSearch);
-                } else if (activeTab === 'summaries') {
-                  if (sumSearch) q.append("search", sumSearch);
-                } else if (activeTab === 'item-sales') {
-                  if (itemSalesSearch) q.append("search", itemSalesSearch);
+              disabled={isExporting}
+              onClick={async () => {
+                setIsExporting(true);
+                try {
+                  const q = new URLSearchParams();
+                  if (filterStore && filterStore !== "All Stores") q.append("store", filterStore);
+                  if (filterFromDate) q.append("fromDate", filterFromDate);
+                  if (filterToDate) q.append("toDate", filterToDate);
+                  
+                  if (activeTab === 'profiles') {
+                    if (profSearch) q.append("search", profSearch);
+                  } else if (activeTab === 'summaries') {
+                    if (sumSearch) q.append("search", sumSearch);
+                  } else if (activeTab === 'item-sales') {
+                    if (itemSalesSearch) q.append("search", itemSalesSearch);
+                  }
+                  
+                  const response = await fetch(`/api/dev/loyalty/export/${activeTab}/excel?${q.toString()}`);
+                  if (!response.ok) throw new Error("Failed to export");
+                  
+                  const disposition = response.headers.get('content-disposition');
+                  let filename = `Export_${activeTab}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                  if (disposition && disposition.indexOf('attachment') !== -1) {
+                    const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+                    const matches = filenameRegex.exec(disposition);
+                    if (matches != null && matches[1]) {
+                      filename = matches[1].replace(/['"]/g, '');
+                    }
+                  }
+                  
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  window.URL.revokeObjectURL(url);
+                } catch (e) {
+                  console.error("Export error:", e);
+                  toast.error("Failed to export data");
+                } finally {
+                  setIsExporting(false);
                 }
-                
-                window.open(`/api/dev/loyalty/export/${activeTab}/excel?${q.toString()}`, '_blank');
               }}
-              className="flex items-center gap-2 px-3.5 py-2 bg-surface border border-border rounded-xl text-xs font-bold hover:bg-surface-raised transition-all"
+              className="flex items-center gap-2 px-3.5 py-2 bg-surface border border-border rounded-xl text-xs font-bold hover:bg-surface-raised transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <FileSpreadsheet className="w-4 h-4 text-success" /> Export Excel
+              {isExporting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 text-success animate-spin" /> Exporting...
+                </>
+              ) : (
+                <>
+                  <FileSpreadsheet className="w-4 h-4 text-success" /> Export Excel
+                </>
+              )}
             </button>
             <button
               onClick={() => { fetchStats(filterStore, filterFromDate, filterToDate); if (activeTab === 'profiles') fetchProfiles(filterStore, filterFromDate, filterToDate); else if (activeTab === 'summaries') fetchSummaries(filterStore, filterFromDate, filterToDate); else fetchItemSales(filterStore, filterFromDate, filterToDate); }}
