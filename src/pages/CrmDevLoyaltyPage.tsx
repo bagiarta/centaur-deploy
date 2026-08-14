@@ -447,109 +447,21 @@ export default function CrmDevLoyaltyPage() {
         actions={
           <div className="flex gap-2">
             <button
-              onClick={async () => {
-                try {
-                  const q = new URLSearchParams();
-                  if (filterStore && filterStore !== "All Stores") q.append("store", filterStore);
-                  if (filterFromDate) q.append("fromDate", filterFromDate);
-                  if (filterToDate) q.append("toDate", filterToDate);
-                  
-                  if (activeTab === 'profiles') {
-                    if (profSearch) q.append("search", profSearch);
-                    q.append("sortBy", profSortBy);
-                    q.append("sortDir", profSortDir);
-                  } else if (activeTab === 'summaries') {
-                    if (sumSearch) q.append("search", sumSearch);
-                    q.append("sortBy", sumSortBy);
-                    q.append("sortDir", sumSortDir);
-                  } else if (activeTab === 'item-sales') {
-                    if (itemSalesSearch) q.append("search", itemSalesSearch);
-                    q.append("sortBy", itemSalesSortBy);
-                    q.append("sortDir", itemSalesSortDir);
-                  }
-
-                  let rows: any[] = [];
-                  let headers: string[] = [];
-                  let headerLabels: string[] = [];
-
-                  if (activeTab === 'profiles') {
-                    headers = ['member_id', 'city', 'name', 'mobile_no', 'total_spent', 'total_transactions', 'favorite_store', 'achievements'];
-                    headerLabels = ['Member Card', 'City', 'Customer Name', 'Phone', 'Total Spent', 'Total Txns', 'Favorite Store', 'Achievements Badges'];
-                  } else if (activeTab === 'summaries') {
-                    headers = ['summary_date', 'member_id', 'name', 'mobile_no', 'org_cd', 'total_sales', 'total_qty', 'total_txn'];
-                    headerLabels = ['Date', 'Member Card', 'Customer Name', 'Phone', 'Store', 'Sales Value', 'Qty', 'Txns'];
-                  } else if (activeTab === 'item-sales') {
-                    headers = ['org_cd', 'store_name', 'bill_dt', 'card_no', 'member_name', 'item_name', 'itm_cd', 'department', 'brand', 'division', 'qty', 'uom', 'promo_item_flag', 'promo_detail', 'disc_amt'];
-                    headerLabels = ['Store Code', 'Store Name', 'Date', 'Member Card', 'Customer Name', 'Item Name', 'Item Code', 'Department', 'Brand', 'Division', 'Qty', 'UOM', 'Promo Flag', 'Promo Detail', 'Disc Amount'];
-                  }
-                  
-                  const endpoint = activeTab === 'summaries' ? 'summary' : activeTab;
-                  const BATCH_SIZE = 5000;
-                  let page = 1;
-                  let fetching = true;
-                  toast.loading(`Fetching data for export...`, { id: 'export-toast' });
-
-                  while (fetching) {
-                    q.set("page", page.toString());
-                    q.set("perPage", BATCH_SIZE.toString());
-                    
-                    const res = await fetch(`/api/dev/loyalty/${endpoint}?${q.toString()}`);
-                    if (!res.ok) {
-                      toast.dismiss('export-toast');
-                      throw new Error("Failed to fetch data for export");
-                    }
-                    const data = await res.json();
-                    
-                    const batchRows = data.profiles || data.summaries || data.sales || [];
-                    if (batchRows.length > 0) {
-                      rows = rows.concat(batchRows);
-                    }
-                    
-                    if (batchRows.length < BATCH_SIZE) {
-                      fetching = false;
-                    } else {
-                      page++;
-                    }
-                  }
-                  toast.dismiss('export-toast');
-
-                  if (rows.length === 0) {
-                    toast.error("No data found to export.");
-                    return;
-                  }
-
-                  let csvContent = headerLabels.map(h => `"${h}"`).join(",") + "\n";
-                  rows.forEach(r => {
-                    csvContent += headers.map(h => {
-                      let val = r[h];
-                      if (h === 'achievements' && Array.isArray(val)) {
-                        val = val.map((a: any) => a.name).join(' | ');
-                      } else if (h === 'favorite_store') {
-                        const s = stores.find(st => st.org_cd === r.favorite_store);
-                        val = s ? `${r.favorite_store} - ${s.org_name}` : (r.favorite_store || '-');
-                      } else if (h === 'store_name') {
-                        const s = stores.find(st => st.org_cd === r.org_cd);
-                        val = s ? s.org_name : '-';
-                      } else if (h === 'org_cd' && activeTab === 'summaries') {
-                        const s = stores.find(st => st.org_cd === r.org_cd);
-                        val = s ? `${r.org_cd} - ${s.org_name}` : r.org_cd;
-                      } else {
-                        val = val !== undefined && val !== null ? String(val) : "";
-                      }
-                      return `"${String(val).replace(/"/g, '""')}"`;
-                    }).join(",") + "\n";
-                  });
-
-                  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `${activeTab}-report.csv`;
-                  a.click();
-                  toast.success("Export downloaded!");
-                } catch (err: any) {
-                  toast.error(`Export failed: ${err.message}`);
+              onClick={() => {
+                const q = new URLSearchParams();
+                if (filterStore && filterStore !== "All Stores") q.append("store", filterStore);
+                if (filterFromDate) q.append("fromDate", filterFromDate);
+                if (filterToDate) q.append("toDate", filterToDate);
+                
+                if (activeTab === 'profiles') {
+                  if (profSearch) q.append("search", profSearch);
+                } else if (activeTab === 'summaries') {
+                  if (sumSearch) q.append("search", sumSearch);
+                } else if (activeTab === 'item-sales') {
+                  if (itemSalesSearch) q.append("search", itemSalesSearch);
                 }
+                
+                window.open(`/api/dev/loyalty/export/${activeTab}/excel?${q.toString()}`, '_blank');
               }}
               className="flex items-center gap-2 px-3.5 py-2 bg-surface border border-border rounded-xl text-xs font-bold hover:bg-surface-raised transition-all"
             >

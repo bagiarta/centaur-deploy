@@ -4901,18 +4901,23 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
     if (uniqueCards.length > 0) {
       try {
         const crmPool = await getCrmPool();
-        const nameReq = crmPool.request();
-        const cardParams = uniqueCards.map((c, i) => {
-          nameReq.input('c' + i, sql.NVarChar, c);
-          return '@c' + i;
-        }).join(',');
-        
-        const namesRes = await nameReq.query(`SELECT MEMBER_ID, PHONE_NUMBER, CUST_NAME FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) WHERE MEMBER_ID IN (${cardParams}) OR PHONE_NUMBER IN (${cardParams})`);
         const nameMap = new Map();
-        namesRes.recordset.forEach(n => {
-          if (n.MEMBER_ID) nameMap.set(n.MEMBER_ID, n.CUST_NAME);
-          if (n.PHONE_NUMBER) nameMap.set(n.PHONE_NUMBER, n.CUST_NAME);
-        });
+        const batchSize = 1000;
+        
+        for (let i = 0; i < uniqueCards.length; i += batchSize) {
+          const batch = uniqueCards.slice(i, i + batchSize);
+          const nameReq = crmPool.request();
+          const cardParams = batch.map((c, idx) => {
+            nameReq.input('c' + idx, sql.NVarChar, c);
+            return '@c' + idx;
+          }).join(',');
+          
+          const namesRes = await nameReq.query(`SELECT MEMBER_ID, PHONE_NUMBER, CUST_NAME FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) WHERE MEMBER_ID IN (${cardParams}) OR PHONE_NUMBER IN (${cardParams})`);
+          namesRes.recordset.forEach(n => {
+            if (n.MEMBER_ID) nameMap.set(n.MEMBER_ID, n.CUST_NAME);
+            if (n.PHONE_NUMBER) nameMap.set(n.PHONE_NUMBER, n.CUST_NAME);
+          });
+        }
         
         salesRes.recordset.forEach(r => {
           r.member_name = nameMap.get(r.card_no) || r.member_name;
@@ -4974,6 +4979,181 @@ router.get('/api/dev/loyalty/item-sales', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/dev/loyalty/export/:tab/:format', async (req, res) => {
+  const { tab, format } = req.params;
+  if (format !== 'excel') return res.status(400).json({ error: 'Only excel supported for now' });
+
+  const { store, fromDate, toDate, search } = req.query;
+  
+  try {
+    const pool = await poolPromise;
+    const request = pool.request();
+    let query = "";
+    let columns = [];
+    let title = "";
+
+    if (tab === 'profiles') {
+      title = "Member Profiles";
+      columns = [
+        { header: 'Member ID', key: 'member_id', width: 20 },
+        { header: 'Name', key: 'name', width: 25 },
+        { header: 'Phone', key: 'mobile_no', width: 15 },
+        { header: 'Join Date', key: 'join_date', width: 15 },
+        { header: 'City', key: 'city', width: 15 },
+        { header: 'Total Spent', key: 'total_spent', width: 15 },
+        { header: 'Total Txn', key: 'total_transactions', width: 10 },
+        { header: 'Last Active', key: 'last_active_date', width: 15 },
+        { header: 'Fav Store', key: 'favorite_store', width: 15 }
+      ];
+
+      let where = "WHERE 1=1";
+      if (store && store !== 'All Stores') {
+        where += " AND favorite_store = @store";
+        request.input('store', sql.NVarChar, store);
+      }
+      if (fromDate && toDate) {
+        where += " AND join_date >= @fromDate AND join_date <= @toDate";
+        request.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+        request.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+      }
+      if (search) {
+        where += " AND (member_id LIKE @search OR name LIKE @search OR mobile_no LIKE @search)";
+        request.input('search', sql.NVarChar, `%${search}%`);
+      }
+
+      query = `
+        SELECT member_id, name, mobile_no, join_date, city,
+               ISNULL(total_spent, 0) as total_spent, ISNULL(total_transactions, 0) as total_transactions, last_active_date, favorite_store
+        FROM LOYAL_MEMBER_PROFILE WITH (NOLOCK)
+        ${where}
+        ORDER BY total_spent DESC
+      `;
+    } else if (tab === 'summaries') {
+      title = "Daily Summaries";
+      columns = [
+        { header: 'Member ID', key: 'member_id', width: 20 },
+        { header: 'Name', key: 'name', width: 25 },
+        { header: 'Phone', key: 'mobile_no', width: 15 },
+        { header: 'Date', key: 'summary_date', width: 15 },
+        { header: 'Store', key: 'org_cd', width: 10 },
+        { header: 'Total Sales', key: 'total_sales', width: 15 },
+        { header: 'Total Cost', key: 'total_cost', width: 15 },
+        { header: 'Total Qty', key: 'total_qty', width: 10 },
+        { header: 'Total Txn', key: 'total_txn', width: 10 }
+      ];
+
+      let where = "WHERE 1=1";
+      if (store && store !== 'All Stores') {
+        where += " AND s.org_cd = @store";
+        request.input('store', sql.NVarChar, store);
+      }
+      if (fromDate && toDate) {
+        where += " AND s.summary_date >= @fromDate AND s.summary_date <= @toDate";
+        request.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+        request.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+      }
+      if (search) {
+        where += " AND (s.member_id LIKE @search OR p.name LIKE @search)";
+        request.input('search', sql.NVarChar, `%${search}%`);
+      }
+
+      query = `
+        SELECT s.*, p.name as name, p.mobile_no as mobile_no
+        FROM LOYAL_MEMBER_DAILY_SUMMARY s WITH (NOLOCK)
+        LEFT JOIN LOYAL_MEMBER_PROFILE p WITH (NOLOCK) ON s.member_id = p.member_id
+        ${where}
+        ORDER BY s.summary_date DESC
+      `;
+    } else if (tab === 'item-sales') {
+      title = "Item Sales";
+      columns = [
+        { header: 'Member ID', key: 'card_no', width: 20 },
+        { header: 'Customer Name', key: 'member_name', width: 25 },
+        { header: 'Store', key: 'org_cd', width: 10 },
+        { header: 'Date', key: 'bill_dt', width: 15 },
+        { header: 'Item Code', key: 'itm_cd', width: 15 },
+        { header: 'Item Name', key: 'item_name', width: 25 },
+        { header: 'Qty', key: 'qty', width: 10 },
+        { header: 'Gross Value', key: 'gross_value', width: 15 },
+        { header: 'Net Value', key: 'net_value', width: 15 },
+        { header: 'Department', key: 'department_name', width: 20 },
+        { header: 'Brand', key: 'brand_name', width: 20 }
+      ];
+
+      let where = "WHERE 1=1";
+      if (store && store !== 'All Stores') {
+        where += " AND m.org_cd = @store";
+        request.input('store', sql.NVarChar, store);
+      }
+      if (fromDate && toDate) {
+        where += " AND m.bill_dt >= @fromDate AND m.bill_dt <= @toDate";
+        request.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
+        request.input('toDate', sql.VarChar, toDate + ' 23:59:59');
+      }
+      if (search) {
+        where += " AND (m.card_no LIKE @search OR m.item_name LIKE @search)";
+        request.input('search', sql.NVarChar, `%${search}%`);
+      }
+
+      query = `
+        SELECT m.*, ISNULL(A4.anm_desc, 'UNKNOWN') as department_name, ISNULL(A7.anm_desc, 'UNKNOWN') as brand_name
+        FROM ITEM_SALES_MEMBER m
+        LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
+        LEFT JOIN attribute_nesting_mst A7 ON m.brand = A7.anm_attr_cd AND A7.anm_attr = 'ATTR7'
+        ${where}
+        ORDER BY m.bill_dt DESC
+      `;
+    } else {
+      return res.status(400).json({ error: 'Invalid tab' });
+    }
+
+    const result = await request.query(query);
+    const rows = result.recordset;
+
+    if (tab === 'item-sales') {
+      const uniqueCards = [...new Set(rows.map(r => r.card_no))].filter(Boolean);
+      if (uniqueCards.length > 0) {
+        try {
+          const crmPool = await getCrmPool();
+          const nameMap = new Map();
+          const batchSize = 1000;
+          
+          for (let i = 0; i < uniqueCards.length; i += batchSize) {
+            const batch = uniqueCards.slice(i, i + batchSize);
+            const nameReq = crmPool.request();
+            const cardParams = batch.map((c, idx) => { nameReq.input('c'+idx, sql.NVarChar, c); return '@c'+idx; }).join(',');
+            const namesRes = await nameReq.query(`SELECT MEMBER_ID, PHONE_NUMBER, CUST_NAME FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) WHERE MEMBER_ID IN (${cardParams}) OR PHONE_NUMBER IN (${cardParams})`);
+            namesRes.recordset.forEach(n => {
+              if (n.MEMBER_ID) nameMap.set(n.MEMBER_ID, n.CUST_NAME);
+              if (n.PHONE_NUMBER) nameMap.set(n.PHONE_NUMBER, n.CUST_NAME);
+            });
+          }
+          
+          rows.forEach(r => { r.member_name = nameMap.get(r.card_no) || 'Anonymous member'; });
+        } catch (err) {
+          console.error("Failed to fetch export names:", err.message);
+        }
+      }
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(title);
+
+    worksheet.columns = columns;
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+    worksheet.addRows(rows);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${tab}-report.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
 

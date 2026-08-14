@@ -6114,7 +6114,7 @@ app.get('/api/dev/loyalty/export/:tab/:format', async (req, res) => {
         { header: 'Customer Name', key: 'member_name', width: 25 },
         { header: 'Store', key: 'org_cd', width: 10 },
         { header: 'Date', key: 'bill_dt', width: 15 },
-        { header: 'Item Code', key: 'item_cd', width: 15 },
+        { header: 'Item Code', key: 'itm_cd', width: 15 },
         { header: 'Item Name', key: 'item_name', width: 25 },
         { header: 'Qty', key: 'qty', width: 10 },
         { header: 'Gross Value', key: 'gross_value', width: 15 },
@@ -6158,14 +6158,20 @@ app.get('/api/dev/loyalty/export/:tab/:format', async (req, res) => {
       if (uniqueCards.length > 0) {
         try {
           const crmPool = await getCrmPool();
-          const nameReq = crmPool.request();
-          const cardParams = uniqueCards.map((c, i) => { nameReq.input('c'+i, sql.NVarChar, c); return '@c'+i; }).join(',');
-          const namesRes = await nameReq.query(`SELECT MEMBER_ID, PHONE_NUMBER, CUST_NAME FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) WHERE MEMBER_ID IN (${cardParams}) OR PHONE_NUMBER IN (${cardParams})`);
           const nameMap = new Map();
-          namesRes.recordset.forEach(n => {
-            if (n.MEMBER_ID) nameMap.set(n.MEMBER_ID, n.CUST_NAME);
-            if (n.PHONE_NUMBER) nameMap.set(n.PHONE_NUMBER, n.CUST_NAME);
-          });
+          const batchSize = 1000;
+          
+          for (let i = 0; i < uniqueCards.length; i += batchSize) {
+            const batch = uniqueCards.slice(i, i + batchSize);
+            const nameReq = crmPool.request();
+            const cardParams = batch.map((c, idx) => { nameReq.input('c'+idx, sql.NVarChar, c); return '@c'+idx; }).join(',');
+            const namesRes = await nameReq.query(`SELECT MEMBER_ID, PHONE_NUMBER, CUST_NAME FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) WHERE MEMBER_ID IN (${cardParams}) OR PHONE_NUMBER IN (${cardParams})`);
+            namesRes.recordset.forEach(n => {
+              if (n.MEMBER_ID) nameMap.set(n.MEMBER_ID, n.CUST_NAME);
+              if (n.PHONE_NUMBER) nameMap.set(n.PHONE_NUMBER, n.CUST_NAME);
+            });
+          }
+          
           rows.forEach(r => { r.member_name = nameMap.get(r.card_no) || 'Anonymous member'; });
         } catch (err) {
           console.error("Failed to fetch export names:", err.message);
