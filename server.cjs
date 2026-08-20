@@ -2102,7 +2102,8 @@ app.get('/api/activity-log/export', async (req, res) => {
 
     const scopeLabel = requestUser.is_admin ? 'all-users' : requestUser.username;
     const dateLabel = dateFilter || 'all-dates';
-    const filename = `activity-log-${scopeLabel}-${dateLabel}.csv`;
+    const exportDate = new Date().toISOString().split('T')[0];
+    const filename = `activity-log-${scopeLabel}-${dateLabel}_${exportDate}.csv`;
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -3657,7 +3658,8 @@ app.post('/api/sql/export', (req, res) => {
   }
 
   res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename=sql_export.csv');
+  const exportDate = new Date().toISOString().split('T')[0];
+  res.setHeader('Content-Disposition', `attachment; filename=sql_export_${exportDate}.csv`);
   res.send(csv);
 });
 
@@ -6213,7 +6215,8 @@ app.get('/api/dev/loyalty/export/:tab/:format', async (req, res) => {
     worksheet.addRows(rows);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=${tab}-report.xlsx`);
+    const exportDate = new Date().toISOString().split('T')[0];
+    res.setHeader('Content-Disposition', `attachment; filename=${tab}-report_${exportDate}.xlsx`);
     await workbook.xlsx.write(res);
     res.end();
 
@@ -6727,14 +6730,16 @@ app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
       worksheet.addRows(rows);
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename=${type}-report.xlsx`);
+      const exportDate = new Date().toISOString().split('T')[0];
+      res.setHeader('Content-Disposition', `attachment; filename=${type}-report_${exportDate}.xlsx`);
       await workbook.xlsx.write(res);
       res.end();
     }
     else if (format === 'pdf') {
       const doc = new PDFDocument({ margin: 30, layout: 'landscape' });
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename=${type}-report.pdf`);
+      const exportDate = new Date().toISOString().split('T')[0];
+      res.setHeader('Content-Disposition', `attachment; filename=${type}-report_${exportDate}.pdf`);
       doc.pipe(res);
 
       doc.fontSize(18).text(title, { align: 'center' });
