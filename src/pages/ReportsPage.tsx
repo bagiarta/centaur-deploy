@@ -108,24 +108,28 @@ export default function ReportsPage() {
   }
 
   // Process data for charts
-  const depChartData = deploymentStats?.targets?.map((t: any) => ({
+  const safeDeploymentTargets = Array.isArray(deploymentStats?.targets) ? deploymentStats.targets : [];
+  const depChartData = safeDeploymentTargets.map((t: any) => ({
     name: t.status.charAt(0).toUpperCase() + t.status.slice(1),
     value: t.count
-  })) || [];
+  }));
 
-  const ticketChartData = ticketStats?.map((t: any) => ({
+  const safeTicketStats = Array.isArray(ticketStats) ? ticketStats : [];
+  const ticketChartData = safeTicketStats.map((t: any) => ({
     name: t.status,
     value: t.count
-  })) || [];
+  }));
 
   const TICKET_COLORS = ['#ef4444', '#f59e0b', '#eb0cd8ff', '#02f737ff'];
 
-  const needsUpgrade = healthData.filter(d => d.needsUpgrade);
-  const lowRam = healthData.filter(d => d.isLowRam).length;
-  const lowDisk = healthData.filter(d => d.isLowDisk).length;
+  const safeHealthData = Array.isArray(healthData) ? healthData : [];
+  const needsUpgrade = safeHealthData.filter(d => d?.needsUpgrade);
+  const lowRam = safeHealthData.filter(d => d?.isLowRam).length;
+  const lowDisk = safeHealthData.filter(d => d?.isLowDisk).length;
 
   // CRM derived stats
-  const crmToday = crmSyncData.find((r: any) => r.label === 'Today');
+  const safeCrmSyncData = Array.isArray(crmSyncData) ? crmSyncData : [];
+  const crmToday = safeCrmSyncData.find((r: any) => r.label === 'Today');
   const crmTodayTotal = crmToday ? crmToday.total : 0;
   const crmTodaySynced = crmToday ? crmToday.synced_count : 0;
   const crmTodayPending = crmToday ? crmToday.pending_count : 0;
@@ -134,16 +138,18 @@ export default function ReportsPage() {
     : null;
 
   // DBWH derived stats
-  const dbwhSummary = dbwhJobs.reduce((acc: any, job: any) => {
+  const safeDbwhJobs = Array.isArray(dbwhJobs) ? dbwhJobs : [];
+  const dbwhSummary = safeDbwhJobs.reduce((acc: any, job: any) => {
     acc[job.StatusJob] = (acc[job.StatusJob] || 0) + 1;
     return acc;
   }, {});
 
   const failedDbwhCount = dbwhSummary['Failed'] || 0;
+  const safeInventoryData = Array.isArray(inventoryData) ? inventoryData : [];
 
   const filteredDbwhJobs = dbwhFilter 
-    ? dbwhJobs.filter(j => j.StatusJob === dbwhFilter)
-    : dbwhJobs;
+    ? safeDbwhJobs.filter((j: any) => j.StatusJob === dbwhFilter)
+    : safeDbwhJobs;
 
   const closeDrawer = () => {
     setSelectedDevice(null);
@@ -190,9 +196,9 @@ export default function ReportsPage() {
         <StatCard
           label="Avg Deployment Success"
           value={
-            deploymentStats?.targets?.length > 0
-              ? Math.round((deploymentStats.targets.find((t: any) => t.status === 'success')?.count || 0) /
-                deploymentStats.targets.reduce((acc: any, t: any) => acc + t.count, 0) * 100) + "%"
+            safeDeploymentTargets.length > 0
+              ? Math.round((safeDeploymentTargets.find((t: any) => t.status === 'success')?.count || 0) /
+                safeDeploymentTargets.reduce((acc: any, t: any) => acc + t.count, 0) * 100) + "%"
               : "0%"
           }
           sub="per target basis"
@@ -201,7 +207,7 @@ export default function ReportsPage() {
         />
         <StatCard
           label="Total Software Assets"
-          value={inventoryData.reduce((acc, item) => acc + item.count, 0)}
+          value={safeInventoryData.reduce((acc, item) => acc + item.count, 0)}
           sub="across all managed devices"
           icon={<Package className="w-5 h-5" />}
           variant="default"
@@ -290,7 +296,7 @@ export default function ReportsPage() {
           <SectionCard title="Software Inventory" subtitle="Most common applications">
             <div className="h-[240px] w-full p-2">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={inventoryData.slice(0, 8)} layout="vertical" margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+                <BarChart data={safeInventoryData.slice(0, 8)} layout="vertical" margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
                   <XAxis type="number" hide />
                   <YAxis

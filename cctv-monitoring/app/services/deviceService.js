@@ -2,6 +2,7 @@ import sql from 'mssql';
 import { poolPromise } from '../../config/db.js';
 import { getIO } from '../../config/socket.js';
 import * as hikvisionService from './hikvisionService.js';
+import { sendAlertNotification } from './notificationService.js';
 
 // Device status polling
 export const pollDeviceStatus = async (deviceId) => {
@@ -175,6 +176,8 @@ export const updateDeviceStatus = async (deviceId, status, errorMessage = null) 
       });
     
     // Create monitoring log
+    const alertSeverity = status === 'offline' ? 'high' : 'info';
+    const alertMessage = errorMessage || `Device status changed from ${oldStatus} to ${status}`;
     await pool.request()
       .input('id', sql.NVarChar, `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`)
       .input('deviceId', sql.NVarChar, deviceId)
@@ -182,12 +185,26 @@ export const updateDeviceStatus = async (deviceId, status, errorMessage = null) 
       .input('eventType', sql.NVarChar, 'status_change')
       .input('oldValue', sql.NVarChar, oldStatus)
       .input('newValue', sql.NVarChar, status)
-      .input('message', sql.NVarChar, errorMessage || `Device status changed from ${oldStatus} to ${status}`)
-      .input('severity', sql.NVarChar, status === 'offline' ? 'high' : 'info')
+      .input('message', sql.NVarChar, alertMessage)
+      .input('severity', sql.NVarChar, alertSeverity)
       .query(`
         INSERT INTO MonitoringLogs (id, device_id, log_type, event_type, old_value, new_value, message, severity)
         VALUES (@id, @deviceId, @logType, @eventType, @oldValue, @newValue, @message, @severity)
       `);
+    
+    // Send alert notification for high/critical severity status changes
+    if (['high', 'critical'].includes(alertSeverity)) {
+      await sendAlertNotification(pool, {
+        log_type: 'device_status',
+        event_type: 'status_change',
+        old_value: oldStatus,
+        new_value: status,
+        message: alertMessage,
+        severity: alertSeverity,
+        device_name: device.name,
+        device_id: deviceId
+      });
+    }
     
     // Broadcast to Socket.IO
     const io = getIO();
@@ -217,6 +234,12 @@ export const updateDeviceChannels = async (deviceId, channels) => {
   try {
     const pool = await poolPromise;
     const now = new Date().toISOString();
+
+    // Fetch device name upfront for notifications and socket events
+    const deviceMetaResult = await pool.request()
+      .input('deviceIdMeta', sql.NVarChar, deviceId)
+      .query('SELECT name FROM Devices WHERE id = @deviceIdMeta');
+    const deviceName = deviceMetaResult.recordset[0]?.name || deviceId;
     
     for (const channel of channels) {
       // Check if channel exists
@@ -267,6 +290,8 @@ export const updateDeviceChannels = async (deviceId, channels) => {
             });
           
           // Log status change
+          const channelSeverity = channel.status === 'online' ? 'info' : 'medium';
+          const channelMessage = `Channel ${channel.channelNumber} status changed from ${existing.status} to ${channel.status}`;
           await pool.request()
             .input('id', sql.NVarChar, `log-${Date.now()}-${channel.channelNumber}`)
             .input('deviceId', sql.NVarChar, deviceId)
@@ -275,18 +300,33 @@ export const updateDeviceChannels = async (deviceId, channels) => {
             .input('objectId', sql.NVarChar, existing.id)
             .input('oldValue', sql.NVarChar, existing.status)
             .input('newValue', sql.NVarChar, channel.status)
-            .input('message', sql.NVarChar, `Channel ${channel.channelNumber} status changed from ${existing.status} to ${channel.status}`)
-            .input('severity', sql.NVarChar, channel.status === 'online' ? 'info' : 'medium')
+            .input('message', sql.NVarChar, channelMessage)
+            .input('severity', sql.NVarChar, channelSeverity)
             .query(`
               INSERT INTO MonitoringLogs (id, device_id, log_type, event_type, object_id, old_value, new_value, message, severity)
               VALUES (@id, @deviceId, @logType, @eventType, @objectId, @oldValue, @newValue, @message, @severity)
             `);
           
+          // Send alert notification for non-info channel events (e.g. channel goes offline)
+          if (channelSeverity !== 'info') {
+            await sendAlertNotification(pool, {
+              log_type: 'channel_status',
+              event_type: 'status_change',
+              old_value: existing.status,
+              new_value: channel.status,
+              message: channelMessage,
+              severity: channelSeverity,
+              device_name: deviceName,
+              device_id: deviceId,
+              channel_number: channel.channelNumber
+            });
+          }
+          
           // Broadcast channel update
           const io = getIO();
           io.to(`device:${deviceId}`).emit('channel_status_update', {
             channelId: existing.id,
-            deviceName: device.name,
+            deviceName: deviceName,
             channelNumber: channel.channelNumber,
             status: channel.status,
             isRecording: channel.isRecording,
@@ -305,6 +345,12 @@ export const updateDeviceStorage = async (deviceId, storage) => {
   try {
     const pool = await poolPromise;
     const now = new Date().toISOString();
+
+    // Fetch device name upfront for notifications and socket events
+    const deviceMetaResult = await pool.request()
+      .input('deviceIdMeta', sql.NVarChar, deviceId)
+      .query('SELECT name FROM Devices WHERE id = @deviceIdMeta');
+    const deviceName = deviceMetaResult.recordset[0]?.name || deviceId;
     
     for (const disk of storage) {
       // Check if disk exists
@@ -363,7 +409,8 @@ export const updateDeviceStorage = async (deviceId, storage) => {
             });
           
           // Log storage status change
-          const severity = disk.usagePercentage >= 95 ? 'critical' : disk.usagePercentage >= 80 ? 'high' : 'info';
+          const storageSeverity = disk.usagePercentage >= 95 ? 'critical' : disk.usagePercentage >= 80 ? 'high' : 'info';
+          const storageMessage = `Disk ${disk.diskNumber} status changed: ${existing.status} → ${disk.status}. Usage: ${existing.usage_percentage}% → ${disk.usagePercentage}%`;
           await pool.request()
             .input('id', sql.NVarChar, `log-${Date.now()}-${disk.diskNumber}`)
             .input('deviceId', sql.NVarChar, deviceId)
@@ -372,19 +419,33 @@ export const updateDeviceStorage = async (deviceId, storage) => {
             .input('objectId', sql.NVarChar, existing.id)
             .input('oldValue', sql.NVarChar, existing.status)
             .input('newValue', sql.NVarChar, disk.status)
-            .input('message', sql.NVarChar, `Disk ${disk.diskNumber} status changed: ${existing.status} → ${disk.status}. Usage: ${existing.usage_percentage}% → ${disk.usagePercentage}%`)
-            .input('severity', sql.NVarChar, severity)
+            .input('message', sql.NVarChar, storageMessage)
+            .input('severity', sql.NVarChar, storageSeverity)
             .query(`
               INSERT INTO MonitoringLogs (id, device_id, log_type, event_type, object_id, old_value, new_value, message, severity)
               VALUES (@id, @deviceId, @logType, @eventType, @objectId, @oldValue, @newValue, @message, @severity)
             `);
+          
+          // Send alert notification for high/critical storage events
+          if (['high', 'critical'].includes(storageSeverity)) {
+            await sendAlertNotification(pool, {
+              log_type: 'storage_status',
+              event_type: 'status_change',
+              old_value: existing.status,
+              new_value: disk.status,
+              message: storageMessage,
+              severity: storageSeverity,
+              device_name: deviceName,
+              device_id: deviceId
+            });
+          }
           
           // Broadcast storage alert if critical
           if (disk.usagePercentage >= 95) {
             const io = getIO();
             io.to(`device:${deviceId}`).emit('storage_alert', {
               storageId: existing.id,
-              deviceName: device.name,
+              deviceName: deviceName,
               diskNumber: disk.diskNumber,
               usagePercentage: disk.usagePercentage,
               status: disk.status,

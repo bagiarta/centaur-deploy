@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const cors = require('cors');
@@ -16,7 +16,7 @@ const pdfParse = require('pdf-parse');
 const cron = require('node-cron');
 const ExcelJS = require('exceljs');
 
-// â”€â”€ TIMEZONE HELPER FUNCTIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ TIMEZONE HELPER FUNCTIONS \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 function getCurrentTimestamp() {
   // Return timestamp in configured timezone
   return new Date().toLocaleString('id-ID', {
@@ -87,7 +87,7 @@ function isValidSafeSQL(script) {
   return true;
 }
 
-// â”€â”€ H2H CRM INTEGRATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ H2H CRM INTEGRATION \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 const h2hConfig = {
   baseUrl: (process.env.H2H_BASE_URL || '').replace(/\/$/, ''),
   clientId: process.env.H2H_CLIENT_ID,
@@ -109,7 +109,7 @@ async function getH2hToken() {
     return h2hTokenCache.token;
   }
 
-  console.log('ðŸ”„ Fetching new H2H CRM token...');
+  console.log('\uD83D\uDD04 Fetching new H2H CRM token...');
 
   // Custom agent to handle verifySsl if needed
   const fetchOptions = {
@@ -145,7 +145,7 @@ async function getH2hToken() {
   return h2hTokenCache.token;
 }
 
-// â”€â”€ CRM REPORTS DATABASE POOL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ CRM REPORTS DATABASE POOL \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 let crmPoolPromise = null;
 
 async function getCrmPool() {
@@ -168,7 +168,7 @@ async function getCrmPool() {
     let config;
 
     if (device && device.db_user && device.db_password) {
-      console.log('âœ… Found CRM Server (DBWH SERVER) in Devices table. Using dynamic connection.');
+      console.log('\u2705 Found CRM Server (DBWH SERVER) in Devices table. Using dynamic connection.');
       config = {
         user: device.db_user,
         password: device.db_password,
@@ -183,7 +183,7 @@ async function getCrmPool() {
         requestTimeout: 60000
       };
     } else {
-      console.warn('âš ï¸ CRM Server (DBWH SERVER) not found or missing DB credentials. Using fallback.');
+      console.warn('\u26A0\uFE0F CRM Server (DBWH SERVER) not found or missing DB credentials. Using fallback.');
       config = {
         user: process.env.CRM_DB_USER || 'sa',
         password: process.env.CRM_DB_PASS || 'default_pass',
@@ -312,13 +312,13 @@ async function initDb() {
 
     // Connectivity Event listener
     pool.on('error', err => {
-      console.error('âš ï¸ [SQL POOL ERROR]:', err.message);
+      console.error('\u26A0\uFE0F [SQL POOL ERROR]:', err.message);
       if (err.message.includes('broken') || err.message.includes('Connection loss')) {
         console.warn('-- Possible Network Instability detected with ' + dbConfig.server + ' --');
       }
     });
 
-    console.log('âœ… Connected to SQL Server:', dbConfig.server);
+    console.log('\u2705 Connected to SQL Server:', dbConfig.server);
 
     const tables = [
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Devices' AND xtype='U')
@@ -715,7 +715,7 @@ async function initDb() {
       await pool.request().query('ALTER TABLE TicketTargets ADD solved_by NVARCHAR(100)');
     }
 
-    console.log('âœ… Database fully initialized (DBWH_8529)');
+    console.log('\u2705 Database fully initialized (DBWH_8529)');
   } catch (err) {
     console.error('âŒ Database Connection Failed! Bad Config: ', err);
   }
@@ -876,7 +876,7 @@ async function seedData(pool) {
   }
 }
 
-// â”€â”€ POST /api/deployments/:id/targets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/deployments/:id/targets \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/deployments/:id/targets', async (req, res) => {
   const { id } = req.params;
   const { targets } = req.body;
@@ -942,7 +942,7 @@ app.post('/api/deployments/:id/targets', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/devices/:id/db-connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/devices/:id/db-connection \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/devices/:id/db-connection', async (req, res) => {
   const { id } = req.params;
   try {
@@ -961,7 +961,7 @@ app.get('/api/devices/:id/db-connection', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/devices/:id/db-connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/devices/:id/db-connection \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/devices/:id/db-connection', async (req, res) => {
   const { id } = req.params;
   const { db_name, db_user, db_password } = req.body;
@@ -992,7 +992,7 @@ app.post('/api/devices/:id/db-connection', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/webhook/test-device-ping (TRIAL EXPERIMENT) â”€
+// \u2500€\u2500€ POST /api/webhook/test-device-ping (TRIAL EXPERIMENT) \u2500€
 app.post('/api/webhook/test-device-ping', (req, res) => {
   const payload = req.body;
 
@@ -1007,12 +1007,12 @@ app.post('/api/webhook/test-device-ping', (req, res) => {
   }
 
   fs.appendFileSync(logFile, logEntry);
-  console.log('âœ… Trial Webhook Data Received:', finalPayload);
+  console.log('\u2705 Trial Webhook Data Received:', finalPayload);
 
   res.json({ success: true, message: 'Trial data received', data: finalPayload });
 });
 
-// â”€â”€ GET /api/webhook/test-results (VIEW EXPERIMENT) â”€
+// \u2500€\u2500€ GET /api/webhook/test-results (VIEW EXPERIMENT) \u2500€
 app.get('/api/webhook/test-results', (req, res) => {
   const logFile = path.join(__dirname, 'scratch', 'test_webhook_log.txt');
   if (fs.existsSync(logFile)) {
@@ -1024,7 +1024,7 @@ app.get('/api/webhook/test-results', (req, res) => {
   }
 });
 
-// â”€â”€  POST /api/webhook/device-ping (LIVE SYSTEM) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€  POST /api/webhook/device-ping (LIVE SYSTEM) \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/webhook/device-ping', async (req, res) => {
   console.log(`[DEBUG] Received Live Ping at ${new Date().toISOString()}`);
   console.log(`[DEBUG] Body:`, JSON.stringify(req.body));
@@ -1076,7 +1076,7 @@ app.post('/api/webhook/device-ping', async (req, res) => {
         `);
 
       if (oldStatus !== 'online') {
-        console.log(`âœ… Network Hook: Device ${hostname} is back online.`);
+        console.log(`\u2705 Network Hook: Device ${hostname} is back online.`);
       }
     } else {
       // Create new network device if doesn't exist
@@ -1095,7 +1095,7 @@ app.post('/api/webhook/device-ping', async (req, res) => {
           INSERT INTO Devices (id, hostname, ip, os_version, status, last_seen, device_type, network_ports)
           VALUES (@id, @hostname, @ip, @os_version, @status, @last_seen, @device_type, @network_ports)
         `);
-      console.log(`âœ… Network Hook: Registered new device ${hostname}`);
+      console.log(`\u2705 Network Hook: Registered new device ${hostname}`);
     }
 
     res.json({ success: true, message: 'Device status updated' });
@@ -1105,7 +1105,7 @@ app.post('/api/webhook/device-ping', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/devices â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/devices \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/devices', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1148,7 +1148,7 @@ app.get('/api/devices', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/remote-commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/remote-commands \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/remote-commands', async (req, res) => {
   try {
     const { devices, command } = req.body;
@@ -1186,7 +1186,7 @@ app.post('/api/remote-commands', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/devices â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/devices \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/devices', async (req, res) => {
   try {
     const { id, hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude } = req.body;
@@ -1221,7 +1221,7 @@ app.post('/api/devices', async (req, res) => {
   }
 });
 
-// â”€â”€ PUT /api/devices/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ PUT /api/devices/:id \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.put('/api/devices/:id', async (req, res) => {
   try {
     const { hostname, ip, os_version, cpu, ram, disk, agent_version, status, group_ids, last_seen, device_type, location, latitude, longitude } = req.body;
@@ -1260,7 +1260,7 @@ app.put('/api/devices/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ DELETE /api/devices/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ DELETE /api/devices/:id \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.delete('/api/devices/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1306,7 +1306,7 @@ app.delete('/api/devices/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/devices/register â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/devices/register \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 // Endpoint for the manual powershell installer to hit
 app.post('/api/devices/register', async (req, res) => {
   try {
@@ -1349,7 +1349,7 @@ app.post('/api/devices/register', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/groups \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/groups', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1372,7 +1372,7 @@ app.get('/api/groups', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/groups \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/groups', async (req, res) => {
   try {
     const { id, name, description, color } = req.body;
@@ -1392,7 +1392,7 @@ app.post('/api/groups', async (req, res) => {
   }
 });
 
-// â”€â”€ PUT /api/groups/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ PUT /api/groups/:id \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.put('/api/groups/:id', async (req, res) => {
   try {
     const { name, description, color } = req.body;
@@ -1412,7 +1412,7 @@ app.put('/api/groups/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ DELETE /api/groups/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ DELETE /api/groups/:id \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.delete('/api/groups/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1432,7 +1432,7 @@ app.delete('/api/groups/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/packages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/packages \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/packages', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1443,7 +1443,7 @@ app.get('/api/packages', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/packages/download/:filename â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/packages/download/:filename \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/packages/download/:filename', async (req, res) => {
   const { filename } = req.params;
   const filePath = path.join(REPO_PATH, filename);
@@ -1455,7 +1455,7 @@ app.get('/api/packages/download/:filename', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/groups/:id/devices â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/groups/:id/devices \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/groups/:id/devices', async (req, res) => {
   const groupId = req.params.id;
   const { device_ids } = req.body; // Array of device IDs that should belong to this group
@@ -1504,7 +1504,7 @@ app.post('/api/groups/:id/devices', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/sql/test-connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/sql/test-connection \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/sql/test-connection', async (req, res) => {
   const { server, database, user, password } = req.body;
   const config = {
@@ -1530,7 +1530,7 @@ app.post('/api/sql/test-connection', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/sql/databases/:deviceId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/sql/databases/:deviceId \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/sql/databases/:deviceId', async (req, res) => {
   try {
     const { deviceId } = req.params;
@@ -1566,7 +1566,7 @@ app.get('/api/sql/databases/:deviceId', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/sql/tables/:deviceId/:databaseName â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/sql/tables/:deviceId/:databaseName \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/sql/tables/:deviceId/:databaseName', async (req, res) => {
   try {
     const { deviceId, databaseName } = req.params;
@@ -1607,7 +1607,7 @@ app.get('/api/sql/tables/:deviceId/:databaseName', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/sql/execute â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/sql/execute \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/sql/execute', async (req, res) => {
   const { script, target_device_ids, force } = req.body;
   const userId = req.headers['x-user-id'] || 'anonymous';
@@ -1728,7 +1728,7 @@ app.post('/api/sql/execute', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/deployments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/deployments \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/deployments', async (req, res) => {
   try {
     console.log('GET /api/deployments called');
@@ -1743,7 +1743,7 @@ app.get('/api/deployments', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/deployment-targets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/deployment-targets \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/deployment-targets', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1793,7 +1793,7 @@ function parseIPRange(input) {
   return [...new Set(allIps)];
 }
 
-// â”€â”€ GET /api/agent-jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/agent-jobs \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/agent-jobs', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1804,7 +1804,7 @@ app.get('/api/agent-jobs', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/agent-jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/agent-jobs \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/agent-jobs', async (req, res) => {
   try {
     const { id, ip_range, created_by, username, password, device_targets } = req.body;
@@ -1816,7 +1816,7 @@ app.post('/api/agent-jobs', async (req, res) => {
     const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
     const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
 
-    // â”€â”€ MODE A: device_targets (per-device, from device list) â”€â”€
+    // \u2500€\u2500€ MODE A: device_targets (per-device, from device list) \u2500€\u2500€
     if (device_targets && Array.isArray(device_targets) && device_targets.length > 0) {
       const total = device_targets.length;
 
@@ -1881,7 +1881,7 @@ app.post('/api/agent-jobs', async (req, res) => {
       return;
     }
 
-    // â”€â”€ MODE B: IP Range (legacy) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // \u2500€\u2500€ MODE B: IP Range (legacy) \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
     const ips = parseIPRange(ip_range);
     const total = ips.length;
     if (total === 0) return res.status(400).json({ error: "No valid IPs found." });
@@ -1944,7 +1944,7 @@ app.post('/api/agent-jobs', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/agent-jobs/retry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/agent-jobs/retry \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/agent-jobs/retry', async (req, res) => {
   const { job_id, device_ip, username, password } = req.body;
   console.log(`[AGENT] Retry requested for Job: ${job_id}, IP: ${device_ip}, User: ${username}`);
@@ -2033,7 +2033,7 @@ app.post('/api/agent-jobs/retry', async (req, res) => {
   }
 });
 
-// â”€â”€ DELETE /api/agent-jobs/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ DELETE /api/agent-jobs/:id \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.delete('/api/agent-jobs/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -2048,7 +2048,7 @@ app.delete('/api/agent-jobs/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/agent-install-targets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/agent-install-targets \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/agent-install-targets', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2062,7 +2062,7 @@ app.get('/api/agent-install-targets', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/activity-log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/activity-log \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/activity-log', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2112,7 +2112,7 @@ app.get('/api/activity-log/export', async (req, res) => {
   }
 });
 
-// â”€â”€ DELETE /api/packages/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ DELETE /api/packages/:id \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.delete('/api/packages/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2125,7 +2125,7 @@ app.delete('/api/packages/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ DELETE /api/deployments/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ DELETE /api/deployments/:id \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.delete('/api/deployments/:id', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2152,7 +2152,7 @@ app.delete('/api/deployments/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/packages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/packages \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
   try {
     const { id, name, version, type, uploaded_by } = req.body;
@@ -2188,7 +2188,7 @@ app.post('/api/packages', packageUpload.single('file'), async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/deployments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/deployments \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/deployments', async (req, res) => {
   try {
     const {
@@ -2258,7 +2258,7 @@ app.post('/api/deployments', async (req, res) => {
 
 
 
-// â”€â”€ POST /api/agent/heartbeat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/agent/heartbeat \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/agent/heartbeat', async (req, res) => {
   const hostname = req.body?.hostname || 'unknown';
   try {
@@ -2335,7 +2335,7 @@ app.post('/api/agent/heartbeat', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/devices/:id/software â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/devices/:id/software \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/devices/:id/software', async (req, res) => {
   try {
     const { id } = req.params;
@@ -2349,7 +2349,7 @@ app.get('/api/devices/:id/software', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/agent/software-inventory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/agent/software-inventory \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/agent/software-inventory', async (req, res) => {
   try {
     const { hostname, software } = req.body;
@@ -2401,7 +2401,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/agent/config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/agent/config \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/agent/config', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2414,7 +2414,7 @@ app.get('/api/agent/config', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/agent/config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/agent/config \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/agent/config', async (req, res) => {
   const { LATEST_AGENT_VERSION, AGENT_UPDATE_URL } = req.body;
   try {
@@ -2453,7 +2453,7 @@ app.post('/api/agent/config', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/agent/version â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/agent/version \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/agent/version', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2465,7 +2465,7 @@ app.get('/api/agent/version', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/agent/pending?hostname=... â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/agent/pending?hostname=... \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/agent/pending', async (req, res) => {
   const { hostname } = req.query;
   if (!hostname) return res.json({ commands: [] });
@@ -2489,7 +2489,7 @@ app.get('/api/agent/pending', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/agent/pending-deployments?hostname=... â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/agent/pending-deployments?hostname=... \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/agent/pending-deployments', async (req, res) => {
   const { hostname } = req.query;
   if (!hostname) return res.json({ deployments: [] });
@@ -2522,7 +2522,7 @@ app.get('/api/agent/pending-deployments', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/agent/software-inventory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/agent/software-inventory \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/agent/software-inventory', async (req, res) => {
   const { hostname, software } = req.body;
   if (!hostname || !Array.isArray(software)) return res.status(400).json({ error: 'Missing hostname or software list' });
@@ -2559,7 +2559,7 @@ app.post('/api/agent/software-inventory', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/agent/command-result â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/agent/command-result \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/agent/command-result', async (req, res) => {
   const { command_id, exec_id, hostname, status, result_log } = req.body;
   if (!command_id) return res.status(400).json({ error: 'Missing command_id' });
@@ -2604,7 +2604,7 @@ app.post('/api/agent/command-result', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/agent/deploy-status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/agent/deploy-status \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/agent/deploy-status', async (req, res) => {
   const { deployment_id, device_id, status, progress, log } = req.body;
   try {
@@ -2675,7 +2675,7 @@ app.post('/api/agent/deploy-status', async (req, res) => {
   }
 });
 
-// â”€â”€ AUTHENTICATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ AUTHENTICATION \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   try {
@@ -2741,7 +2741,7 @@ app.post('/api/auth/change-password', async (req, res) => {
   }
 });
 
-// â”€â”€ USER MANAGEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ USER MANAGEMENT \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 async function getRequestUser(req, pool) {
   const headerUserId = req.headers['x-user-id'];
   const userId = (typeof headerUserId === 'string' && headerUserId) || req.body?.userId || req.query?.userId;
@@ -2896,7 +2896,7 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ ROLE MANAGEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ ROLE MANAGEMENT \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/roles', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -2963,7 +2963,7 @@ app.delete('/api/roles/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ NOTIFICATION SETTINGS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ NOTIFICATION SETTINGS \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/assistant-keywords', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -3245,7 +3245,7 @@ app.post('/api/notification-settings', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/test-notification (Discord/Webhook) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/test-notification (Discord/Webhook) \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 const DEFAULT_THEME_SETTINGS = {
   sidebarBg: "#10331f",
   sidebarText: "#d1fae5",
@@ -3346,7 +3346,7 @@ app.post('/api/test-notification', async (req, res) => {
 
     const payload = JSON.stringify({
       embeds: [{
-        title: 'ðŸ”” Test Notification',
+        title: '\uD83D\uDD14 Test Notification',
         description: 'This is a test notification from **Centaur Deploy**. Your webhook is working correctly!',
         color: 0x10b981,
         timestamp: getISOTimestamp(),
@@ -3378,7 +3378,7 @@ app.post('/api/test-notification', async (req, res) => {
   }
 });
 
-// â”€â”€ POST /api/test-whatsapp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ POST /api/test-whatsapp \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/test-whatsapp', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -3394,7 +3394,7 @@ app.post('/api/test-whatsapp', async (req, res) => {
       return res.status(400).json({ success: false, error: 'No WhatsApp target or group configured.' });
     }
 
-    const message = `ðŸ”” *Test Notification*\n\nIni adalah pesan test dari *Centaur Deploy*.\nNotifikasi WhatsApp Anda berfungsi dengan benar!\n\n_${new Date().toLocaleString('id-ID')}_`;
+    const message = `\uD83D\uDD14 *Test Notification*\n\nIni adalah pesan test dari *Centaur Deploy*.\nNotifikasi WhatsApp Anda berfungsi dengan benar!\n\n_${new Date().toLocaleString('id-ID')}_`;
     const payload = JSON.stringify({ token: settings.whatsapp_token, target: targets, message, countryCode: '62' });
 
     await new Promise((resolve, reject) => {
@@ -3431,7 +3431,7 @@ app.post('/api/test-whatsapp', async (req, res) => {
   }
 });
 
-// â”€â”€ SQL TEMPLATES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ SQL TEMPLATES \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/sql/templates', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -3501,7 +3501,7 @@ app.delete('/api/sql/templates/:id', async (req, res) => {
 // Alias for older/other parts if needed
 app.get('/api/sql-templates', (req, res) => res.redirect('/api/sql/templates'));
 
-// â”€â”€ REMOTE COMMAND SCRIPTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ REMOTE COMMAND SCRIPTS \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/remote-commands/scripts', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -3634,10 +3634,10 @@ app.post('/api/remote-commands/run', async (req, res) => {
   }
 });
 
-// â”€â”€ AGENT REMOTE COMMANDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ AGENT REMOTE COMMANDS \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 const commandExecutions = new Map();
 
-// â”€â”€ SQL EXPORT & SCHEDULES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ SQL EXPORT & SCHEDULES \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.post('/api/sql/export', (req, res) => {
   const { results } = req.body;
   if (!results) return res.status(400).json({ error: 'No results to export' });
@@ -3720,7 +3720,7 @@ app.get('/api/agent/commands/results', (req, res) => {
   res.json(data);
 });
 
-// â”€â”€ OFFLINE DETECTOR (Background Loop) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ OFFLINE DETECTOR (Background Loop) \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 
 async function sendWebhook(title, description, color = 0x5865F2) {
   try {
@@ -3900,7 +3900,7 @@ async function runOfflineDetector() {
       const ts = getCurrentTimeHHMM();
       await pool.request()
         .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
-        .input('action', sql.NVarChar, `âš ï¸ Device offline (${dev.reason}): ${dev.hostname} (${dev.ip})`)
+        .input('action', sql.NVarChar, `\u26A0\uFE0F Device offline (${dev.reason}): ${dev.hostname} (${dev.ip})`)
         .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
         .catch(() => { });
     }
@@ -3946,7 +3946,7 @@ async function runOfflineDetector() {
         const ts = getCurrentTimeHHMM();
         await pool.request()
           .input('time', sql.NVarChar, ts).input('user', sql.NVarChar, 'system')
-          .input('action', sql.NVarChar, `âœ… Device recovered: ${dev.hostname} (${dev.ip})`)
+          .input('action', sql.NVarChar, `\u2705 Device recovered: ${dev.hostname} (${dev.ip})`)
           .query("INSERT INTO ActivityLog (time, [user], action) VALUES (@time, @user, @action)")
           .catch(() => { });
 
@@ -3959,7 +3959,7 @@ async function runOfflineDetector() {
       }
 
       if (actualRecovered.length > 0) {
-        let recoveryWA = `âœ… *NET RECOVERY: ${actualRecovered.length} DEVICES ONLINE*\n`;
+        let recoveryWA = `\u2705 *NET RECOVERY: ${actualRecovered.length} DEVICES ONLINE*\n`;
         for (const dev of actualRecovered) {
           let durationStr = "";
           if (dev.last_offline_alert_at) {
@@ -3972,7 +3972,7 @@ async function runOfflineDetector() {
         }
 
         console.log(`[NOTIF] Sending recovery summary for ${actualRecovered.length} devices.`);
-        await sendWebhook(`âœ… Network Recovery Report`, recoveryWA.replace(/\*/g, '**'), 0x22c55e);
+        await sendWebhook(`\u2705 Network Recovery Report`, recoveryWA.replace(/\*/g, '**'), 0x22c55e);
         await sendWhatsapp(recoveryWA);
       }
     }
@@ -3983,7 +3983,7 @@ async function runOfflineDetector() {
       const allOfflineRes = await pool.request().query("SELECT hostname, ip, last_seen FROM Devices WHERE status = 'offline'");
       const allOffline = allOfflineRes.recordset || [];
 
-      let summaryWA = `ðŸš¨ *NETWORK ALERT: ${newlyOffline.length} NEW OFFLINE*\n`;
+      let summaryWA = `\uD83D\uDEA8 *NETWORK ALERT: ${newlyOffline.length} NEW OFFLINE*\n`;
       summaryWA += `Total currently offline: *${allOffline.length} devices*\n\n`;
 
       summaryWA += `*Detected Just Now:*\n`;
@@ -3994,20 +3994,19 @@ async function runOfflineDetector() {
       if (allOffline.length > newlyOffline.length) {
         summaryWA += `\n*Also Currently Offline:*\n`;
         const others = allOffline.filter(a => !newlyOffline.find(n => n.hostname === a.hostname));
-        others.slice(0, 10).forEach(d => {
+        others.forEach(d => {
           summaryWA += `- ${d.hostname} (${d.ip})\n`;
         });
-        if (others.length > 10) summaryWA += `...and ${others.length - 10} more.`;
       }
 
       const summaryDiscord = summaryWA.replace(/\*/g, '**');
 
       console.log(`[NOTIF] Sending summary alert for ${allOffline.length} total offline devices.`);
-      await sendWebhook(`ðŸš¨ Network Connectivity Report`, summaryDiscord, 0xef4444);
+      await sendWebhook(`[CRITICAL] Network Connectivity Report`, summaryDiscord, 0xef4444);
       await sendWhatsapp(summaryWA);
     }
   } catch (err) {
-    console.error('âš ï¸ Offline detector error:', err.message);
+    console.error('[CRITICAL] Offline detector error:', err.message);
   }
 }
 
@@ -4030,7 +4029,7 @@ app.get('/api/devices/offline-summary', async (req, res) => {
   }
 });
 
-// â”€â”€ WEEKLY REPORT PDF GENERATOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -------------------------------- WEEKLY REPORT PDF GENERATOR --------------------------------
 async function generateWeeklyReportPDF() {
   console.log('[REPORT] V2 - Generating Automated Weekly Report PDF...');
   try {
@@ -4091,9 +4090,9 @@ async function generateWeeklyReportPDF() {
     doc.fontSize(16).fillColor('#3b82f6').font('Helvetica-Bold').text('System Health Overview');
     doc.moveDown(0.5);
     doc.fontSize(12).fillColor('#000000').font('Helvetica');
-    doc.text(`â€¢ Overall Uptime: ${uptime}%`);
-    doc.text(`â€¢ Total Monitored Devices: ${totalDevices}`);
-    doc.text(`â€¢ Currently Offline: ${offlineDevices}`);
+    doc.text(`- Overall Uptime: ${uptime}%`);
+    doc.text(`- Total Monitored Devices: ${totalDevices}`);
+    doc.text(`- Currently Offline: ${offlineDevices}`);
     doc.moveDown();
 
     // Problematic Stores
@@ -4111,33 +4110,33 @@ async function generateWeeklyReportPDF() {
     doc.fontSize(16).fillColor('#8b5cf6').font('Helvetica-Bold').text('Helpdesk Ticket Summary (Last 7 Days)');
     doc.moveDown(0.5);
     doc.fontSize(12).fillColor('#000000').font('Helvetica');
-    doc.text(`â€¢ Total Tickets Created: ${ticketSummary.Total}`);
-    doc.text(`â€¢ Open: ${ticketSummary.Open}`);
-    doc.text(`â€¢ In Progress: ${ticketSummary['In Progress']}`);
-    doc.text(`â€¢ Resolved: ${ticketSummary.Resolved}`);
-    doc.text(`â€¢ Closed: ${ticketSummary.Closed}`);
+    doc.text(`- Total Tickets Created: ${ticketSummary.Total}`);
+    doc.text(`- Open: ${ticketSummary.Open}`);
+    doc.text(`- In Progress: ${ticketSummary['In Progress']}`);
+    doc.text(`- Resolved: ${ticketSummary.Resolved}`);
+    doc.text(`- Closed: ${ticketSummary.Closed}`);
     doc.moveDown();
 
     doc.end();
 
     stream.on('finish', async () => {
       console.log(`[REPORT] Weekly PDF saved: ${filePath}`);
-      const summary = `ðŸ“Š *WEEKLY SYSTEM REPORT IS READY*\n` +
+      const summary = `\uD83D\uDCCA *WEEKLY SYSTEM REPORT IS READY*\n` +
         `Period: Last 7 Days\n` +
         `Avg Uptime: *${uptime}%*\n` +
         `Total Devices: ${totalDevices}\n` +
         `Critical Incidents: ${problematicRes.recordset.length}\n\n` +
-        `ðŸŽŸï¸ *Helpdesk Tickets (7d):*\n` +
+        `\uD83C\uDFAB\uFE0F *Helpdesk Tickets (7d):*\n` +
         `- Created: ${ticketSummary.Total}\n` +
         `- Resolved/Closed: ${ticketSummary.Resolved + ticketSummary.Closed}\n` +
         `- Active (Open/IP): ${ticketSummary.Open + ticketSummary['In Progress']}\n\n` +
         `_Weekly PDF has been archived on the server._`;
 
-      await sendWebhook(`ðŸ“Š Weekly Performance Report`, summary.replace(/\*/g, '**'), 0x3b82f6);
+      await sendWebhook(`\uD83D\uDCCA Weekly Performance Report`, summary.replace(/\*/g, '**'), 0x3b82f6);
       await sendWhatsapp(summary);
     });
   } catch (err) {
-    console.error('âš ï¸ Weekly report error:', err.message);
+    console.error('\u26A0\uFE0F Weekly report error:', err.message);
   }
 }
 
@@ -4205,7 +4204,7 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
     const devicesRes = await pool.request().query('SELECT hostname, group_ids FROM Devices');
     const allDevices = devicesRes.recordset;
 
-    let summary = `ðŸŽŸï¸ *DAILY OUTSTANDING TICKETS SUMMARY*\n`;
+    let summary = `\uD83C\uDFAB\uFE0F *DAILY OUTSTANDING TICKETS SUMMARY*\n`;
     summary += `_Date: ${new Date().toLocaleDateString('id-ID')}_\n\n`;
 
     for (const ticket of tickets) {
@@ -4242,20 +4241,20 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
         progress = ticket.status === 'In Progress' ? 50 : 0;
       }
 
-      const statusEmoji = ticket.status === 'In Progress' ? 'ðŸš§' : 'ðŸ“‹';
+      const statusEmoji = ticket.status === 'In Progress' ? '[WIP]' : '[TODO]';
       summary += `${statusEmoji} *[${ticket.id}]* ${ticket.title}\n`;
-      summary += `   â€¢ Status: _${ticket.status}_\n`;
-      summary += `   â€¢ Progress: *${progress}%*\n`;
-      summary += `   â€¢ Assigned To: ${ticket.assigned_to || '*Unassigned*'}\n`;
-      if (ticket.outlet_name) summary += `   â€¢ Outlet: ${ticket.outlet_name}\n`;
+      summary += `   - Status: _${ticket.status}_\n`;
+      summary += `   - Progress: *${progress}%*\n`;
+      summary += `   - Assigned To: ${ticket.assigned_to || '*Unassigned*'}\n`;
+      if (ticket.outlet_name) summary += `   - Outlet: ${ticket.outlet_name}\n`;
       summary += `\n`;
     }
 
     if (tickets.length === 0) {
-      summary += `âœ… Tidak ada ticket yang outstanding saat ini.\n\n`;
+      summary += `[OK] Tidak ada ticket yang outstanding saat ini.\n\n`;
     }
 
-    // â”€â”€ 3. LOYAL CRM SYNC STATUS (HOSERVER) â€” 2 Hari â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // \u2500€\u2500€ 3. LOYAL CRM SYNC STATUS (HOSERVER) â€” 2 Hari \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
     try {
       const hoDevRes = await pool.request()
         .input('hostname', sql.NVarChar, 'HOSERVER')
@@ -4293,8 +4292,8 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
           `);
           await hoPool.close();
 
-          summary += `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n`;
-          summary += `ðŸ”„ *LOYAL CRM ITEM SYNC (HOSERVER VS LOYAL CRM)*\n`;
+          summary += `\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n`;
+          summary += `\uD83D\uDD04 *LOYAL CRM ITEM SYNC (HOSERVER VS LOYAL CRM)*\n`;
 
           const todayDate = new Date().toDateString();
           for (const row of crmRes.recordset) {
@@ -4304,13 +4303,13 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
             const pending = row.pending_count || 0;
             const total = synced + pending;
             const pct = total > 0 ? Math.round((synced / total) * 100) : 0;
-            const emoji = pending === 0 ? 'âœ…' : (pending > 5 ? 'ðŸ”´' : 'âš ï¸');
+            const emoji = pending === 0 ? '\u2705' : (pending > 5 ? '\uD83D\uDD34' : '\u26A0\uFE0F');
 
             summary += `\n${emoji} *${dayLabel}* (${rowDate.toLocaleDateString('id-ID')})\n`;
-            summary += `   â€¢ Sync Success : *${synced}* / ${total} (${pct}%)\n`;
-            summary += `   â€¢ Pending/Failed : *${pending}*\n`;
+            summary += `   \u2022 Sync Success : *${synced}* / ${total} (${pct}%)\n`;
+            summary += `   \u2022 Pending/Failed : *${pending}*\n`;
             if (row.sample_error) {
-              summary += `   âš ï¸ Error: _${String(row.sample_error).substring(0, 100)}_\n`;
+              summary += `   \u26A0\uFE0F Error: _${String(row.sample_error).substring(0, 100)}_\n`;
             }
           }
 
@@ -4322,11 +4321,11 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
       }
     } catch (crmErr) {
       console.error('[REPORT] CRM Sync section error (non-fatal):', crmErr.message);
-      summary += `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n`;
-      summary += `âš ï¸ *LOYAL CRM SYNC*: Data tidak tersedia.\n\n`;
+      summary += `\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n`;
+      summary += `\u26A0\uFE0F *LOYAL CRM SYNC*: Data tidak tersedia.\n\n`;
     }
 
-    // â”€â”€ 3.5 CRM FRAUD ANALYSIS (YESTERDAY) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // \u2500€\u2500€ 3.5 CRM FRAUD ANALYSIS (YESTERDAY) \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
     try {
       const crmPool = await getCrmPool();
       const fraudRes = await crmPool.request().query(`
@@ -4374,18 +4373,18 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
       `);
 
       if (fraudRes.recordset.length > 0) {
-        summary += `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n`;
-        summary += `ðŸš¨ *CRM FRAUD ANALYSIS: Suspicious Activity Detected*\n`;
+        summary += `\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n`;
+        summary += `\uD83D\uDEA8 *CRM FRAUD ANALYSIS: Suspicious Activity Detected*\n`;
         summary += `_Kriteria: >3 trx/hari selama 2 hari berturut-turut (Sesi & Salesman sama)_\n\n`;
 
         for (const row of fraudRes.recordset) {
-          summary += `ðŸ‘¤ *${row.cust_name || 'Unknown Member'}*\n`;
+          summary += `\uD83D\uDC64 *${row.cust_name || 'Unknown Member'}*\n`;
           summary += `ðŸ’³ No Kartu: ${row.card_no}\n`;
           summary += `ðŸª Store: (${row.org_cd}) ${row.store_name}\n`;
           const prevD = new Date(row.prev_date).toLocaleDateString('id-ID');
           const lateD = new Date(row.latest_date).toLocaleDateString('id-ID');
-          summary += `ðŸ“… Periode: ${prevD} s/d ${lateD}\n`;
-          summary += `ðŸ“Š Trx: *${row.prev_count} trx* & *${row.latest_count} trx*\n\n`;
+          summary += `\uD83D\uDCC5 Periode: ${prevD} s/d ${lateD}\n`;
+          summary += `\uD83D\uDCCA Trx: *${row.prev_count} trx* & *${row.latest_count} trx*\n\n`;
         }
       }
     } catch (fraudErr) {
@@ -4395,13 +4394,13 @@ async function sendDailyOutstandingTicketsNotification(isManual = false) {
     summary += `_Pantau detail di http://192.168.85.30:3001/tickets_`;
 
     // 4. Send Notifications
-    await sendWebhook(`ðŸŽŸï¸ Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
+    await sendWebhook(`\uD83C\uDFAB\uFE0F Daily Ticket & CRM Summary`, summary.replace(/\*/g, '**'), 0x8b5cf6);
     await sendWhatsapp(summary);
 
     console.log('[REPORT] Daily ticket + CRM notification sent.');
 
   } catch (err) {
-    console.error('âš ï¸ Daily ticket report error:', err.message);
+    console.error('\u26A0\uFE0F Daily ticket report error:', err.message);
   }
 }
 
@@ -4450,7 +4449,7 @@ app.post('/api/reports/trigger-item-sales-sync', async (req, res) => {
 // Serve Weekly Reports Folder
 app.use('/reports/weekly', express.static(path.join(__dirname, 'reports', 'weekly')));
 
-// â”€â”€ WORKFLOW KNOWLEDGE BASE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ WORKFLOW KNOWLEDGE BASE \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/workflows', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -4622,7 +4621,7 @@ app.delete('/api/workflows/:id', async (req, res) => {
   }
 });
 
-// â”€â”€ AI SMART ASSISTANT (Groq Llama) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ AI SMART ASSISTANT (Groq Llama) \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 function normalizeAssistantKeywordText(value = '') {
   return value.toString().trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -5345,10 +5344,10 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
     let userFriendlyMessage = "Maaf, AI Assistant mengalami kendala teknis. ";
     
     if (err.message && err.message.includes('404 No endpoints found')) {
-      userFriendlyMessage = "â„¹ï¸ AI Assistant ini bersifat local-based yang berfungsi sebagai tools bantu khusus untuk sistem Pepinet saja. " +
+      userFriendlyMessage = "\u2139\uFE0F AI Assistant ini bersifat local-based yang berfungsi sebagai tools bantu khusus untuk sistem Pepinet saja. " +
                            "Fitur ini dirancang untuk membantu operasional internal dan tidak terhubung dengan layanan AI eksternal.";
     } else if (err.message && (err.message.includes('openrouter') || err.message.includes('API'))) {
-      userFriendlyMessage = "â„¹ï¸ AI Assistant ini adalah sistem internal Pepinet yang berfungsi sebagai tools bantu operasional. " +
+      userFriendlyMessage = "\u2139\uFE0F AI Assistant ini adalah sistem internal Pepinet yang berfungsi sebagai tools bantu operasional. " +
                            "Sistem ini dirancang khusus untuk kebutuhan internal dan tidak memerlukan koneksi ke layanan AI eksternal.";
     } else {
       userFriendlyMessage += "Silakan coba lagi dalam beberapa saat atau hubungi tim IT jika masalah berlanjut.";
@@ -5358,7 +5357,7 @@ Style: Warm, technical yet friendly, proactive, and very accurate.`;
   }
 });
 
-// â”€â”€ GET /api/reports/deployments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/reports/deployments \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/reports/deployments', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -5375,7 +5374,7 @@ app.get('/api/reports/deployments', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/reports/health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/reports/health \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/reports/health', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -5486,7 +5485,7 @@ app.get('/api/reports/health', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/reports/inventory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/reports/inventory \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/reports/inventory', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -5504,7 +5503,7 @@ app.get('/api/reports/inventory', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/reports/tickets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/reports/tickets \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/reports/tickets', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -5521,7 +5520,7 @@ app.get('/api/reports/tickets', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/reports/crm-sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/reports/crm-sync \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 // Returns LOYAL_CRM_ITEM_MST sync stats grouped by day (today + yesterday)
 app.get('/api/reports/crm-sync', async (req, res) => {
   try {
@@ -5586,7 +5585,7 @@ app.get('/api/reports/crm-sync', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/crm/customer/:phone â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/crm/customer/:phone \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/crm/customer/:phone', async (req, res) => {
   const { phone } = req.params;
 
@@ -5621,7 +5620,7 @@ app.get('/api/crm/customer/:phone', async (req, res) => {
   }
 });
 
-// â”€â”€ DEV CRM Loyalty & Achievements Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ DEV CRM Loyalty & Achievements Endpoints \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/dev/loyalty/stats', async (req, res) => {
   const { fromDate, toDate, store = '' } = req.query;
   try {
@@ -5686,8 +5685,11 @@ app.get('/api/dev/loyalty/summary', async (req, res) => {
       request.input('toDate', sql.Date, toDate);
     }
     if (store && store !== 'All Stores') {
-      whereClause += " AND s.org_cd = @store";
+      const storeInt = parseInt(store, 10);
+      const storeNoZero = isNaN(storeInt) ? store : storeInt.toString();
+      whereClause += " AND (s.org_cd = @store OR s.org_cd = @storeNoZero)";
       request.input('store', sql.NVarChar, store);
+      request.input('storeNoZero', sql.NVarChar, storeNoZero);
     }
 
     const countRes = await request.query(`
@@ -5735,8 +5737,11 @@ app.get('/api/dev/loyalty/profiles', async (req, res) => { console.log('PROFILES
       request.input('toDate', sql.Date, toDate);
     }
     if (store && store !== 'All Stores') {
-      whereClause += " AND member_id IN (SELECT DISTINCT member_id FROM LOYAL_MEMBER_DAILY_SUMMARY WHERE org_cd = @store)";
+      const storeInt = parseInt(store, 10);
+      const storeNoZero = isNaN(storeInt) ? store : storeInt.toString();
+      whereClause += " AND member_id IN (SELECT DISTINCT member_id FROM LOYAL_MEMBER_DAILY_SUMMARY WHERE org_cd = @store OR org_cd = @storeNoZero)";
       request.input('store', sql.NVarChar, store);
+      request.input('storeNoZero', sql.NVarChar, storeNoZero);
     }
 
     const countRes = await request.query(`
@@ -5788,8 +5793,11 @@ app.get('/api/dev/loyalty/profiles', async (req, res) => { console.log('PROFILES
         sumRequest.input('toDate', sql.Date, toDate);
       }
       if (store && store !== 'All Stores') {
-        summaryQuery += " AND org_cd = @store";
+        const storeInt = parseInt(store, 10);
+        const storeNoZero = isNaN(storeInt) ? store : storeInt.toString();
+        summaryQuery += " AND (org_cd = @store OR org_cd = @storeNoZero)";
         sumRequest.input('store', sql.NVarChar, store);
+        sumRequest.input('storeNoZero', sql.NVarChar, storeNoZero);
       }
 
       const sumRes = await sumRequest.query(summaryQuery);
@@ -5809,8 +5817,11 @@ app.get('/api/dev/loyalty/profiles', async (req, res) => { console.log('PROFILES
         promoRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
       }
       if (store && store !== 'All Stores') {
-        promoQuery += " AND org_cd = @store";
+        const storeInt = parseInt(store, 10);
+        const storeNoZero = isNaN(storeInt) ? store : storeInt.toString();
+        promoQuery += " AND (org_cd = @store OR org_cd = @storeNoZero)";
         promoRequest.input('store', sql.NVarChar, store);
+        promoRequest.input('storeNoZero', sql.NVarChar, storeNoZero);
       }
 
       promoQuery += `
@@ -5896,6 +5907,8 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
     const pool = await poolPromise;
     let whereClause = "WHERE 1=1";
     const request = pool.request();
+    require('fs').appendFileSync(__dirname + '/api_debug.log', `\n[${new Date().toISOString()}] GET /api/dev/loyalty/item-sales\nQuery: ${JSON.stringify(req.query)}\n`);
+
 
     if (search) {
       whereClause += ` AND (
@@ -5915,9 +5928,15 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
       request.input('toDate', sql.VarChar, toDate + ' 23:59:59');
     }
     if (store && store !== 'All Stores') {
-      whereClause += " AND m.org_cd = @store";
+      const storeInt = parseInt(store, 10);
+      const storeNoZero = isNaN(storeInt) ? store : storeInt.toString();
+      whereClause += " AND (m.org_cd = @store OR m.org_cd = @storeNoZero)";
       request.input('store', sql.NVarChar, store);
+      request.input('storeNoZero', sql.NVarChar, storeNoZero);
     }
+    
+    require('fs').appendFileSync(__dirname + '/api_debug.log', `WhereClause: ${whereClause}\nStore: ${store}\n`);
+
 
     const countRes = await request.query(`
       SELECT COUNT(1) AS total 
@@ -5975,8 +5994,11 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
       deptRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
     }
     if (store && store !== 'All Stores') {
-      deptWhere += " AND m.org_cd = @store";
+      const storeInt = parseInt(store, 10);
+      const storeNoZero = isNaN(storeInt) ? store : storeInt.toString();
+      deptWhere += " AND (m.org_cd = @store OR m.org_cd = @storeNoZero)";
       deptRequest.input('store', sql.NVarChar, store);
+      deptRequest.input('storeNoZero', sql.NVarChar, storeNoZero);
     }
     const deptRes = await deptRequest.query(`
       SELECT TOP 5 ISNULL(A4.anm_desc, 'UNKNOWN') as department, SUM(m.qty) as total_qty, COUNT(1) as tx_count
@@ -5996,8 +6018,11 @@ app.get('/api/dev/loyalty/item-sales', async (req, res) => {
       brandRequest.input('toDate', sql.VarChar, toDate + ' 23:59:59');
     }
     if (store && store !== 'All Stores') {
-      brandWhere += " AND m.org_cd = @store";
+      const storeInt = parseInt(store, 10);
+      const storeNoZero = isNaN(storeInt) ? store : storeInt.toString();
+      brandWhere += " AND (m.org_cd = @store OR m.org_cd = @storeNoZero)";
       brandRequest.input('store', sql.NVarChar, store);
+      brandRequest.input('storeNoZero', sql.NVarChar, storeNoZero);
     }
     const brandRes = await brandRequest.query(`
       SELECT TOP 5 ISNULL(A7.anm_desc, 'UNKNOWN') as brand, SUM(m.qty) as total_qty, COUNT(1) as tx_count
@@ -6237,7 +6262,7 @@ app.post('/api/dev/loyalty/trigger-etl', async (req, res) => {
   res.json({ message: 'ETL process started in background' });
 });
 
-// â”€â”€ GET /api/crm/reports/stores â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/crm/reports/stores \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/crm/reports/stores', async (req, res) => {
   try {
     const crmPool = await getCrmPool();
@@ -6253,7 +6278,7 @@ app.get('/api/crm/reports/stores', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/crm/reports/:type â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/crm/reports/:type \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/crm/reports/:type', async (req, res) => {
   const { type } = req.params;
   const { fromDate, toDate, store, search, page = 1, perPage = 100, sortBy, sortDir = 'desc' } = req.query;
@@ -6508,7 +6533,7 @@ app.get('/api/crm/reports/:type', async (req, res) => {
   }
 });
 
-// â”€â”€ GET /api/crm/reports/:type/export/:format â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ GET /api/crm/reports/:type/export/:format \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
   const { type, format } = req.params;
   const { fromDate, toDate, store, search, sortBy, sortDir = 'desc' } = req.query;
@@ -6775,7 +6800,7 @@ app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
   }
 });
 
-// â”€â”€ HELPDESK TICKETS API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ HELPDESK TICKETS API \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.get('/api/tickets/updates', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -7008,7 +7033,7 @@ app.put('/api/tickets/:id/status', async (req, res) => {
   }
 });
 
-// â”€â”€ NEW: Bulk update targets and groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ NEW: Bulk update targets and groups \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.put('/api/tickets/:id/targets', async (req, res) => {
   try {
     const { id } = req.params;
@@ -7089,7 +7114,7 @@ app.put('/api/tickets/:id/targets', async (req, res) => {
     console.error("API_ERR:", err); res.status(500).json({ error: err.message });
   }
 });
-// â”€â”€ Individual Ticket Target Update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ Individual Ticket Target Update \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.put('/api/tickets/:id/targets/:targetId', async (req, res) => {
   try {
     const { id, targetId } = req.params;
@@ -7372,12 +7397,12 @@ app.get('/api/installers/:id/download', async (req, res) => {
   }
 });
 
-// â”€â”€ ESL ROUTER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ ESL ROUTER \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 import('./routes/eslRoutes.js').then((routerModule) => {
   app.use('/api/esl', routerModule.default);
 }).catch(err => console.error('Failed to load ESL router in server.cjs:', err));
 
-// â”€â”€ STATIC FILES & SPA FALLBACK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ STATIC FILES & SPA FALLBACK \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -7385,7 +7410,7 @@ app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-// â”€â”€ START SERVER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// \u2500€\u2500€ START SERVER \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.listen(port, '0.0.0.0', async () => {
   console.log(`ðŸš€ Server running on http://0.0.0.0:${port}`);
   await initDb();

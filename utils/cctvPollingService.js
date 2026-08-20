@@ -92,13 +92,13 @@ export async function checkAndSendNotifications() {
         
         if (hasFullWindow && allSame) {
           if (device.status === 'offline' && lastNotified !== 'offline' && !history.pendingRecovery) {
-            console.log(`[CCTV Notification] ✅ CONFIRMED OFFLINE: ${device.name} has been offline for 3 consecutive checks`);
-            alerts.push(`🚨 **Device Offline (Confirmed):** ${device.name} (${device.ip_address}) - ${device.vendor}`);
+            console.log(`[CCTV Notification] [CRITICAL] CONFIRMED OFFLINE: ${device.name} has been offline for 3 consecutive checks`);
+            alerts.push(`[CRITICAL] **Device Offline (Confirmed):** ${device.name} (${device.ip_address}) - ${device.vendor}`);
             history.lastNotifiedStatus = 'offline';
             history.pendingRecovery = true;
           } else if (device.status === 'online' && lastNotified === 'offline' && history.pendingRecovery) {
-            console.log(`[CCTV Notification] ✅ CONFIRMED RECOVERY: ${device.name} has been online for 3 consecutive checks after an offline alert`);
-            alerts.push(`✅ **Device Recovered (Confirmed):** ${device.name} (${device.ip_address}) is back online`);
+            console.log(`[CCTV Notification] [OK] CONFIRMED RECOVERY: ${device.name} has been online for 3 consecutive checks after an offline alert`);
+            alerts.push(`[OK] **Device Recovered (Confirmed):** ${device.name} (${device.ip_address}) is back online`);
             history.lastNotifiedStatus = 'online';
             history.pendingRecovery = false;
           } else {
@@ -112,23 +112,23 @@ export async function checkAndSendNotifications() {
       // Check Channel Changes (immediate notification, no 3-check needed)
       if (device.offline_channel_count > prevState.lastOfflineChannelCount) {
         const newOfflineCount = device.offline_channel_count - prevState.lastOfflineChannelCount;
-        console.log(`[CCTV Notification] ⚠️ Channels went offline: ${device.name} (+${newOfflineCount})`);
-        alerts.push(`⚠️ **Channel Offline:** ${device.name} (${device.ip_address}) - ${newOfflineCount} channel(s) went offline (Total: ${device.offline_channel_count})`);
+        console.log(`[CCTV Notification] [WARNING] Channels went offline: ${device.name} (+${newOfflineCount})`);
+        alerts.push(`[WARNING] **Channel Offline:** ${device.name} (${device.ip_address}) - ${newOfflineCount} channel(s) went offline (Total: ${device.offline_channel_count})`);
       } else if (device.offline_channel_count < prevState.lastOfflineChannelCount) {
         const recoveredCount = prevState.lastOfflineChannelCount - device.offline_channel_count;
-        console.log(`[CCTV Notification] ✅ Channels recovered: ${device.name} (-${recoveredCount})`);
-        alerts.push(`✅ **Channel Recovered:** ${device.name} (${device.ip_address}) - ${recoveredCount} channel(s) recovered`);
+        console.log(`[CCTV Notification] [OK] Channels recovered: ${device.name} (-${recoveredCount})`);
+        alerts.push(`[OK] **Channel Recovered:** ${device.name} (${device.ip_address}) - ${recoveredCount} channel(s) recovered`);
       }
       
       // Check Storage Changes (immediate notification, no 3-check needed)
       if (device.error_disk_count > prevState.lastErrorDiskCount) {
         const newErrorCount = device.error_disk_count - prevState.lastErrorDiskCount;
-        console.log(`[CCTV Notification] ⚠️ Disk errors detected: ${device.name} (+${newErrorCount})`);
-        alerts.push(`💿 **Storage Alert:** ${device.name} (${device.ip_address}) - ${newErrorCount} disk(s) reporting errors (Total: ${device.error_disk_count})`);
+        console.log(`[CCTV Notification] [WARNING] Disk errors detected: ${device.name} (+${newErrorCount})`);
+        alerts.push(`[STORAGE] **Storage Alert:** ${device.name} (${device.ip_address}) - ${newErrorCount} disk(s) reporting errors (Total: ${device.error_disk_count})`);
       } else if (device.error_disk_count < prevState.lastErrorDiskCount) {
         const recoveredCount = prevState.lastErrorDiskCount - device.error_disk_count;
-        console.log(`[CCTV Notification] ✅ Disk errors recovered: ${device.name} (-${recoveredCount})`);
-        alerts.push(`✅ **Storage Recovered:** ${device.name} (${device.ip_address}) - ${recoveredCount} disk(s) returned to normal`);
+        console.log(`[CCTV Notification] [OK] Disk errors recovered: ${device.name} (-${recoveredCount})`);
+        alerts.push(`[OK] **Storage Recovered:** ${device.name} (${device.ip_address}) - ${recoveredCount} disk(s) returned to normal`);
       }
       
       // Update state
@@ -145,14 +145,14 @@ export async function checkAndSendNotifications() {
       console.log(`[CCTV Notification] Total alerts: ${alerts.length}`);
       
       const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-      const title = `📊 CCTV Monitoring Alert - ${alerts.length} Change(s) Detected`;
+      const title = `[ALERT] CCTV Monitoring Alert - ${alerts.length} Change(s) Detected`;
       const description = `**Time:** ${timestamp}\n\n` + alerts.join('\n\n');
       
       // Determine color: Red if any critical alerts, Amber if warnings, Green if all recoveries
       let color = 0x22c55e; // Green (default for recoveries)
-      if (alerts.some(a => a.includes('🚨') || a.includes('💿'))) {
+      if (alerts.some(a => a.includes('[CRITICAL]') || a.includes('[STORAGE]'))) {
         color = 0xef4444; // Red (critical)
-      } else if (alerts.some(a => a.includes('⚠️'))) {
+      } else if (alerts.some(a => a.includes('[WARNING]'))) {
         color = 0xf59e0b; // Amber (warning)
       }
       

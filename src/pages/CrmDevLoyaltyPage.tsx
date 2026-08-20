@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   Trophy, Award, RefreshCw, Calendar, Search, Database,
@@ -129,6 +129,7 @@ export default function CrmDevLoyaltyPage() {
   const [sumTotal, setSumTotal] = useState(0);
 
   // Item Sales Tab State
+  const activeItemSalesReq = useRef(0);
   const [itemSales, setItemSales] = useState<any[]>([]);
   const [itemSalesSearch, setItemSalesSearch] = useState("");
   const [itemSalesSearchInput, setItemSalesSearchInput] = useState("");
@@ -255,7 +256,11 @@ export default function CrmDevLoyaltyPage() {
     }
   };
 
+  const activeProfReq = useRef(0);
   const fetchProfiles = async (store = filterStore, from = filterFromDate, to = filterToDate) => {
+    activeProfReq.current += 1;
+    const currentReq = activeProfReq.current;
+    
     setLoading(true);
     setProfiles([]);
     try {
@@ -271,6 +276,7 @@ export default function CrmDevLoyaltyPage() {
       if (to) q.append("toDate", to);
 
       const res = await fetch(`/api/dev/loyalty/profiles?${q}`);
+      if (currentReq !== activeProfReq.current) return;
       if (res.ok) {
         const data = await res.json();
         setProfiles(data.profiles || []);
@@ -283,7 +289,11 @@ export default function CrmDevLoyaltyPage() {
     }
   };
 
+  const activeSumReq = useRef(0);
   const fetchSummaries = async (store = filterStore, from = filterFromDate, to = filterToDate) => {
+    activeSumReq.current += 1;
+    const currentReq = activeSumReq.current;
+    
     setLoading(true);
     setSummaries([]);
     try {
@@ -299,6 +309,7 @@ export default function CrmDevLoyaltyPage() {
       if (to) q.append("toDate", to);
 
       const res = await fetch(`/api/dev/loyalty/summary?${q}`);
+      if (currentReq !== activeSumReq.current) return;
       if (res.ok) {
         const data = await res.json();
         setSummaries(data.summaries || []);
@@ -312,6 +323,9 @@ export default function CrmDevLoyaltyPage() {
   };
 
   const fetchItemSales = async (store = filterStore, from = filterFromDate, to = filterToDate) => {
+    activeItemSalesReq.current += 1;
+    const currentReq = activeItemSalesReq.current;
+    
     setLoading(true);
     // Clear existing data while loading to avoid showing stale data (like 'org 002') if fetch fails or takes time
     setItemSales([]);
@@ -332,6 +346,8 @@ export default function CrmDevLoyaltyPage() {
       if (to) q.append("toDate", to);
 
       const res = await fetch(`/api/dev/loyalty/item-sales?${q}`);
+      if (currentReq !== activeItemSalesReq.current) return;
+      
       if (res.ok) {
         const data = await res.json();
         setItemSales(data.sales || []);
@@ -782,8 +798,13 @@ export default function CrmDevLoyaltyPage() {
                     <td className="px-4 py-3 text-xs text-center font-mono font-bold text-foreground/80">
                       {p.total_transactions}
                     </td>
-                    <td className="px-4 py-3 text-xs text-foreground-subtle font-medium">
-                      {p.favorite_store ? (stores.find(s => s.org_cd === p.favorite_store)?.org_name || p.favorite_store) : '-'}
+                    <td className="px-4 py-3 text-xs">
+                      {p.favorite_store ? (
+                        <div className="font-bold text-foreground-subtle">
+                          <span className="text-primary font-mono mr-1">[{p.favorite_store}]</span>
+                          {stores.find(s => s.org_cd === p.favorite_store)?.org_name || 'Store'}
+                        </div>
+                      ) : '-'}
                     </td>
                     <td className="px-4 py-3 text-xs">
                       {p.achievements && p.achievements.length > 0 ? (
@@ -943,8 +964,11 @@ export default function CrmDevLoyaltyPage() {
                       <div className="font-bold text-foreground">{sum.name || 'Anonymous member'}</div>
                       <div className="text-[10px] text-foreground-muted mt-0.5">{sum.mobile_no || 'No Phone'}</div>
                     </td>
-                    <td className="px-4 py-3 text-xs text-foreground-subtle font-medium">
-                      {stores.find(s => s.org_cd === sum.org_cd)?.org_name || sum.org_cd}
+                    <td className="px-4 py-3 text-xs">
+                      <div className="font-bold text-foreground-subtle">
+                        <span className="text-primary font-mono mr-1">[{sum.org_cd}]</span>
+                        {stores.find(s => s.org_cd === sum.org_cd)?.org_name || 'Store'}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-xs font-mono text-success text-right font-bold">
                       {formatCurrency(sum.total_sales)}
@@ -1109,7 +1133,10 @@ export default function CrmDevLoyaltyPage() {
                   <tr key={item.id} className="hover:bg-white/5 transition-colors group text-xs">
                     <td className="px-4 py-3 text-center text-foreground-muted font-mono">{itemSalesStartRecord + idx}</td>
                     <td className="px-4 py-3">
-                      <div className="font-bold text-foreground">{stores.find(s => s.org_cd === item.org_cd)?.org_name || item.org_cd}</div>
+                      <div className="font-bold text-foreground">
+                        <span className="text-primary font-mono mr-1">[{item.org_cd}]</span>
+                        {stores.find(s => s.org_cd === item.org_cd)?.org_name || 'Store'}
+                      </div>
                       <div className="text-[10px] text-foreground-muted mt-0.5">{new Date(item.bill_dt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
                     </td>
                     <td className="px-4 py-3 text-xs">

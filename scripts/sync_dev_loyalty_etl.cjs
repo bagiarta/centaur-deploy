@@ -451,6 +451,43 @@ async function runDevEtl(fromDateStr, toDateStr, logCallback) {
       }
     }
 
+    log(`[ETL] Rebuilding WakeupCallCache...`);
+    await runQuery(
+      localDbConfig,
+      () => localPool,
+      p => { localPool = p; },
+      pool => pool.request().query(`
+        IF OBJECT_ID('WakeupCallCache', 'U') IS NOT NULL 
+          DROP TABLE WakeupCallCache;
+        
+        CREATE TABLE WakeupCallCache (
+          card_no NVARCHAR(100) PRIMARY KEY,
+          member_name NVARCHAR(200) NULL,
+          mobile_no NVARCHAR(50) NULL,
+          total_transactions INT DEFAULT 0,
+          total_amount DECIMAL(18,2) DEFAULT 0,
+          last_purchase_date DATE NULL,
+          last_store NVARCHAR(100) NULL
+        );
+
+        INSERT INTO WakeupCallCache (card_no, member_name, mobile_no, total_transactions, total_amount, last_purchase_date, last_store)
+        SELECT 
+            p.member_id, 
+            p.name, 
+            p.mobile_no,
+            p.total_transactions, 
+            p.total_spent, 
+            p.last_active_date,
+            (
+                SELECT TOP 1 org_cd 
+                FROM LOYAL_MEMBER_DAILY_SUMMARY s 
+                WHERE s.member_id = p.member_id 
+                ORDER BY summary_date DESC
+            ) as last_store
+        FROM LOYAL_MEMBER_PROFILE p;
+      `)
+    );
+
     log(`[ETL] DEV CRM Loyalty ETL completed successfully!`);
 
   } catch (err) {

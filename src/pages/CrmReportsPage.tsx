@@ -108,7 +108,7 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
       { key: 'phone_no', label: 'Phone No', type: 'string' },
       { key: 'tier', label: 'Tier', type: 'string' },
       { key: 'activation_status', label: 'Activation Status', type: 'string' },
-      { key: 'total_point', label: 'Total Point', type: 'number' },
+      { key: 'current_point', label: 'Current Point', type: 'number' },
       { key: 'total_txn', label: 'Total Transaction', type: 'number' },
       { key: 'total_amount', label: 'Total Amount', type: 'currency' },
       { key: 'last_txn_date', label: 'Last Txn Date', type: 'date' },
@@ -209,9 +209,9 @@ export default function CrmReportsPage() {
       if (!res.ok) throw new Error("Failed to fetch data");
 
       const result = await res.json();
-      setData(result.rows);
-      setSummary(result.summary);
-      setTotalPages(result.totalPages);
+      setData(result.rows || []);
+      setSummary(result.summary || {});
+      setTotalPages(result.totalPages || 1);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
