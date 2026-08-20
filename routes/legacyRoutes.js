@@ -5436,6 +5436,92 @@ router.get('/api/crm/reports/:type', async (req, res) => {
         SELECT COUNT(*) as total FROM ConsecutiveCheck WHERE rn = 1
       `;
     }
+    else if (type === 'wakeup-call') {
+      let storeFilter = "";
+      if (store && store !== 'All Store') {
+        storeFilter = "AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+
+      let searchFilter = "";
+      if (search) {
+        searchFilter = "AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const cte = `
+        WITH TargetMonthTrans AS (
+            SELECT 
+                q.RLITQ_CARD_NO as member_id,
+                MAX(h.BILL_DT) as last_txn_date
+            FROM POS_SALES_HDR h (NOLOCK)
+            INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK) ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+            LEFT JOIN DimStore d ON h.ORG_CD = d.ORG_CD
+            WHERE h.BILL_DT >= @fromDate AND h.BILL_DT <= @toDate
+            AND q.RLITQ_INTEG_CODE = '110'
+            AND h.VOID_FLAG = 'F'
+            ${storeFilter}
+            GROUP BY q.RLITQ_CARD_NO
+        ),
+        LastTransDetail AS (
+            SELECT 
+                t.member_id,
+                t.last_txn_date,
+                (SELECT TOP 1 d2.ORG_NAME 
+                 FROM POS_SALES_HDR h2 (NOLOCK)
+                 INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE q2 (NOLOCK) ON h2.BILL_NO = q2.RLITQ_BILL_NO AND h2.ORG_CD = q2.RLITQ_ORG_CD
+                 LEFT JOIN DimStore d2 ON h2.ORG_CD = d2.ORG_CD
+                 WHERE q2.RLITQ_CARD_NO = t.member_id AND h2.BILL_DT = t.last_txn_date
+                 ORDER BY h2.BILL_TIME DESC) as last_store
+            FROM TargetMonthTrans t
+        ),
+        YTDTotals AS (
+            SELECT 
+                q.RLITQ_CARD_NO as member_id,
+                COUNT(DISTINCT h.BILL_NO) as total_txn,
+                SUM(h.NET_VALUE) as total_amount
+            FROM POS_SALES_HDR h (NOLOCK)
+            INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK) ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+            LEFT JOIN DimStore d ON h.ORG_CD = d.ORG_CD
+            INNER JOIN TargetMonthTrans t ON q.RLITQ_CARD_NO = t.member_id
+            WHERE h.BILL_DT >= DATETIMEFROMPARTS(YEAR(CAST(@fromDate AS DATE)), 1, 1, 0, 0, 0, 0) 
+              AND h.BILL_DT <= t.last_txn_date
+            AND q.RLITQ_INTEG_CODE = '110'
+            AND h.VOID_FLAG = 'F'
+            ${storeFilter}
+            GROUP BY q.RLITQ_CARD_NO
+        )
+      `;
+
+      query = `
+        ${cte}
+        SELECT 
+            m.RLICM_NAME as name,
+            m.RLICM_CARD_NO as card_no,
+            m.RLICM_MOBILE_NO as phone_no,
+            'Regular' as tier,
+            'Activated' as activation_status,
+            FLOOR(y.total_amount / 50000) as total_point,
+            y.total_txn,
+            y.total_amount,
+            CONVERT(DATE, l.last_txn_date) as last_txn_date,
+            l.last_store
+        FROM LastTransDetail l
+        INNER JOIN YTDTotals y ON l.member_id = y.member_id
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON l.member_id = m.RLICM_CARD_NO
+        WHERE 1=1 ${searchFilter}
+        ORDER BY y.total_amount DESC
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+      `;
+
+      countQuery = `
+        ${cte}
+        SELECT COUNT(*) as total 
+        FROM LastTransDetail l
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON l.member_id = m.RLICM_CARD_NO
+        WHERE 1=1 ${searchFilter}
+      `;
+    }
     else {
       return res.status(400).json({ error: 'Invalid report type' });
     }
@@ -5644,6 +5730,97 @@ router.get('/api/crm/reports/:type/export/:format', async (req, res) => {
         ${where}
         GROUP BY q.RLITQ_CARD_NO
         ORDER BY total_net_sales DESC
+      `;
+    }
+    else if (type === 'wakeup-call') {
+      title = "Wakeup Call Customer";
+      columns = [
+        { header: 'Name', key: 'name', width: 25 },
+        { header: 'Card No', key: 'card_no', width: 20 },
+        { header: 'Phone No', key: 'phone_no', width: 15 },
+        { header: 'Tier', key: 'tier', width: 10 },
+        { header: 'Activation Status', key: 'activation_status', width: 15 },
+        { header: 'Total Point', key: 'total_point', width: 15 },
+        { header: 'Total Transaction', key: 'total_txn', width: 15 },
+        { header: 'Total Amount', key: 'total_amount', width: 20, style: { numFmt: '#,##0' } },
+        { header: 'Last Txn Date', key: 'last_txn_date', width: 15 },
+        { header: 'Last Txn Store', key: 'last_store', width: 25 },
+      ];
+
+      let storeFilter = "";
+      if (store && store !== 'All Store') {
+        storeFilter = "AND d.ORG_NAME = @store";
+        params.store = store;
+      }
+
+      let searchFilter = "";
+      if (search) {
+        searchFilter = "AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const cte = `
+        WITH TargetMonthTrans AS (
+            SELECT 
+                q.RLITQ_CARD_NO as member_id,
+                MAX(h.BILL_DT) as last_txn_date
+            FROM POS_SALES_HDR h (NOLOCK)
+            INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK) ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+            LEFT JOIN DimStore d ON h.ORG_CD = d.ORG_CD
+            WHERE h.BILL_DT >= @fromDate AND h.BILL_DT <= @toDate
+            AND q.RLITQ_INTEG_CODE = '110'
+            AND h.VOID_FLAG = 'F'
+            ${storeFilter}
+            GROUP BY q.RLITQ_CARD_NO
+        ),
+        LastTransDetail AS (
+            SELECT 
+                t.member_id,
+                t.last_txn_date,
+                (SELECT TOP 1 d2.ORG_NAME 
+                 FROM POS_SALES_HDR h2 (NOLOCK)
+                 INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE q2 (NOLOCK) ON h2.BILL_NO = q2.RLITQ_BILL_NO AND h2.ORG_CD = q2.RLITQ_ORG_CD
+                 LEFT JOIN DimStore d2 ON h2.ORG_CD = d2.ORG_CD
+                 WHERE q2.RLITQ_CARD_NO = t.member_id AND h2.BILL_DT = t.last_txn_date
+                 ORDER BY h2.BILL_TIME DESC) as last_store
+            FROM TargetMonthTrans t
+        ),
+        YTDTotals AS (
+            SELECT 
+                q.RLITQ_CARD_NO as member_id,
+                COUNT(DISTINCT h.BILL_NO) as total_txn,
+                SUM(h.NET_VALUE) as total_amount
+            FROM POS_SALES_HDR h (NOLOCK)
+            INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE q (NOLOCK) ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
+            LEFT JOIN DimStore d ON h.ORG_CD = d.ORG_CD
+            INNER JOIN TargetMonthTrans t ON q.RLITQ_CARD_NO = t.member_id
+            WHERE h.BILL_DT >= DATETIMEFROMPARTS(YEAR(CAST(@fromDate AS DATE)), 1, 1, 0, 0, 0, 0) 
+              AND h.BILL_DT <= t.last_txn_date
+            AND q.RLITQ_INTEG_CODE = '110'
+            AND h.VOID_FLAG = 'F'
+            ${storeFilter}
+            GROUP BY q.RLITQ_CARD_NO
+        )
+      `;
+
+      query = `
+        ${cte}
+        SELECT 
+            m.RLICM_NAME as name,
+            m.RLICM_CARD_NO as card_no,
+            m.RLICM_MOBILE_NO as phone_no,
+            'Regular' as tier,
+            'Activated' as activation_status,
+            FLOOR(y.total_amount / 50000) as total_point,
+            y.total_txn,
+            y.total_amount,
+            CONVERT(DATE, l.last_txn_date) as last_txn_date,
+            l.last_store
+        FROM LastTransDetail l
+        INNER JOIN YTDTotals y ON l.member_id = y.member_id
+        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST m (NOLOCK) ON l.member_id = m.RLICM_CARD_NO
+        WHERE 1=1 ${searchFilter}
+        ORDER BY y.total_amount DESC
       `;
     }
 

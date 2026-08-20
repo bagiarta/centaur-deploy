@@ -50,6 +50,7 @@ export const navItems = [
       { id: "crm_report_enrollment", to: "/crm/reports/member-enrollment", icon: UserPlus, label: "Member Enrollment" },
       { id: "crm_report_spender", to: "/crm/reports/top-spender", icon: TrendingUp, label: "Top Spender" },
       { id: "crm_report_fraud", to: "/crm/reports/fraud-analysis", icon: Shield, label: "Fraud Analysis" },
+      { id: "crm_report_wakeup", to: "/crm/reports/wakeup-call", icon: Users, label: "Wakeup Call Customer" },
       { id: "crm_dev_loyalty", to: "/crm/dev-loyalty", icon: Trophy, label: "[DEV] Loyalty & Achievements" },
     ]
   },

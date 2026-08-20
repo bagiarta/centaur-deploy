@@ -97,6 +97,23 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
       { key: 'fraud_warning', label: 'Suspicious Activity', type: 'string' },
     ],
     description: "Kriteria Fraud: (1) Transaksi >= 3x/hari selama 2 hari berturut-turut, (2) Dilakukan di Counter & Sesi yang sama per harinya, (3) Dilayani oleh Salesman yang sama di kedua hari tersebut."
+  },
+  'wakeup-call': {
+    title: "Wakeup Call Customer",
+    icon: Users,
+    endpoint: "wakeup-call",
+    columns: [
+      { key: 'name', label: 'Name', type: 'string' },
+      { key: 'card_no', label: 'Card No', type: 'string' },
+      { key: 'phone_no', label: 'Phone No', type: 'string' },
+      { key: 'tier', label: 'Tier', type: 'string' },
+      { key: 'activation_status', label: 'Activation Status', type: 'string' },
+      { key: 'total_point', label: 'Total Point', type: 'number' },
+      { key: 'total_txn', label: 'Total Transaction', type: 'number' },
+      { key: 'total_amount', label: 'Total Amount', type: 'currency' },
+      { key: 'last_txn_date', label: 'Last Txn Date', type: 'date' },
+      { key: 'last_store', label: 'Last Txn Store', type: 'string' },
+    ]
   }
 };
 
@@ -121,6 +138,7 @@ export default function CrmReportsPage() {
   const [sortBy, setSortBy] = useState(searchParams.get('sortBy') || '');
   const [sortDir, setSortDir] = useState(searchParams.get('sortDir') || 'desc');
   const [topLimit, setTopLimit] = useState(parseInt(searchParams.get('top') || '100'));
+  const [monthOffset, setMonthOffset] = useState(parseInt(searchParams.get('monthOffset') || '1'));
 
   useEffect(() => {
     fetchStores();
@@ -132,7 +150,27 @@ export default function CrmReportsPage() {
     setSortDir('desc');
     setSearchTerm('');
     setTopLimit(100);
+    setMonthOffset(1);
   }, [type]);
+
+  useEffect(() => {
+    if (type === 'wakeup-call') {
+      const date = new Date();
+      date.setMonth(date.getMonth() - monthOffset);
+      const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
+      const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      
+      const fmt = (d: Date) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      };
+      
+      setFromDate(fmt(firstDay));
+      setToDate(fmt(lastDay));
+    }
+  }, [type, monthOffset]);
 
   useEffect(() => {
     fetchData();
@@ -290,25 +328,43 @@ export default function CrmReportsPage() {
         {/* Filters Row */}
         <div className="flex flex-col lg:flex-row gap-4 mb-6">
           <div className="flex-1 flex flex-wrap gap-4">
-            <div className="flex flex-col gap-1.5 min-w-[150px]">
-              <label className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider ml-1">Date Range</label>
-              <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2">
-                <Calendar className="w-4 h-4 text-foreground-muted" />
-                <input
-                  type="date"
-                  value={fromDate}
-                  onChange={e => setFromDate(e.target.value)}
-                  className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 w-[110px]"
-                />
-                <span className="text-foreground-muted">→</span>
-                <input
-                  type="date"
-                  value={toDate}
-                  onChange={e => setToDate(e.target.value)}
-                  className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 w-[110px]"
-                />
+            {type === 'wakeup-call' ? (
+              <div className="flex flex-col gap-1.5 w-40">
+                <label className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider ml-1">Month Offset</label>
+                <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2">
+                  <select
+                    value={monthOffset}
+                    onChange={e => setMonthOffset(parseInt(e.target.value) || 1)}
+                    className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 flex-1 cursor-pointer appearance-none text-center font-bold"
+                  >
+                    {Array.from({ length: 12 }).map((_, i) => {
+                      const m = i + 1;
+                      return <option key={m} value={m}>{m} Month</option>;
+                    })}
+                  </select>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-col gap-1.5 min-w-[150px]">
+                <label className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider ml-1">Date Range</label>
+                <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2">
+                  <Calendar className="w-4 h-4 text-foreground-muted" />
+                  <input
+                    type="date"
+                    value={fromDate}
+                    onChange={e => setFromDate(e.target.value)}
+                    className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 w-[110px]"
+                  />
+                  <span className="text-foreground-muted">→</span>
+                  <input
+                    type="date"
+                    value={toDate}
+                    onChange={e => setToDate(e.target.value)}
+                    className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 w-[110px]"
+                  />
+                </div>
+              </div>
+            )}
 
             {type === 'top-spender' && (
               <div className="flex flex-col gap-1.5 w-32">
