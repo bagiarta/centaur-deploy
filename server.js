@@ -25,6 +25,7 @@ import cctvRoutes from './routes/cctvRoutes.js';
 import eslRoutes from './routes/eslRoutes.js';
 import legacyRoutes, { startBackgroundTasks } from './routes/legacyRoutes.js';
 import trialSupportManagerRoutes from './routes/trialSupportManagerRoutes.js';
+import crmRoutes from './routes/crmRoutes.js';
 import { sendWebPush } from './controllers/pushController.js';
 import { startCCTVPollingJob } from './utils/cctvPollingService.js';
 
@@ -188,7 +189,8 @@ app.use('/api/cctv', cctvRoutes);
 app.use('/api/esl', eslRoutes);
 app.use('/api/trial/support-manager', trialSupportManagerRoutes);
 
-// Mount all remaining (unmigrated) routes at root to preserve exact paths
+// Mount CRM and legacy routes
+app.use('/', crmRoutes);
 app.use('/', legacyRoutes);
 
 // Serve static files from dist
