@@ -105,6 +105,8 @@ export default function DeviceHealthPage() {
     else if (upgradeFilter === "low-ram") matchUpgrade = !!d.isLowRam;
     else if (upgradeFilter === "low-disk") matchUpgrade = !!d.isLowDisk;
     else if (upgradeFilter === "healthy") matchUpgrade = !d.needsUpgrade;
+    else if (upgradeFilter === "disk-failure") matchUpgrade = d.disk_status && d.disk_status !== "Healthy";
+    else if (upgradeFilter === "bad-sectors") matchUpgrade = d.bad_sectors > 0;
     
     return matchSearch && matchStatus && matchUpgrade;
   });
@@ -178,6 +180,8 @@ export default function DeviceHealthPage() {
           icon={<ShieldAlert className="w-5 h-5 text-danger" />}
           variant={failurePredictedCount > 0 ? "danger" : "success"}
           sub="Devices predicting imminent failure"
+          className="cursor-pointer hover:scale-[1.02] transition-transform border-2 hover:border-primary/50"
+          onClick={() => setUpgradeFilter("disk-failure")}
         />
         <StatCard
           label="Bad Sectors Warning"
@@ -185,6 +189,8 @@ export default function DeviceHealthPage() {
           icon={<AlertTriangle className="w-5 h-5 text-warning" />}
           variant={criticalBadSectors > 0 ? "warning" : "success"}
           sub="Devices with non-zero bad sectors"
+          className="cursor-pointer hover:scale-[1.02] transition-transform border-2 hover:border-primary/50"
+          onClick={() => setUpgradeFilter("bad-sectors")}
         />
         <StatCard
           label="Hardware Upgrade Alerts"
@@ -192,6 +198,8 @@ export default function DeviceHealthPage() {
           icon={<ArrowUpRight className="w-5 h-5 text-warning" />}
           variant={totalUpgradeAlerts > 0 ? "warning" : "success"}
           sub={`${lowRamCount} Low RAM · ${lowDiskCount} Low Disk`}
+          className="cursor-pointer hover:scale-[1.02] transition-transform border-2 hover:border-primary/50"
+          onClick={() => setUpgradeFilter("upgrade")}
         />
         <StatCard
           label="Avg Disk Temperature"
@@ -232,9 +240,8 @@ export default function DeviceHealthPage() {
               </select>
             </div>
 
-            {/* Filter by Upgrade Recommendation */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-foreground-muted whitespace-nowrap">Upgrade Needs:</span>
+              <span className="text-xs text-foreground-muted whitespace-nowrap">Hardware Alerts:</span>
               <select
                 value={upgradeFilter}
                 onChange={(e) => setUpgradeFilter(e.target.value)}
@@ -244,6 +251,8 @@ export default function DeviceHealthPage() {
                 <option value="upgrade">Needs Upgrade</option>
                 <option value="low-ram">Low RAM</option>
                 <option value="low-disk">Low Disk Space</option>
+                <option value="disk-failure">Disk Failure Predicted</option>
+                <option value="bad-sectors">Bad Sectors</option>
                 <option value="healthy">No Upgrade Needed (Healthy)</option>
               </select>
             </div>

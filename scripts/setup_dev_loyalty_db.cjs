@@ -96,6 +96,27 @@ async function run() {
     } else {
       console.log('[SETUP] LOYAL_MEMBER_ACHIEVEMENT already exists.');
     }
+    // 4. Create WakeupCallCache
+    const checkWakeupTable = await pool.request().query(`
+      SELECT * FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_NAME = 'WakeupCallCache'
+    `);
+    if (checkWakeupTable.recordset.length === 0) {
+      console.log('[SETUP] Creating WakeupCallCache table...');
+      await pool.request().query(`
+        CREATE TABLE WakeupCallCache (
+          card_no NVARCHAR(100) PRIMARY KEY,
+          member_name NVARCHAR(200) NULL,
+          total_transactions INT DEFAULT 0,
+          total_amount DECIMAL(18,2) DEFAULT 0,
+          last_purchase_date DATE NULL,
+          last_store NVARCHAR(100) NULL
+        )
+      `);
+      console.log('[SETUP] Created WakeupCallCache successfully.');
+    } else {
+      console.log('[SETUP] WakeupCallCache already exists.');
+    }
 
     await pool.close();
     console.log('[SETUP] Finished setup successfully!');

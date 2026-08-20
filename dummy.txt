@@ -1,0 +1,9 @@
+const sql = require('mssql');
+
+const crmConfig = {
+  user: 'DBWH_8555_user_or_what?',
+  password: '',
+  server: '192.168.85.55',
+  database: 'DBWH_8555',
+  options: { encrypt: false, trustServerCertificate: true }
+};
