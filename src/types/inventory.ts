@@ -23,6 +23,7 @@ export interface Device {
   bad_sectors?: number;
   disk_temp?: number;
   psu_status?: string;
+  system_metrics?: string;
 }
 
 export interface DeviceGroup {

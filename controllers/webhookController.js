@@ -45,7 +45,19 @@ export const devicePing = async (req, res) => {
   console.log(`[DEBUG] Query:`, JSON.stringify(req.query));
 
   const payload = Object.keys(req.body).length === 0 ? req.query : req.body;
-  const { hostname, ports, date: mtDate, time: mtTime } = payload;
+  const { 
+    hostname, 
+    ports, 
+    interfaces,
+    date: mtDate, 
+    time: mtTime,
+    routeros_version,
+    board,
+    architecture,
+    uptime,
+    health,
+    system
+  } = payload;
 
   if (mtDate || mtTime) {
     console.log(`[DEBUG] Router Clock: ${mtDate} ${mtTime}`);
@@ -69,9 +81,40 @@ export const devicePing = async (req, res) => {
       .query('SELECT id, status, network_ports, device_type FROM Devices WHERE hostname = @hostname');
     console.log(`[DEBUG] DB Check completed for ${hostname}. Found: ${check.recordset.length}`);
 
+    const finalInterfaces = interfaces || ports;
     let portsJson = null;
-    if (ports) {
-      portsJson = typeof ports === 'string' ? ports : JSON.stringify(ports);
+    if (finalInterfaces) {
+      portsJson = typeof finalInterfaces === 'string' ? finalInterfaces : JSON.stringify(finalInterfaces);
+    }
+
+    let cpu = null;
+    let ram = null;
+    let disk = null;
+    let systemMetricsJson = null;
+    
+    const formatBytes = (bytes) => {
+      if (bytes === 0 || bytes === '0' || !bytes) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    };
+
+    if (system) {
+      cpu = system.cpu_load ? `${system.cpu_load}%` : null;
+      ram = system.memory ? `${formatBytes(system.memory.used)} / ${formatBytes(system.memory.total)}` : null;
+      disk = system.storage ? `${formatBytes(system.storage.used)} / ${formatBytes(system.storage.total)}` : null;
+    }
+    
+    if (routeros_version || system || health) {
+      systemMetricsJson = JSON.stringify({
+        routeros_version,
+        board,
+        architecture,
+        uptime,
+        health,
+        system
+      });
     }
 
     if (check.recordset.length > 0) {
@@ -82,10 +125,23 @@ export const devicePing = async (req, res) => {
         .input('hostname', sql.NVarChar, hostname)
         .input('last_seen', sql.NVarChar, isoNow)
         .input('status', sql.NVarChar, 'online')
-        .input('network_ports', sql.NVarChar, portsJson)
+        .input('network_ports', sql.NVarChar(sql.MAX), portsJson)
+        .input('os_version', sql.NVarChar, routeros_version || null)
+        .input('cpu', sql.NVarChar, cpu)
+        .input('ram', sql.NVarChar, ram)
+        .input('disk', sql.NVarChar, disk)
+        .input('system_metrics', sql.NVarChar(sql.MAX), systemMetricsJson)
         .query(`
           UPDATE Devices 
-          SET last_seen = @last_seen, status = @status, network_ports = ISNULL(@network_ports, network_ports)
+          SET 
+            last_seen = @last_seen, 
+            status = @status, 
+            network_ports = ISNULL(@network_ports, network_ports),
+            os_version = ISNULL(@os_version, os_version),
+            cpu = ISNULL(@cpu, cpu),
+            ram = ISNULL(@ram, ram),
+            disk = ISNULL(@disk, disk),
+            system_metrics = ISNULL(@system_metrics, system_metrics)
           WHERE hostname = @hostname
         `);
 
@@ -100,14 +156,22 @@ export const devicePing = async (req, res) => {
         .input('id', sql.NVarChar, deviceId)
         .input('hostname', sql.NVarChar, hostname)
         .input('ip', sql.NVarChar, req.ip || '')
-        .input('os_version', sql.NVarChar, 'Agentless (Webhook)')
+        .input('os_version', sql.NVarChar, routeros_version || 'Agentless (Webhook)')
         .input('status', sql.NVarChar, 'online')
         .input('last_seen', sql.NVarChar, new Date().toISOString())
         .input('device_type', sql.NVarChar, 'Network')
-        .input('network_ports', sql.NVarChar, portsJson)
+        .input('network_ports', sql.NVarChar(sql.MAX), portsJson)
+        .input('cpu', sql.NVarChar, cpu)
+        .input('ram', sql.NVarChar, ram)
+        .input('disk', sql.NVarChar, disk)
+        .input('system_metrics', sql.NVarChar(sql.MAX), systemMetricsJson)
         .query(`
-          INSERT INTO Devices (id, hostname, ip, os_version, status, last_seen, device_type, network_ports)
-          VALUES (@id, @hostname, @ip, @os_version, @status, @last_seen, @device_type, @network_ports)
+          INSERT INTO Devices (
+            id, hostname, ip, os_version, status, last_seen, device_type, network_ports, cpu, ram, disk, system_metrics
+          )
+          VALUES (
+            @id, @hostname, @ip, @os_version, @status, @last_seen, @device_type, @network_ports, @cpu, @ram, @disk, @system_metrics
+          )
         `);
       console.log(`✅ Network Hook: Registered new device ${hostname}`);
     }
