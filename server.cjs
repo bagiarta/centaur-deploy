@@ -1012,7 +1012,7 @@ app.post('/api/webhook/test-device-ping', (req, res) => {
   res.json({ success: true, message: 'Trial data received', data: finalPayload });
 });
 
-// \u2500€\u2500€ GET /api/webhook/test-results (VIEW EXPERIMENT) \u2500€
+// ─€─€ GET /api/webhook/test-results (VIEW EXPERIMENT) ─
 app.get('/api/webhook/test-results', (req, res) => {
   const logFile = path.join(__dirname, 'scratch', 'test_webhook_log.txt');
   if (fs.existsSync(logFile)) {
@@ -1024,14 +1024,24 @@ app.get('/api/webhook/test-results', (req, res) => {
   }
 });
 
-// \u2500€\u2500€  POST /api/webhook/device-ping (LIVE SYSTEM) \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
+// ─€─€  POST /api/webhook/device-ping (LIVE SYSTEM) ──────────
 app.post('/api/webhook/device-ping', async (req, res) => {
   console.log(`[DEBUG] Received Live Ping at ${new Date().toISOString()}`);
-  console.log(`[DEBUG] Body:`, JSON.stringify(req.body));
-  console.log(`[DEBUG] Query:`, JSON.stringify(req.query));
 
   const payload = Object.keys(req.body).length === 0 ? req.query : req.body;
-  const { hostname, ports, date: mtDate, time: mtTime } = payload;
+  const { 
+    hostname, 
+    ports, 
+    interfaces,
+    date: mtDate, 
+    time: mtTime,
+    routeros_version,
+    board,
+    architecture,
+    uptime,
+    health,
+    system
+  } = payload;
 
   if (mtDate || mtTime) {
     console.log(`[DEBUG] Router Clock: ${mtDate} ${mtTime}`);
@@ -1047,7 +1057,6 @@ app.post('/api/webhook/device-ping', async (req, res) => {
   try {
     const pool = await poolPromise;
     console.log(`[DEBUG] DB Pool acquired for ${hostname}`);
-    const nowObj = new Date();
 
     // Check if device exists
     const check = await pool.request()
@@ -1055,9 +1064,40 @@ app.post('/api/webhook/device-ping', async (req, res) => {
       .query('SELECT id, status, network_ports, device_type FROM Devices WHERE hostname = @hostname');
     console.log(`[DEBUG] DB Check completed for ${hostname}. Found: ${check.recordset.length}`);
 
+    // Support both old 'ports' and new 'interfaces' formats
+    const finalInterfaces = interfaces || ports;
     let portsJson = null;
-    if (ports) {
-      portsJson = typeof ports === 'string' ? ports : JSON.stringify(ports);
+    if (finalInterfaces) {
+      portsJson = typeof finalInterfaces === 'string' ? finalInterfaces : JSON.stringify(finalInterfaces);
+    }
+
+    // Extract system metrics
+    let cpu = null;
+    let ram = null;
+    let disk = null;
+    let systemMetricsJson = null;
+
+    if (system) {
+      cpu = typeof system.cpu_load !== 'undefined' ? `${system.cpu_load}%` : null;
+      if (system.memory) {
+        const totalRamMB = (system.memory.total / (1024 * 1024)).toFixed(0);
+        ram = system.memory.usage_percent !== undefined ? `${system.memory.usage_percent}% (${totalRamMB} MB)` : null;
+      }
+      if (system.storage) {
+        const totalDiskMB = (system.storage.total / (1024 * 1024)).toFixed(0);
+        disk = system.storage.usage_percent !== undefined ? `${system.storage.usage_percent}% (${totalDiskMB} MB)` : null;
+      }
+    }
+
+    if (routeros_version || system || health) {
+      systemMetricsJson = JSON.stringify({
+        routeros_version,
+        board,
+        architecture,
+        uptime,
+        health,
+        system
+      });
     }
 
     if (check.recordset.length > 0) {
@@ -1068,15 +1108,28 @@ app.post('/api/webhook/device-ping', async (req, res) => {
         .input('hostname', sql.NVarChar, hostname)
         .input('last_seen', sql.NVarChar, isoNow)
         .input('status', sql.NVarChar, 'online')
-        .input('network_ports', sql.NVarChar, portsJson)
+        .input('network_ports', sql.NVarChar(sql.MAX), portsJson)
+        .input('os_version', sql.NVarChar, routeros_version || null)
+        .input('cpu', sql.NVarChar, cpu)
+        .input('ram', sql.NVarChar, ram)
+        .input('disk', sql.NVarChar, disk)
+        .input('system_metrics', sql.NVarChar(sql.MAX), systemMetricsJson)
         .query(`
           UPDATE Devices 
-          SET last_seen = @last_seen, status = @status, network_ports = ISNULL(@network_ports, network_ports)
+          SET 
+            last_seen = @last_seen, 
+            status = @status, 
+            network_ports = ISNULL(@network_ports, network_ports),
+            os_version = ISNULL(@os_version, os_version),
+            cpu = ISNULL(@cpu, cpu),
+            ram = ISNULL(@ram, ram),
+            disk = ISNULL(@disk, disk),
+            system_metrics = ISNULL(@system_metrics, system_metrics)
           WHERE hostname = @hostname
         `);
 
       if (oldStatus !== 'online') {
-        console.log(`\u2705 Network Hook: Device ${hostname} is back online.`);
+        console.log(`✅ Network Hook: Device ${hostname} is back online.`);
       }
     } else {
       // Create new network device if doesn't exist
@@ -1086,14 +1139,22 @@ app.post('/api/webhook/device-ping', async (req, res) => {
         .input('id', sql.NVarChar, deviceId)
         .input('hostname', sql.NVarChar, hostname)
         .input('ip', sql.NVarChar, req.ip || '')
-        .input('os_version', sql.NVarChar, 'Agentless (Webhook)')
+        .input('os_version', sql.NVarChar, routeros_version || 'Agentless (Webhook)')
         .input('status', sql.NVarChar, 'online')
         .input('last_seen', sql.NVarChar, new Date().toISOString())
         .input('device_type', sql.NVarChar, 'Network')
-        .input('network_ports', sql.NVarChar, portsJson)
+        .input('network_ports', sql.NVarChar(sql.MAX), portsJson)
+        .input('cpu', sql.NVarChar, cpu)
+        .input('ram', sql.NVarChar, ram)
+        .input('disk', sql.NVarChar, disk)
+        .input('system_metrics', sql.NVarChar(sql.MAX), systemMetricsJson)
         .query(`
-          INSERT INTO Devices (id, hostname, ip, os_version, status, last_seen, device_type, network_ports)
-          VALUES (@id, @hostname, @ip, @os_version, @status, @last_seen, @device_type, @network_ports)
+          INSERT INTO Devices (
+            id, hostname, ip, os_version, status, last_seen, device_type, network_ports, cpu, ram, disk, system_metrics
+          )
+          VALUES (
+            @id, @hostname, @ip, @os_version, @status, @last_seen, @device_type, @network_ports, @cpu, @ram, @disk, @system_metrics
+          )
         `);
       console.log(`\u2705 Network Hook: Registered new device ${hostname}`);
     }

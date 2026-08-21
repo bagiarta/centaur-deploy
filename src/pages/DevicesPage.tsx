@@ -24,6 +24,370 @@ const defaultDeviceData: Partial<Device> = {
   longitude: 0
 };
 
+const MIKROTIK_SCRIPT = `{
+    # ============================================================
+    # DEVICE INFORMATION
+    # ============================================================
+
+    :local hostName [/system identity get name];
+    :local sysTime [/system clock get time];
+    :local sysDate [/system clock get date];
+
+    :local rosVersion "";
+    :local boardName "";
+    :local architecture "";
+    :local uptime "";
+
+    :do {
+        :set rosVersion [/system resource get version];
+    } on-error={ :set rosVersion "unknown"; };
+
+    :do {
+        :set boardName [/system resource get board-name];
+    } on-error={ :set boardName "unknown"; };
+
+    :do {
+        :set architecture [/system resource get architecture-name];
+    } on-error={ :set architecture "unknown"; };
+
+    :do {
+        :set uptime [/system resource get uptime];
+    } on-error={ :set uptime "unknown"; };
+
+
+    # ============================================================
+    # CPU
+    # ============================================================
+
+    :local cpuLoad 0;
+    :do {
+        :set cpuLoad [/system resource get cpu-load];
+    } on-error={};
+
+
+    # ============================================================
+    # MEMORY (RAM)
+    # ============================================================
+
+    :local freeMemory 0;
+    :local totalMemory 0;
+    :local usedMemory 0;
+    :local memoryUsage 0;
+
+    :do {
+        :set freeMemory [/system resource get free-memory];
+        :set totalMemory [/system resource get total-memory];
+        :set usedMemory ($totalMemory - $freeMemory);
+        
+        :if ($totalMemory > 0) do={
+            :set memoryUsage (($usedMemory * 100) / $totalMemory);
+        }
+    } on-error={};
+
+
+    # ============================================================
+    # STORAGE (DISK)
+    # ============================================================
+
+    :local freeDisk 0;
+    :local totalDisk 0;
+    :local usedDisk 0;
+    :local diskUsage 0;
+
+    :do {
+        :set freeDisk [/system resource get free-hdd-space];
+        :set totalDisk [/system resource get total-hdd-space];
+        :set usedDisk ($totalDisk - $freeDisk);
+
+        :if ($totalDisk > 0) do={
+            :set diskUsage (($usedDisk * 100) / $totalDisk);
+        }
+    } on-error={};
+
+
+    # ============================================================
+    # TEMPERATURE
+    # ============================================================
+
+    :local temperature 0;
+    :local temperatureStatus "normal";
+
+    :do {
+        :local tempId [/system health find name="temperature"];
+        :if ([:len $tempId] > 0) do={
+            :set temperature [/system health get $tempId value];
+            :if ($temperature > 65) do={
+                :set temperatureStatus "warning";
+            }
+            :if ($temperature > 80) do={
+                :set temperatureStatus "critical";
+            }
+        }
+    } on-error={};
+
+
+    # ============================================================
+    # INTERFACES & PING TARGETS
+    # ============================================================
+
+    :local monitoredPorts {"ether5;GLOBAL_EXTREME;8.8.8.8"; "ether4;CGS;192.168.128.97"; "ether1;LOKAL;192.168.85.7"};
+    :local portJson "";
+    :local first true;
+
+    :foreach item in=$monitoredPorts do={
+        
+        :local sep1 [:find $item ";"];
+        :local iface [:pick $item 0 $sep1];
+        
+        :local rest [:pick $item ($sep1 + 1) [:len $item]];
+        :local sep2 [:find $rest ";"];
+        
+        :local label "";
+        :local target "8.8.8.8";
+
+        :if ($sep2 < 0) do={
+            :set label $rest;
+        } else={
+            :set label [:pick $rest 0 $sep2];
+            :set target [:pick $rest ($sep2 + 1) [:len $rest]];
+        };
+
+        :local status "down";
+        :local pingStatus "down";
+        
+        :local rxBps 0;
+        :local txBps 0;
+        :local rxPackets 0;
+        :local txPackets 0;
+        :local rxDrops 0;
+        :local txDrops 0;
+        :local rxErrors 0;
+        :local txErrors 0;
+
+        :local linkRate "unknown";
+        :local fullDuplex false;
+        :local rxUtilization 0;
+        :local txUtilization 0;
+        :local capacityMbps 1000; 
+
+        :do {
+            
+            :if ([/interface get $iface running] = true) do={
+                
+                :set status "up";
+
+                # =================================================
+                # EXTRACT LINK RATE (IF ETHERNET)
+                # =================================================
+                
+                :do {
+                    :local etherStatus [/interface ethernet monitor $iface once as-value];
+                    
+                    :if ([:typeof ($etherStatus->"rate")] != "nothing") do={
+                        :set linkRate ($etherStatus->"rate");
+                        
+                        :if ([:typeof [:find $linkRate "10Mbps"]] >= 0) do={ :set capacityMbps 10; }
+                        :if ([:typeof [:find $linkRate "100Mbps"]] >= 0) do={ :set capacityMbps 100; }
+                        :if ([:typeof [:find $linkRate "1Gbps"]] >= 0) do={ :set capacityMbps 1000; }
+                        :if ([:typeof [:find $linkRate "10Gbps"]] >= 0) do={ :set capacityMbps 10000; }
+                    };
+                    
+                    :if ([:typeof ($etherStatus->"full-duplex")] != "nothing") do={
+                        :set fullDuplex ($etherStatus->"full-duplex");
+                    };
+
+                } on-error={};
+
+
+                # =================================================
+                # PING TEST
+                # =================================================
+
+                :if ([/ping $target interface=$iface count=3 interval=300ms] > 0) do={
+
+                    :set status "up";
+                    :set pingStatus "up";
+
+                } else={
+
+                    :if ([/ping $target count=2 interval=300ms] > 0) do={
+
+                        :set status "up";
+                        :set pingStatus "up";
+
+                    } else={
+
+                        :if ($target = "8.8.8.8") do={
+
+                            :set status "no-internet";
+                            :set pingStatus "down";
+
+                        } else={
+
+                            :set status "down";
+                            :set pingStatus "down";
+
+                        }
+
+                    }
+
+                }
+
+            } else={
+
+                :set status "down";
+                :set pingStatus "down";
+
+            }
+
+        } on-error={
+
+                :set pingStatus "error";
+
+            };
+
+
+            # =================================================
+            # TRAFFIC MONITOR
+            # =================================================
+
+            :do {
+
+                /interface monitor-traffic $iface once do={
+                    
+                    :set rxBps $"rx-bits-per-second";
+                    :set txBps $"tx-bits-per-second";
+
+                    :set rxPackets $"rx-packets-per-second";
+                    :set txPackets $"tx-packets-per-second";
+
+                    :set rxDrops $"rx-drops-per-second";
+                    :set txDrops $"tx-drops-per-second";
+
+                    :set rxErrors $"rx-errors-per-second";
+                    :set txErrors $"tx-errors-per-second";
+                };
+
+            } on-error={};
+
+
+            # =================================================
+            # CALCULATE BANDWIDTH METRICS
+            # =================================================
+
+            :local rxMbps ($rxBps / 1000000);
+            :local txMbps ($txBps / 1000000);
+
+            :if ($capacityMbps > 0) do={
+                :set rxUtilization (($rxMbps * 100) / $capacityMbps);
+                :set txUtilization (($txMbps * 100) / $capacityMbps);
+            };
+
+            :if ($rxUtilization > 100) do={ :set rxUtilization 100; };
+            :if ($txUtilization > 100) do={ :set txUtilization 100; };
+
+
+            # ========================================================
+            # FORMAT INTERFACE JSON
+            # ========================================================
+            
+            :local entry "{\\"name\\":\\"$label\\",\\"interface\\":\\"$iface\\",\\"status\\":\\"$status\\",\\"target\\":\\"$target\\",\\"ping\\":\\"$pingStatus\\",\\"capacity_mbps\\":$capacityMbps,\\"link_rate\\":\\"$linkRate\\",\\"full_duplex\\":$fullDuplex,\\"rx_bps\\":$rxBps,\\"tx_bps\\":$txBps,\\"rx_mbps\\":$rxMbps,\\"tx_mbps\\":$txMbps,\\"rx_utilization\\":$rxUtilization,\\"tx_utilization\\":$txUtilization,\\"rx_pps\\":$rxPackets,\\"tx_pps\\":$txPackets,\\"rx_drops\\":$rxDrops,\\"tx_drops\\":$txDrops,\\"rx_errors\\":$rxErrors,\\"tx_errors\\":$txErrors}";
+
+
+            # ========================================================
+            # APPEND JSON
+            # ========================================================
+
+            :if ($first = true) do={
+
+                :set portJson $entry;
+                :set first false;
+
+            } else={
+
+                :set portJson ($portJson . "," . $entry);
+
+            }
+
+        };
+
+
+        # ============================================================
+        # DEVICE HEALTH
+        # ============================================================
+
+        :local deviceHealth "normal";
+
+
+        :if ($cpuLoad >= 90) do={
+
+            :set deviceHealth "critical";
+
+        } else={
+
+            :if ($cpuLoad >= 80) do={
+
+                :set deviceHealth "warning";
+
+            }
+
+        };
+
+
+        :if ($memoryUsage >= 90) do={
+
+            :set deviceHealth "critical";
+
+        } else={
+
+            :if ($memoryUsage >= 80) do={
+
+                :set deviceHealth "warning";
+
+            }
+
+        };
+
+
+        :if ($diskUsage >= 90) do={
+
+            :set deviceHealth "critical";
+
+        } else={
+
+            :if ($diskUsage >= 80) do={
+
+                :set deviceHealth "warning";
+
+            }
+
+        };
+
+
+        :if ($temperatureStatus = "critical") do={
+
+            :set deviceHealth "critical";
+
+        };
+
+
+        # ============================================================
+        # FINAL JSON
+        # ============================================================
+
+        :local finalJson "{\\"hostname\\":\\"$hostName\\",\\"date\\":\\"$sysDate\\",\\"time\\":\\"$sysTime\\",\\"routeros_version\\":\\"$rosVersion\\",\\"board\\":\\"$boardName\\",\\"architecture\\":\\"$architecture\\",\\"uptime\\":\\"$uptime\\",\\"health\\":\\"$deviceHealth\\",\\"system\\":{\\"cpu_load\\":$cpuLoad,\\"memory\\":{\\"total\\":$totalMemory,\\"free\\":$freeMemory,\\"used\\":$usedMemory,\\"usage_percent\\":$memoryUsage},\\"storage\\":{\\"total\\":$totalDisk,\\"free\\":$freeDisk,\\"used\\":$usedDisk,\\"usage_percent\\":$diskUsage},\\"temperature\\":{\\"value\\":$temperature,\\"status\\":\\"$temperatureStatus\\"}},\\"interfaces\\":[$portJson]}";
+
+
+        # ============================================================
+        # SEND TO API
+        # ============================================================
+
+        :log info ("Centaur: Payload generated. Sending data for " . $hostName);
+        :log info $finalJson;
+
+        /tool fetch url="http://192.168.85.30:3001/api/webhook/device-ping" mode=http http-method=post http-header-field="Content-Type: application/json" http-data=$finalJson keep-result=no check-certificate=no;
+}`;
+
 export default function DevicesPage() {
   // Sync the table data with our backend store
   const [devices, setDevices] = useState<Device[]>([]);
@@ -656,6 +1020,25 @@ export default function DevicesPage() {
               {/* SPECIFIC VIEW: Network Device */}
               {selected.device_type === 'Network' ? (
                 <>
+                  <div className="space-y-3 mb-6">
+                    <p className="text-xs text-foreground-muted uppercase tracking-wider font-bold flex items-center gap-2">
+                       <Cpu className="w-3.5 h-3.5 text-primary" /> System Metrics
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="p-3 bg-surface-raised rounded-xl border border-border shadow-sm flex flex-col items-center justify-center">
+                        <span className="text-[10px] text-foreground-muted uppercase font-bold tracking-wider mb-1">CPU</span>
+                        <span className="text-sm font-black text-foreground">{selected.cpu || '-'} %</span>
+                      </div>
+                      <div className="p-3 bg-surface-raised rounded-xl border border-border shadow-sm flex flex-col items-center justify-center">
+                        <span className="text-[10px] text-foreground-muted uppercase font-bold tracking-wider mb-1">RAM</span>
+                        <span className="text-sm font-black text-foreground">{selected.ram || '-'}</span>
+                      </div>
+                      <div className="p-3 bg-surface-raised rounded-xl border border-border shadow-sm flex flex-col items-center justify-center">
+                        <span className="text-[10px] text-foreground-muted uppercase font-bold tracking-wider mb-1">Disk</span>
+                        <span className="text-sm font-black text-foreground">{selected.disk || '-'}</span>
+                      </div>
+                    </div>
+                  </div>
                   <div className="space-y-3">
                     <p className="text-xs text-foreground-muted uppercase tracking-wider font-bold flex items-center gap-2">
                        <Wifi className="w-3.5 h-3.5 text-primary" /> Network Interface / ISP Ports
@@ -676,7 +1059,7 @@ export default function DevicesPage() {
                           if (!ports || ports.length === 0) return <p className="text-xs text-foreground-muted italic">No ports reported.</p>;
                           
                           return ports.map((p: any, i: number) => (
-                            <div key={i} className="flex items-center justify-between p-3.5 bg-surface-raised rounded-xl border border-border shadow-sm group hover:border-primary/30 transition-all">
+                            <div key={i} className="flex items-center justify-between p-3.5 bg-surface-raised rounded-xl border border-border shadow-sm group hover:border-primary/30 transition-all flex-wrap gap-2">
                               <div className="flex items-center gap-3">
                                 <div className={cn(
                                   "p-2 rounded-lg transition-colors", 
@@ -684,14 +1067,33 @@ export default function DevicesPage() {
                                 )}>
                                   <Activity className="w-4 h-4" />
                                 </div>
-                                <span className="text-sm font-bold text-foreground">{p.name || `Interface ${i+1}`}</span>
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-bold text-foreground">{p.name || `Interface ${i+1}`}</span>
+                                  {p.name && p.interface && p.interface !== p.name && <span className="text-[10px] text-foreground-muted font-mono">{p.interface}</span>}
+                                </div>
                               </div>
-                              <span className={cn(
-                                "text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-tighter border shadow-sm",
-                                p.status === 'up' ? "bg-success text-white border-success" : "bg-danger text-white border-danger"
-                              )}>
-                                {p.status || 'OFF'}
-                              </span>
+                              <div className="flex items-center gap-6">
+                                <div className="flex flex-col items-end">
+                                  <span className="text-[10px] text-foreground-muted uppercase tracking-widest font-bold mb-1">Rx / Tx</span>
+                                  <span className="font-mono text-[11px]">
+                                    <span className="text-info">{((p.rx_bps || 0) / 1000000).toFixed(1)}</span> / <span className="text-primary">{((p.tx_bps || 0) / 1000000).toFixed(1)}</span> <span className="text-[9px] text-foreground-muted/70">Mbps</span>
+                                  </span>
+                                </div>
+                                <div className="flex flex-col items-end gap-1 w-20">
+                                  <div className="w-full bg-background h-1.5 rounded-full overflow-hidden flex border border-border/50">
+                                    <div className="bg-info h-full" style={{ width: `${Math.min(100, (p.capacity_mbps ? (((p.rx_bps || 0) / 1000000) * 100 / p.capacity_mbps) : 0))}%` }}></div>
+                                  </div>
+                                  <div className="w-full bg-background h-1.5 rounded-full overflow-hidden flex border border-border/50">
+                                    <div className="bg-primary h-full" style={{ width: `${Math.min(100, (p.capacity_mbps ? (((p.tx_bps || 0) / 1000000) * 100 / p.capacity_mbps) : 0))}%` }}></div>
+                                  </div>
+                                </div>
+                                <span className={cn(
+                                  "text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-tighter border shadow-sm",
+                                  p.status === 'up' ? "bg-success text-white border-success" : "bg-danger text-white border-danger"
+                                )}>
+                                  {p.status || 'OFF'}
+                                </span>
+                              </div>
                             </div>
                           ));
                         } catch (e) {
@@ -922,71 +1324,7 @@ export default function DevicesPage() {
                 />
               </div>
             </div>
-                   {formData.device_type === 'Network' && (
-              <div className="col-span-4 bg-primary/5 p-4 rounded-lg border border-primary/20 mt-2">
-                <h4 className="text-xs font-bold text-primary mb-2 flex items-center gap-1.5"><Activity className="w-4 h-4"/> MikroTik Script Generator</h4>
-                <p className="text-[10px] text-foreground-muted mb-2">Pindahkan script ini ke <b>System Scheduler</b> MikroTik (Interval 1 menit). Script ini otomatis mengambil nama router dari <b>System Identity</b>. Edit bagian <b>monitoredPorts</b> dengan format <b>"interface;label;target"</b> (Contoh: "ether1;Internet;8.8.8.8" atau "ether2;Lokal;192.168.1.1").</p>
-                <div className="relative">
-                  <pre className="text-[9.5px] font-mono bg-background text-foreground p-3.5 pr-14 rounded-md border border-border whitespace-pre-wrap break-words">
-{`{
-  :local hostName [/system identity get name];
-  :local sysTime [/system clock get time];
-  :local sysDate [/system clock get date];
-  :local monitoredPorts {"ether1;Internet;8.8.8.8"; "ether2;Lokal;1.2.3.4"};
-  :local portJson "";
-  :local first true;
 
-  :foreach item in=$monitoredPorts do={
-    :local sep1 [:find $item ";"];
-    :local iface [:pick $item 0 $sep1];
-    :local rest [:pick $item ($sep1 + 1) [:len $item]];
-    :local sep2 [:find $rest ";"];
-    :local label "";
-    :local target "8.8.8.8";
-    :if ($sep2 < 0) do={
-      :set label $rest;
-    } else={
-      :set label [:pick $rest 0 $sep2];
-      :set target [:pick $rest ($sep2 + 1) [:len $rest]];
-    };
-
-    :local status "down";
-    :do {
-      # 1. Physical/Logical Link Check
-      :if ([/interface get $iface running] = true) do={
-        # Percobaan 1: Cek Jalur Fisik (Strict Interface)
-        :if ([/ping $target interface=$iface count=3 interval=300ms] > 0) do={
-          :set status "up"
-        } else={
-          # Percobaan 2: Cek Routing (Fallback) - Berguna untuk Bridge/VLAN
-          if ([/ping $target count=2 interval=300ms] > 0) do={
-            :set status "up"
-          } else={
-            :if ($target = "8.8.8.8") do={ :set status "no-internet" } else={ :set status "down" }
-          }
-        }
-      } else={
-        :set status "down"
-      };
-    } on-error={ :set status "error" };
-
-    :local entry "{\\"name\\":\\"$label\\", \\"status\\":\\"$status\\"}";
-    :if ($first = true) do={ :set portJson $entry; :set first false; } else={ :set portJson ($portJson . "," . $entry); }
-  }
-  :local finalJson "{\\"hostname\\":\\"$hostName\\", \\"date\\":\\"$sysDate\\", \\"time\\":\\"$sysTime\\", \\"ports\\":[$portJson]}";
-  /tool fetch url="${window.location.protocol}//${window.location.host}/api/webhook/device-ping" mode=http http-method=post http-header-field="Content-Type: application/json" http-data=$finalJson keep-result=no check-certificate=no;
-}`}
-                  </pre>
-                  <button 
-                    type="button"
-                    onClick={() => navigator.clipboard.writeText(`{\n  :local hostName [/system identity get name];\n  :local sysTime [/system clock get time];\n  :local sysDate [/system clock get date];\n  :local monitoredPorts {"ether4;TELKOM;8.8.8.8"; "ether5;CGS;192.168.128.197"; "ether1;Local;192.168.85.7"};\n  :local portJson "";\n  :local first true;\n\n  :foreach item in=$monitoredPorts do={\n    :local sep1 [:find $item ";"];\n    :local iface [:pick $item 0 $sep1];\n    :local rest [:pick $item ($sep1 + 1) [:len $item]];\n    :local sep2 [:find $rest ";"];\n    :local label "";\n    :local target "8.8.8.8";\n    :if ($sep2 < 0) do={\n      :set label $rest;\n    } else={\n      :set label [:pick $rest 0 $sep2];\n      :set target [:pick $rest ($sep2 + 1) [:len $rest]];\n    };\n    :local status "down";\n    :do {\n      :if ([/interface get $iface running] = true) do={\n        :if ([/ping $target interface=$iface count=3 interval=300ms] > 0) do={ :set status "up" } else={\n          if ([/ping $target count=2 interval=300ms] > 0) do={ :set status "up" } else={\n            :if ($target = "8.8.8.8") do={ :set status "no-internet" } else={ :set status "down" }\n          }\n        }\n      } else={ :set status "down" }\n    } on-error={ :set status "error" };\n    :local entry "{\\"name\\":\\"$label\\", \\"status\\":\\"$status\\"}";\n    :if ($first = true) do={ :set portJson $entry; :set first false; } else={ :set portJson ($portJson . "," . $entry); }\n  }\n  :local finalJson "{\\"hostname\\":\\"$hostName\\", \\"date\\":\\"$sysDate\\", \\"time\\":\\"$sysTime\\", \\"ports\\":[$portJson]}";\n  /tool fetch url="${window.location.protocol}//${window.location.host}/api/webhook/device-ping" mode=http http-method=post http-header-field="Content-Type: application/json" http-data=$finalJson keep-result=no check-certificate=no;\n}`)}
-                    className="absolute top-2 right-2 px-2 py-1 bg-primary text-white rounded text-[9px] font-bold hover:bg-primary/90"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-            )}
 
             {formData.device_type !== 'Network' && (
               <>
@@ -1031,6 +1369,30 @@ export default function DevicesPage() {
                   </div>
                 </div>
               </>
+            )}
+
+            {formData.device_type === 'Network' && (
+              <div className="grid grid-cols-4 items-start gap-4 mt-2">
+                <label className="text-right text-sm font-medium pt-3 flex flex-col items-end gap-1">
+                  <span>MikroTik Setup</span>
+                  <Activity className="w-4 h-4 text-primary" />
+                </label>
+                <div className="col-span-3 bg-primary/5 p-3 rounded-lg border border-primary/20 shadow-sm">
+                  <p className="text-[10px] text-foreground-muted mb-2 leading-tight">Pindahkan script ini ke <b>System Scheduler</b> MikroTik (Interval 1 menit). Script ini otomatis mengambil nama router dari <b>System Identity</b>. Edit bagian <b>monitoredPorts</b> dengan format <b>"interface;label;target"</b>.</p>
+                  <div className="relative">
+                    <pre className="text-[9px] font-mono bg-background text-foreground p-2 pr-10 rounded-md border border-border whitespace-pre overflow-x-auto overflow-y-auto max-h-[150px] custom-scrollbar">
+{MIKROTIK_SCRIPT}
+</pre>
+                    <button 
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(MIKROTIK_SCRIPT)}
+                      className="absolute top-1.5 right-1.5 px-2 py-1 bg-primary text-white rounded text-[9px] font-bold hover:bg-primary/90 shadow-sm transition-colors"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
 
             <div className="space-y-2">
