@@ -26,6 +26,7 @@ import eslRoutes from './routes/eslRoutes.js';
 import legacyRoutes, { startBackgroundTasks } from './routes/legacyRoutes.js';
 import trialSupportManagerRoutes from './routes/trialSupportManagerRoutes.js';
 import crmRoutes from './routes/crmRoutes.js';
+import assetRoutes from './routes/assetRoutes.js';
 import { sendWebPush } from './controllers/pushController.js';
 import { startCCTVPollingJob } from './utils/cctvPollingService.js';
 
@@ -76,7 +77,44 @@ if (!fs.existsSync(REPO_PATH)) {
 
 // Middleware
 app.use(cors());
+// Strip trailing null bytes for RouterOS fetch bug
+app.use((req, res, next) => {
+  if (req.is('application/json')) {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => data += chunk);
+    req.on('end', () => {
+      try {
+        if (data) {
+          // Remove trailing null bytes and everything after the last closing brace/bracket
+          const lastBrace = Math.max(data.lastIndexOf('}'), data.lastIndexOf(']'));
+          if (lastBrace !== -1) {
+            data = data.substring(0, lastBrace + 1);
+          }
+          req.body = JSON.parse(data);
+        }
+        next();
+      } catch (e) {
+        next(e);
+      }
+    });
+  } else {
+    next();
+  }
+});
+
 app.use(express.json({ limit: '10mb' }));
+
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    try {
+      fs.writeFileSync(path.join(__dirname, 'bad_payload.txt'), req.rawBody);
+    } catch (e) {}
+    return res.status(400).json({ error: 'Invalid JSON payload' });
+  }
+  next(err);
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Proxy endpoints for Enterprise SSO Module
@@ -187,6 +225,7 @@ app.use('/api/push', pushRoutes);
 app.use('/api/scales', scaleRoutes);
 app.use('/api/cctv', cctvRoutes);
 app.use('/api/esl', eslRoutes);
+app.use('/api/assets', assetRoutes);
 app.use('/api/trial/support-manager', trialSupportManagerRoutes);
 
 // Mount CRM and legacy routes
@@ -401,3 +440,4 @@ if (httpsServer) {
     console.log(`🔒 HTTPS Server running on port ${httpsPort} (ES Modules + Socket.io)`);
   });
 }
+app.get('/api/test-js', (req, res) => res.json({ message: 'Hello from server.js' }));

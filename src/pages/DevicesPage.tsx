@@ -1,5 +1,5 @@
 import { useState, FormEvent, useEffect } from "react";
-import { Search, Filter, RefreshCw, Plus, ChevronDown, Cpu, HardDrive, MemoryStick, Wifi, Edit, Trash2, Users, Activity, Database, Play, AlertTriangle, X, Package, ChevronRight, Eye, List, Map as MapIcon, ShieldAlert, Thermometer } from "lucide-react";
+import { Search, Filter, RefreshCw, Plus, ChevronDown, Cpu, HardDrive, MemoryStick, Wifi, Edit, Trash2, Users, Activity, Database, Play, AlertTriangle, X, Package, ChevronRight, Eye, List, Map as MapIcon, ShieldAlert, Thermometer, ArrowRight } from "lucide-react";
 import { Device } from "@/types/inventory";
 import DeviceMap from "@/components/DeviceMap";
 import { StatusBadge, PageHeader, SectionCard } from "@/components/ui-enterprise";
@@ -113,24 +113,36 @@ const MIKROTIK_SCRIPT = `{
     :local temperatureStatus "normal";
 
     :do {
-        :local tempId [/system health find name="temperature"];
-        :if ([:len $tempId] > 0) do={
-            :set temperature [/system health get $tempId value];
-            :if ($temperature > 65) do={
-                :set temperatureStatus "warning";
+        :local healthData [/system health print as-value];
+        :if ([:typeof $healthData] = "array") do={
+            :foreach item in=$healthData do={
+                :if ([:typeof ($item->"name")] = "str") do={
+                    :if (($item->"name") = "temperature") do={
+                        :if ([:typeof ($item->"value")] = "num") do={
+                            :set temperature ($item->"value");
+                        }
+                    }
+                }
             }
-            :if ($temperature > 80) do={
-                :set temperatureStatus "critical";
+            :if ([:typeof ($healthData->"temperature")] = "num") do={
+                :set temperature ($healthData->"temperature");
             }
         }
-    } on-error={};
+        
+        :if ($temperature > 65) do={
+            :set temperatureStatus "warning";
+        }
+        :if ($temperature > 80) do={
+            :set temperatureStatus "critical";
+        }
+    } on-error={ };
 
 
     # ============================================================
     # INTERFACES & PING TARGETS
     # ============================================================
 
-    :local monitoredPorts {"ether5;GLOBAL_EXTREME;8.8.8.8"; "ether4;CGS;192.168.128.97"; "ether1;LOKAL;192.168.85.7"};
+    :local monitoredPorts {"ether5;GLOBAL_EXTREME;8.8.8.8", "ether4;CGS;192.168.128.97", "ether1;LOKAL;192.168.85.7"};
     :local portJson "";
     :local first true;
 
@@ -165,7 +177,7 @@ const MIKROTIK_SCRIPT = `{
         :local txErrors 0;
 
         :local linkRate "unknown";
-        :local fullDuplex false;
+        :local fullDuplex "false";
         :local rxUtilization 0;
         :local txUtilization 0;
         :local capacityMbps 1000; 
@@ -186,17 +198,21 @@ const MIKROTIK_SCRIPT = `{
                     :if ([:typeof ($etherStatus->"rate")] != "nothing") do={
                         :set linkRate ($etherStatus->"rate");
                         
-                        :if ([:typeof [:find $linkRate "10Mbps"]] >= 0) do={ :set capacityMbps 10; }
-                        :if ([:typeof [:find $linkRate "100Mbps"]] >= 0) do={ :set capacityMbps 100; }
-                        :if ([:typeof [:find $linkRate "1Gbps"]] >= 0) do={ :set capacityMbps 1000; }
-                        :if ([:typeof [:find $linkRate "10Gbps"]] >= 0) do={ :set capacityMbps 10000; }
+                        :if ([:typeof [:find $linkRate "10Mbps"]] = "num") do={ :set capacityMbps 10; }
+                        :if ([:typeof [:find $linkRate "100Mbps"]] = "num") do={ :set capacityMbps 100; }
+                        :if ([:typeof [:find $linkRate "1Gbps"]] = "num") do={ :set capacityMbps 1000; }
+                        :if ([:typeof [:find $linkRate "10Gbps"]] = "num") do={ :set capacityMbps 10000; }
                     };
                     
                     :if ([:typeof ($etherStatus->"full-duplex")] != "nothing") do={
-                        :set fullDuplex ($etherStatus->"full-duplex");
+                        :if (($etherStatus->"full-duplex") = true) do={
+                            :set fullDuplex "true";
+                        } else={
+                            :set fullDuplex "false";
+                        }
                     };
 
-                } on-error={};
+                } on-error={ };
 
 
                 # =================================================
@@ -252,23 +268,20 @@ const MIKROTIK_SCRIPT = `{
             # =================================================
 
             :do {
-
                 /interface monitor-traffic $iface once do={
-                    
-                    :set rxBps $"rx-bits-per-second";
-                    :set txBps $"tx-bits-per-second";
+                    :if ([:typeof $"rx-bits-per-second"] = "num") do={ :set rxBps $"rx-bits-per-second"; }
+                    :if ([:typeof $"tx-bits-per-second"] = "num") do={ :set txBps $"tx-bits-per-second"; }
 
-                    :set rxPackets $"rx-packets-per-second";
-                    :set txPackets $"tx-packets-per-second";
+                    :if ([:typeof $"rx-packets-per-second"] = "num") do={ :set rxPackets $"rx-packets-per-second"; }
+                    :if ([:typeof $"tx-packets-per-second"] = "num") do={ :set txPackets $"tx-packets-per-second"; }
 
-                    :set rxDrops $"rx-drops-per-second";
-                    :set txDrops $"tx-drops-per-second";
+                    :if ([:typeof $"rx-drops-per-second"] = "num") do={ :set rxDrops $"rx-drops-per-second"; }
+                    :if ([:typeof $"tx-drops-per-second"] = "num") do={ :set txDrops $"tx-drops-per-second"; }
 
-                    :set rxErrors $"rx-errors-per-second";
-                    :set txErrors $"tx-errors-per-second";
+                    :if ([:typeof $"rx-errors-per-second"] = "num") do={ :set rxErrors $"rx-errors-per-second"; }
+                    :if ([:typeof $"tx-errors-per-second"] = "num") do={ :set txErrors $"tx-errors-per-second"; }
                 };
-
-            } on-error={};
+            } on-error={ };
 
 
             # =================================================
@@ -372,10 +385,27 @@ const MIKROTIK_SCRIPT = `{
 
 
         # ============================================================
+        # ACTIVE DEFAULT ROUTE
+        # ============================================================
+
+        :local activeRouteGateway "unknown";
+        :local activeRouteDistance "unknown";
+        :local activeRouteComment "unknown";
+        :do {
+            :local defaultRoutes [/ip route find dst-address="0.0.0.0/0" active=yes];
+            :if ([:len $defaultRoutes] > 0) do={
+                :local routeId ($defaultRoutes->0);
+                :set activeRouteGateway [/ip route get $routeId gateway];
+                :set activeRouteDistance [/ip route get $routeId distance];
+                :set activeRouteComment [/ip route get $routeId comment];
+            }
+        } on-error={ };
+
+        # ============================================================
         # FINAL JSON
         # ============================================================
 
-        :local finalJson "{\\"hostname\\":\\"$hostName\\",\\"date\\":\\"$sysDate\\",\\"time\\":\\"$sysTime\\",\\"routeros_version\\":\\"$rosVersion\\",\\"board\\":\\"$boardName\\",\\"architecture\\":\\"$architecture\\",\\"uptime\\":\\"$uptime\\",\\"health\\":\\"$deviceHealth\\",\\"system\\":{\\"cpu_load\\":$cpuLoad,\\"memory\\":{\\"total\\":$totalMemory,\\"free\\":$freeMemory,\\"used\\":$usedMemory,\\"usage_percent\\":$memoryUsage},\\"storage\\":{\\"total\\":$totalDisk,\\"free\\":$freeDisk,\\"used\\":$usedDisk,\\"usage_percent\\":$diskUsage},\\"temperature\\":{\\"value\\":$temperature,\\"status\\":\\"$temperatureStatus\\"}},\\"interfaces\\":[$portJson]}";
+        :local finalJson "{\\"hostname\\":\\"$hostName\\",\\"date\\":\\"$sysDate\\",\\"time\\":\\"$sysTime\\",\\"routeros_version\\":\\"$rosVersion\\",\\"board\\":\\"$boardName\\",\\"architecture\\":\\"$architecture\\",\\"uptime\\":\\"$uptime\\",\\"health\\":\\"$deviceHealth\\",\\"system\\":{\\"active_route\\":{\\"gateway\\":\\"$activeRouteGateway\\",\\"distance\\":\\"$activeRouteDistance\\",\\"comment\\":\\"$activeRouteComment\\"},\\"cpu_load\\":$cpuLoad,\\"memory\\":{\\"total\\":$totalMemory,\\"free\\":$freeMemory,\\"used\\":$usedMemory,\\"usage_percent\\":$memoryUsage},\\"storage\\":{\\"total\\":$totalDisk,\\"free\\":$freeDisk,\\"used\\":$usedDisk,\\"usage_percent\\":$diskUsage},\\"temperature\\":{\\"value\\":$temperature,\\"status\\":\\"$temperatureStatus\\"}},\\"interfaces\\":[$portJson]}";
 
 
         # ============================================================
@@ -780,8 +810,8 @@ export default function DevicesPage() {
               <tr>
                 <th>Hostname</th>
                 <th>Server (IP)</th>
-                <th>OS Version</th>
-                <th>CPU</th>
+                <th>OS / Uptime</th>
+                <th>CPU / Board</th>
                 <th>RAM / Disk</th>
                 <th>Agent</th>
                 <th>Status</th>
@@ -790,7 +820,12 @@ export default function DevicesPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(d => (
+              {filtered.map(d => {
+                let metrics: any = null;
+                if (d.device_type === 'Network' && d.system_metrics) {
+                  try { metrics = JSON.parse(d.system_metrics); } catch(e){}
+                }
+                return (
                 <tr key={d.id} className="cursor-pointer" onClick={() => setSelected(d)}>
                   <td>
                     <div className="flex flex-col gap-1">
@@ -845,13 +880,23 @@ export default function DevicesPage() {
                   </td>
                   <td><span className="font-mono text-foreground-muted">{d.ip}</span></td>
                   <td>
-                    <span className="text-xs text-foreground-muted">
-                      {d.device_type === 'Network' ? <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[10px] font-bold border border-primary/20">AGENTLESS</span> : d.os_version}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="text-xs text-foreground-muted">{d.os_version || '-'}</span>
+                      {metrics?.uptime && (
+                        <span className="text-[10px] text-foreground-muted/70 font-mono">Up: {metrics.uptime}</span>
+                      )}
+                    </div>
                   </td>
-                  <td><span className="text-xs text-foreground-muted truncate max-w-32 block">{d.device_type === 'Network' ? '-' : d.cpu}</span></td>
                   <td>
-                    <span className="text-xs text-foreground-muted">{d.device_type === 'Network' ? '-' : `${d.ram} / ${d.disk}`}</span>
+                    <div className="flex flex-col">
+                      <span className="text-xs text-foreground-muted truncate max-w-32 block">{metrics?.board || d.cpu || '-'}</span>
+                      {d.device_type === 'Network' && d.cpu && (
+                        <span className="text-[10px] text-foreground-muted/70 font-mono">CPU: {d.cpu}</span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <span className="text-xs text-foreground-muted">{`${d.ram || '-'} / ${d.disk || '-'}`}</span>
                   </td>
                   <td><span className="font-mono text-xs text-foreground-muted">{d.device_type === 'Network' ? '-' : d.agent_version}</span></td>
                   <td><StatusBadge status={d.status} /></td>
@@ -880,7 +925,8 @@ export default function DevicesPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1027,7 +1073,7 @@ export default function DevicesPage() {
                     <div className="grid grid-cols-3 gap-2">
                       <div className="p-3 bg-surface-raised rounded-xl border border-border shadow-sm flex flex-col items-center justify-center">
                         <span className="text-[10px] text-foreground-muted uppercase font-bold tracking-wider mb-1">CPU</span>
-                        <span className="text-sm font-black text-foreground">{selected.cpu || '-'} %</span>
+                        <span className="text-sm font-black text-foreground">{selected.cpu || '-'}</span>
                       </div>
                       <div className="p-3 bg-surface-raised rounded-xl border border-border shadow-sm flex flex-col items-center justify-center">
                         <span className="text-[10px] text-foreground-muted uppercase font-bold tracking-wider mb-1">RAM</span>
@@ -1076,7 +1122,7 @@ export default function DevicesPage() {
                                 <div className="flex flex-col items-end">
                                   <span className="text-[10px] text-foreground-muted uppercase tracking-widest font-bold mb-1">Rx / Tx</span>
                                   <span className="font-mono text-[11px]">
-                                    <span className="text-info">{((p.rx_bps || 0) / 1000000).toFixed(1)}</span> / <span className="text-primary">{((p.tx_bps || 0) / 1000000).toFixed(1)}</span> <span className="text-[9px] text-foreground-muted/70">Mbps</span>
+                                    <span className="text-info">{((p.rx_bps || 0) / 1000).toFixed(1)}</span> / <span className="text-primary">{((p.tx_bps || 0) / 1000).toFixed(1)}</span> <span className="text-[9px] text-foreground-muted/70">kbps</span>
                                   </span>
                                 </div>
                                 <div className="flex flex-col items-end gap-1 w-20">
@@ -1104,16 +1150,55 @@ export default function DevicesPage() {
                   </div>
 
                   <div className="pt-4 border-t border-border space-y-2">
-                    <p className="text-xs text-foreground-muted uppercase tracking-wider font-bold">Device Info</p>
+                    <p className="text-xs text-foreground-muted uppercase tracking-wider font-bold">Device Info & Routing</p>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 bg-surface-raised rounded-lg border border-border">
-                        <p className="text-[10px] text-foreground-muted uppercase">Type</p>
-                        <p className="text-sm font-bold text-primary">RouterOS / Radio</p>
-                      </div>
-                      <div className="p-3 bg-surface-raised rounded-lg border border-border">
-                        <p className="text-[10px] text-foreground-muted uppercase">Version</p>
-                        <p className="text-sm font-bold">Agentless</p>
-                      </div>
+                      {(() => {
+                        let metrics: any = null;
+                        try { metrics = selected.system_metrics ? JSON.parse(selected.system_metrics) : null; } catch(e) {}
+                        
+                        return (
+                          <>
+                            <div className="p-3 bg-surface-raised rounded-lg border border-border">
+                              <p className="text-[10px] text-foreground-muted uppercase">Board Name</p>
+                              <p className="text-sm font-bold text-primary">{metrics?.board || 'RouterOS / Radio'}</p>
+                            </div>
+                            <div className="p-3 bg-surface-raised rounded-lg border border-border">
+                              <p className="text-[10px] text-foreground-muted uppercase">OS Version</p>
+                              <p className="text-sm font-bold">{selected.os_version || 'Agentless'}</p>
+                            </div>
+                            {metrics?.uptime && (
+                              <div className="col-span-2 p-3 bg-surface-raised rounded-lg border border-border">
+                                <p className="text-[10px] text-foreground-muted uppercase">Uptime</p>
+                                <p className="text-sm font-bold font-mono text-foreground">{metrics.uptime}</p>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                      {(() => {
+                        try {
+                          const metrics = selected.system_metrics ? JSON.parse(selected.system_metrics) : null;
+                          if (metrics?.system?.active_route && metrics.system.active_route.gateway !== "unknown") {
+                            return (
+                              <div className="col-span-2 p-3 bg-surface-raised rounded-lg border border-border flex justify-between items-center">
+                                <div>
+                                  <p className="text-[10px] text-foreground-muted uppercase mb-1">Active Default Route (ISP)</p>
+                                  <p className="text-sm font-bold text-success flex items-center gap-1.5"><ArrowRight className="w-4 h-4"/> {metrics.system.active_route.gateway}</p>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono">
+                                    Distance: {metrics.system.active_route.distance}
+                                  </span>
+                                  {metrics.system.active_route.comment && metrics.system.active_route.comment !== "unknown" && (
+                                    <p className="text-[10px] text-foreground-muted mt-1 italic max-w-48 truncate">{metrics.system.active_route.comment}</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+                        } catch (e) { }
+                        return null;
+                      })()}
                     </div>
                   </div>
                 </>
@@ -1378,7 +1463,7 @@ export default function DevicesPage() {
                   <Activity className="w-4 h-4 text-primary" />
                 </label>
                 <div className="col-span-3 bg-primary/5 p-3 rounded-lg border border-primary/20 shadow-sm">
-                  <p className="text-[10px] text-foreground-muted mb-2 leading-tight">Pindahkan script ini ke <b>System Scheduler</b> MikroTik (Interval 1 menit). Script ini otomatis mengambil nama router dari <b>System Identity</b>. Edit bagian <b>monitoredPorts</b> dengan format <b>"interface;label;target"</b>.</p>
+                  <p className="text-[10px] text-foreground-muted mb-2 leading-tight">Pindahkan script ini ke <b>System Scheduler</b> MikroTik (Interval 1 menit). <b>Penting:</b> Pastikan Policy <code>read, write, policy, test</code> dicentang. Script otomatis mengambil nama router dari <b>System Identity</b>. Edit <b>monitoredPorts</b> dengan format <b>"interface;label;target"</b>.</p>
                   <div className="relative">
                     <pre className="text-[9px] font-mono bg-background text-foreground p-2 pr-10 rounded-md border border-border whitespace-pre overflow-x-auto overflow-y-auto max-h-[150px] custom-scrollbar">
 {MIKROTIK_SCRIPT}

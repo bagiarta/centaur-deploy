@@ -398,10 +398,10 @@ router.post('/labels/associate', async (req, res) => {
       // Resolve barcode to itm_cd if possible using ITEM_UOM_MAPPING_MST
       const barcodeResult = await hoPool.request()
         .input('barcode', sql.NVarChar, itm_cd)
-        .query('SELECT TOP 1 IUM_ITEM_CD FROM ITEM_UOM_MAPPING_MST WHERE IUM_BARCODE = @barcode');
+        .query('SELECT TOP 1 ium_itm_cd FROM ITEM_UOM_MAPPING_MST WHERE ium_bar_itm_cd = @barcode');
       
       if (barcodeResult.recordset.length > 0) {
-        const resolvedItmCd = barcodeResult.recordset[0].IUM_ITEM_CD;
+        const resolvedItmCd = barcodeResult.recordset[0].ium_itm_cd;
         console.log(`[ESL-ASSOCIATE] Resolved barcode ${itm_cd} to item code ${resolvedItmCd}`);
         itm_cd = resolvedItmCd; // Use actual item code for all subsequent operations
       }
@@ -446,8 +446,56 @@ router.post('/labels/associate', async (req, res) => {
       .query("SELECT gateway_ip, hostname, api_key FROM ESL_GATEWAYS WHERE org_cd = @org_cd AND status = 'online'");
 
     const hasOnlineGateway = gwResult.recordset.length > 0;
-    const labelStatus = hasOnlineGateway ? 'healthy' : 'pending';
-    const logStatus = hasOnlineGateway ? 'success' : 'pending';
+    let labelStatus = hasOnlineGateway ? 'healthy' : 'pending';
+    let logStatus = hasOnlineGateway ? 'success' : 'pending';
+    let pushErrorMsg = '';
+
+    // If gateway is online, attempt to push article & link to Solum AIMS
+    if (hasOnlineGateway) {
+      const gateway = gwResult.recordset[0];
+      const articleUrl = `http://${gateway.gateway_ip}/api/v2/common/articles`;
+      const linkUrl = `http://${gateway.gateway_ip}/api/v2/common/labels/link`;
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${gateway.api_key || ''}`
+      };
+
+      try {
+        console.log(`[SOLUM-API] Pushing article to ${articleUrl} for SKU ${itm_cd}`);
+        const articleRes = await fetch(articleUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify([{
+            articleId: itm_cd,
+            articleName: itemName,
+            nfcUrl: "",
+            data: { price: currentPrice.toString(), originPrice: currentPrice.toString(), uom: "pcs" }
+          }])
+        });
+        
+        const articleJson = await articleRes.json();
+        console.log(`[SOLUM-API] Article Push Response: ${articleRes.status} - ${JSON.stringify(articleJson)}`);
+        if (!articleRes.ok || articleJson.result === false) {
+          throw new Error(`Article push failed: ${articleJson.errorMessage || articleJson.resultCode || articleRes.statusText}`);
+        }
+
+        console.log(`[SOLUM-API] Linking label ${label_id} -> article ${itm_cd} via ${linkUrl}`);
+        const linkRes = await fetch(linkUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ labelId: label_id, articleId: itm_cd })
+        });
+
+        const linkResText = await linkRes.text();
+        console.log(`[SOLUM-API] Label Link Response: ${linkRes.status} - ${linkResText}`);
+        if (!linkRes.ok) throw new Error(`Label link failed: ${linkRes.statusText} - ${linkResText}`);
+      } catch (pushErr) {
+        console.error('[SOLUM-API] Error pushing to Gateway:', pushErr.message);
+        labelStatus = 'sync_failed';
+        logStatus = 'failed';
+        pushErrorMsg = pushErr.message;
+      }
+    }
 
     // Merge/Upsert ESL label association
     await pool.request()
@@ -468,13 +516,6 @@ router.post('/labels/associate', async (req, res) => {
           VALUES (@label_id, @org_cd, @itm_cd, @item_name, @price, 100, -55, @status, GETDATE());
       `);
 
-    // If gateway is online, attempt to push article & link to Solum AIMS
-    if (hasOnlineGateway) {
-      const gateway = gwResult.recordset[0];
-      console.log(`[SOLUM-API] Pushing article to http://${gateway.gateway_ip}/api/v2/common/articles for SKU ${itm_cd}`);
-      console.log(`[SOLUM-API] Linking label ${label_id} -> article ${itm_cd} via http://${gateway.gateway_ip}/api/v2/common/labels/link`);
-    }
-
     // Log the association sync event
     await pool.request()
       .input('label_id', sql.NVarChar, label_id)
@@ -482,13 +523,16 @@ router.post('/labels/associate', async (req, res) => {
       .input('itm_cd', sql.NVarChar, itm_cd)
       .input('price', sql.Decimal(18, 2), currentPrice)
       .input('log_status', sql.NVarChar, logStatus)
+      .input('error_msg', sql.NVarChar, pushErrorMsg || '')
       .query(`
-        INSERT INTO ESL_SYNC_LOGS (org_cd, label_id, itm_cd, prev_price, new_price, status)
-        VALUES (@org_cd, @label_id, @itm_cd, 0, @price, @log_status)
+        INSERT INTO ESL_SYNC_LOGS (org_cd, label_id, itm_cd, prev_price, new_price, status, error_msg)
+        VALUES (@org_cd, @label_id, @itm_cd, 0, @price, @log_status, @error_msg)
       `);
 
     const message = hasOnlineGateway
-      ? `Label ${label_id} successfully mapped to SKU ${itm_cd} and pushed to gateway.`
+      ? (logStatus === 'success' 
+          ? `Label ${label_id} successfully mapped to SKU ${itm_cd} and pushed to gateway.`
+          : `Label ${label_id} mapped to SKU ${itm_cd} but gateway push FAILED.`)
       : `Label ${label_id} mapped to SKU ${itm_cd} but gateway is OFFLINE — status set to 'pending'. Data will sync when the gateway comes online.`;
 
     res.json({ success: true, status: labelStatus, message });
@@ -560,10 +604,10 @@ router.put('/labels/:labelId', async (req, res) => {
       // Resolve barcode to itm_cd if possible using ITEM_UOM_MAPPING_MST
       const barcodeResult = await hoPool.request()
         .input('barcode', sql.NVarChar, itm_cd)
-        .query('SELECT TOP 1 IUM_ITEM_CD FROM ITEM_UOM_MAPPING_MST WHERE IUM_BARCODE = @barcode');
+        .query('SELECT TOP 1 ium_itm_cd FROM ITEM_UOM_MAPPING_MST WHERE ium_bar_itm_cd = @barcode');
       
       if (barcodeResult.recordset.length > 0) {
-        const resolvedItmCd = barcodeResult.recordset[0].IUM_ITEM_CD;
+        const resolvedItmCd = barcodeResult.recordset[0].ium_itm_cd;
         console.log(`[ESL-UPDATE] Resolved barcode ${itm_cd} to item code ${resolvedItmCd}`);
         itm_cd = resolvedItmCd; // Use actual item code for all subsequent operations
       }
@@ -605,10 +649,53 @@ router.put('/labels/:labelId', async (req, res) => {
     // Check gateway availability
     const gwResult = await pool.request()
       .input('org_cd', sql.NVarChar, org_cd)
-      .query("SELECT gateway_ip, hostname FROM ESL_GATEWAYS WHERE org_cd = @org_cd AND status = 'online'");
+      .query("SELECT gateway_ip, hostname, api_key FROM ESL_GATEWAYS WHERE org_cd = @org_cd AND status = 'online'");
 
     const hasOnlineGateway = gwResult.recordset.length > 0;
-    const labelStatus = hasOnlineGateway ? 'healthy' : 'pending';
+    let labelStatus = hasOnlineGateway ? 'healthy' : 'pending';
+    let logStatus = hasOnlineGateway ? 'success' : 'pending';
+    let pushErrorMsg = '';
+
+    // If gateway is online, attempt to push article & link to Solum AIMS
+    if (hasOnlineGateway) {
+      const gateway = gwResult.recordset[0];
+      const articleUrl = `http://${gateway.gateway_ip}/api/v2/common/articles`;
+      const linkUrl = `http://${gateway.gateway_ip}/api/v2/common/labels/link`;
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${gateway.api_key || ''}`
+      };
+
+      try {
+        console.log(`[SOLUM-API] Pushing article to ${articleUrl} for SKU ${itm_cd}`);
+        const articleRes = await fetch(articleUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify([{
+            articleId: itm_cd,
+            articleName: itemName,
+            nfcUrl: "",
+            data: { price: currentPrice.toString(), originPrice: currentPrice.toString(), uom: "pcs" }
+          }])
+        });
+        
+        if (!articleRes.ok) throw new Error(`Article push failed: ${articleRes.statusText}`);
+
+        console.log(`[SOLUM-API] Linking label ${labelId} -> article ${itm_cd} via ${linkUrl}`);
+        const linkRes = await fetch(linkUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ labelId: labelId, articleId: itm_cd })
+        });
+
+        if (!linkRes.ok) throw new Error(`Label link failed: ${linkRes.statusText}`);
+      } catch (pushErr) {
+        console.error('[SOLUM-API] Error pushing to Gateway:', pushErr.message);
+        labelStatus = 'sync_failed';
+        logStatus = 'failed';
+        pushErrorMsg = pushErr.message;
+      }
+    }
 
     // Update the label
     await pool.request()
@@ -624,8 +711,23 @@ router.put('/labels/:labelId', async (req, res) => {
         WHERE label_id = @label_id
       `);
 
+    // Log the update event
+    await pool.request()
+      .input('label_id', sql.NVarChar, labelId)
+      .input('org_cd', sql.NVarChar, org_cd)
+      .input('itm_cd', sql.NVarChar, itm_cd)
+      .input('price', sql.Decimal(18, 2), currentPrice)
+      .input('log_status', sql.NVarChar, logStatus)
+      .input('error_msg', sql.NVarChar, pushErrorMsg || '')
+      .query(`
+        INSERT INTO ESL_SYNC_LOGS (org_cd, label_id, itm_cd, prev_price, new_price, status, error_msg)
+        VALUES (@org_cd, @label_id, @itm_cd, 0, @price, @log_status, @error_msg)
+      `);
+
     const message = hasOnlineGateway
-      ? `Label ${labelId} updated and synced to gateway.`
+      ? (logStatus === 'success' 
+          ? `Label ${labelId} updated and synced to gateway.`
+          : `Label ${labelId} updated but gateway push FAILED.`)
       : `Label ${labelId} updated but gateway is OFFLINE — status set to 'pending'.`;
 
     res.json({ success: true, status: labelStatus, message });
@@ -933,10 +1035,25 @@ router.post('/labels/blink/:labelId', async (req, res) => {
     }
     const gateway = gwResult.recordset[0];
 
-    // 3. Simulate calling Solum AIMS REST API endpoint /api/v2/common/labels/blink
-    console.log(`[SOLUM-API] Sending POST request to http://${gateway.gateway_ip}/api/v2/common/labels/blink`);
-    console.log(`[SOLUM-API] Headers: Authorization=Bearer ${gateway.api_key || 'DEFAULT_MOCK_KEY'}, Content-Type=application/json`);
-    console.log(`[SOLUM-API] Payload: ${JSON.stringify({ labelId, duration: 10, color: 'GREEN' })}`);
+    // 3. Call Solum AIMS REST API endpoint /api/v2/common/labels/blink
+    const blinkUrl = `http://${gateway.gateway_ip}/api/v2/common/labels/blink`;
+    console.log(`[SOLUM-API] Sending POST request to ${blinkUrl}`);
+    
+    const blinkRes = await fetch(blinkUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${gateway.api_key || ''}`
+      },
+      body: JSON.stringify({ labelId, duration: 10, color: 'GREEN' })
+    });
+
+    const blinkResText = await blinkRes.text();
+    console.log(`[SOLUM-API] Flash LED Response: ${blinkRes.status} - ${blinkResText}`);
+
+    if (!blinkRes.ok) {
+      throw new Error(`Failed to send LED blink command: ${blinkRes.statusText} - ${blinkResText}`);
+    }
 
     res.json({ 
       success: true, 

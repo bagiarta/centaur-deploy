@@ -101,7 +101,7 @@ export const devicePing = async (req, res) => {
     };
 
     if (system) {
-      cpu = system.cpu_load ? `${system.cpu_load}%` : null;
+      cpu = (system.cpu_load !== undefined && system.cpu_load !== null) ? `${system.cpu_load}%` : null;
       ram = system.memory ? `${formatBytes(system.memory.used)} / ${formatBytes(system.memory.total)}` : null;
       disk = system.storage ? `${formatBytes(system.storage.used)} / ${formatBytes(system.storage.total)}` : null;
     }

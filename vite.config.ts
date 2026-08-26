@@ -14,24 +14,24 @@ export default defineConfig(({ mode }) => ({
     },
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:3001",
+        target: "http://192.168.85.30:3001",
         changeOrigin: true,
         secure: false,
       },
       "/sso-api": {
-        target: "http://127.0.0.1:3001",
-        changeOrigin: true,
+        target: "http://192.168.85.30:3001",
+        changeOrigin: false,
         secure: false,
       },
       "/sso": {
-        target: "http://127.0.0.1:3001",
+        target: "http:192.168.85.30:3001",
         changeOrigin: true,
         secure: false,
       },
     },
   },
   plugins: [
-    react(), 
+    react(),
     mode === "development" && componentTagger(),
     VitePWA({
       strategies: 'injectManifest',

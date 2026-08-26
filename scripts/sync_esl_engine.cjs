@@ -158,8 +158,8 @@ async function syncPrices(targetOrgCd = null) {
             const reason = needsResync ? `Re-syncing ${labelStatus} label` : `Price difference detected`;
             console.log(`[ESL-SYNC] ${reason} for SKU ${itm_cd} (${itemName}) in Store ${org_cd}: Label=${labelPrice} vs Master=${latestPrice}`);
             
-            // Trigger gateway simulation push using the specific gateway
-            await simulateGatewayPush(label_id, itm_cd, itemName, latestPrice, activeGateway);
+            // Trigger gateway push using the specific gateway
+            await pushToSolumGateway(label_id, itm_cd, itemName, latestPrice, activeGateway);
 
             // 5. Update the current_price and status in the database
             await pool.request()
@@ -254,12 +254,9 @@ async function syncPrices(targetOrgCd = null) {
 }
 
 /**
- * Simulate REST API call to Solum AIMS v2 server running on store's Access Point gateway
+ * Perform real REST API call to Solum AIMS v2 server running on store's Access Point gateway
  */
-async function simulateGatewayPush(labelId, sku, itemName, price, gateway) {
-  // Simulating network delay for calling Solum AIMS server endpoints
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
+async function pushToSolumGateway(labelId, sku, itemName, price, gateway) {
   // 1. Create/Update Article in Solum AIMS Server: POST /api/v2/common/articles
   const articleUrl = `http://${gateway.gateway_ip}/api/v2/common/articles`;
   const articlePayload = [
@@ -274,9 +271,25 @@ async function simulateGatewayPush(labelId, sku, itemName, price, gateway) {
       }
     }
   ];
+  
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${gateway.api_key || ''}`
+  };
+
   console.log(`[SOLUM-AIMS-API] [${gateway.hostname}] Upserting Article: POST ${articleUrl}`);
-  console.log(`[SOLUM-AIMS-API] Auth-Token: Bearer ${gateway.api_key || 'MOCK_TOKEN'}`);
-  console.log(`[SOLUM-AIMS-API] Payload: ${JSON.stringify(articlePayload)}`);
+  
+  const articleRes = await fetch(articleUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(articlePayload)
+  });
+
+  const articleJson = await articleRes.json();
+  console.log(`[SOLUM-AIMS-API] Article Push Response: ${articleRes.status} - ${JSON.stringify(articleJson)}`);
+  if (!articleRes.ok || articleJson.result === false) {
+    throw new Error(`Article push failed: ${articleJson.errorMessage || articleJson.resultCode || articleRes.statusText}`);
+  }
 
   // 2. Link Label to Article in Solum AIMS Server: POST /api/v2/common/labels/link
   const linkUrl = `http://${gateway.gateway_ip}/api/v2/common/labels/link`;
@@ -285,7 +298,18 @@ async function simulateGatewayPush(labelId, sku, itemName, price, gateway) {
     articleId: sku
   };
   console.log(`[SOLUM-AIMS-API] [${gateway.hostname}] Binding Tag to Article: POST ${linkUrl}`);
-  console.log(`[SOLUM-AIMS-API] Payload: ${JSON.stringify(linkPayload)}`);
+  
+  const linkRes = await fetch(linkUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(linkPayload)
+  });
+
+  const linkResText = await linkRes.text();
+  console.log(`[SOLUM-AIMS-API] Label Link Response: ${linkRes.status} - ${linkResText}`);
+  if (!linkRes.ok) {
+    throw new Error(`Label link failed: ${linkRes.statusText} - ${linkResText}`);
+  }
 }
 
 /**

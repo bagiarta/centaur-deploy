@@ -6,7 +6,8 @@ import {
   Server, Shield, Bell, User, Activity, Users, Database, Scale, Tag,
   UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
   UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw, Wrench,
-  Video, Trophy, HardDrive,
+  Video, Trophy, HardDrive, LayoutTemplate, Briefcase, MapPin, Building,
+  UserCheck, ArrowRightLeft, CalendarClock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,7 +17,19 @@ import ChatWidget from "./chat/ChatWidget";
 import { Ticket, LifeBuoy, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 
-export const navItems = [
+type NavigationItem = {
+  id?: string;
+  to?: string;
+  exact?: boolean;
+  icon?: any;
+  label: string;
+  group?: string;
+  adminOnly?: boolean;
+  hidden?: boolean;
+  children?: NavigationItem[];
+};
+
+export const navItems: NavigationItem[] = [
   { id: "overview", to: "/", icon: LayoutDashboard, label: "Overview", group: "main" },
   { id: "reports", to: "/reports", icon: Activity, label: "Reports", group: "main" },
   { id: "devices", to: "/devices", icon: Monitor, label: "Devices", group: "main" },
@@ -34,6 +47,22 @@ export const navItems = [
       { id: "sm_schedule", to: "/support-manager/schedule", icon: ClipboardList, label: "PM Schedule & Checklist" },
       { id: "sm_actions", to: "/support-manager/action-items", icon: Wrench, label: "Action Items Tracking" },
       { id: "sm_approvals", to: "/support-manager/approvals", icon: CheckCircle, label: "Store PM Approvals" },
+    ]
+  },
+  {
+    id: "asset_manager",
+    label: "Asset Management",
+    icon: Briefcase,
+    group: "main",
+    children: [
+      { id: "asset_dashboard", to: "/assets/dashboard", icon: Activity, label: "Dashboard" },
+      { id: "asset_register", to: "/assets", exact: true, icon: LayoutTemplate, label: "Asset Register" },
+      { id: "asset_assignments", to: "/assets/assignments", icon: UserCheck, label: "Assignments" },
+      { id: "asset_movements", to: "/assets/movements", icon: ArrowRightLeft, label: "Movements" },
+      { id: "asset_locations", to: "/assets/locations", icon: MapPin, label: "Locations" },
+      { id: "asset_departments", to: "/assets/departments", icon: Building, label: "Departments" },
+      { id: "asset_vendors", to: "/assets/vendors", icon: Users, label: "Vendors" },
+      { id: "asset_categories", to: "/assets/categories", icon: Tag, label: "Categories" },
     ]
   },
   {
@@ -65,8 +94,6 @@ export const navItems = [
       { id: "network", to: "/network", icon: Globe, label: "Network Map" },
       { id: "groups", to: "/groups", icon: Users, label: "Device Groups" },
       { id: "sql", to: "/remote-sql", icon: Database, label: "Remote SQL" },
-      //{ id: "scales", to: "/scales", icon: Scale, label: "Scale Manager" },
-      { id: "esl", to: "/esl", icon: Tag, label: "ESL Control Center" },
       { id: "agent", to: "/agent-installer", icon: Download, label: "Agent Installer" },
       { id: "installers", to: "/tools/installers", icon: Download, label: "Installation Files" },
       { id: "remote", to: "/remote", icon: Terminal, label: "Remote Commands" },
@@ -438,7 +465,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden relative">
-      {/* ── Desktop Sidebar ────────────────────────────────────── */}
+      {/* ────────────────────────────────────────────────────────── */}
       <aside
         className={cn(
           "hidden md:flex flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 ease-in-out shrink-0 relative z-10",
@@ -497,15 +524,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <ul className="space-y-0.5">
                   {items.map(item => {
                     const hasChildren = item.children && item.children.length > 0;
-                    const isExpanded = expandedGroups.includes(item.id);
+                    const isExpanded = expandedGroups.includes(item.id || "");
 
                     // Active check for parent (including if any child is active)
-                    const isParentActive = item.to && (item.to === "/"
-                      ? location.pathname === "/"
-                      : location.pathname === item.to || location.pathname.startsWith(item.to + "/"));
+                    const isParentActive = item.to && (item.exact || item.to === "/"
+                        ? location.pathname === item.to
+                        : location.pathname === item.to || location.pathname.startsWith(item.to + "/"));
 
                     const isChildActive = hasChildren && item.children?.some(child =>
-                      location.pathname === child.to || location.pathname.startsWith(child.to + "/")
+                        child.exact ? location.pathname === child.to : (location.pathname === child.to || location.pathname.startsWith(child.to + "/"))
                     );
 
                     const active = isParentActive || isChildActive;
@@ -514,7 +541,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       return (
                         <li key={item.id} className="space-y-0.5">
                           <button
-                            onClick={() => toggleGroup(item.id)}
+                            onClick={() => toggleGroup(item.id || "")}
                             className={cn(
                               "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 relative group/nav",
                               "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -535,12 +562,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                             <ul className="ml-4 pl-3 border-l border-sidebar-border/50 space-y-0.5 mt-0.5 animate-in slide-in-from-top-1 duration-200">
                               {item.children?.map(child => {
                                 if (child.id && !hasPermission(child.id)) return null;
-                                const childActive = location.pathname === child.to || location.pathname.startsWith(child.to + "/");
+                                const childActive = child.exact ? location.pathname === child.to : (location.pathname === child.to || location.pathname.startsWith(child.to + "/"));
                                 return (
                                   <li key={child.to}>
 
                                     <NavLink
-                                      to={child.to}
+                                      to={child.to || "#"}
                                       className={cn(
                                         "flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] font-medium transition-all duration-150",
                                         "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -653,7 +680,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* ── Main ───────────────────────────────────────── */}
+      {/* â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden pb-16 md:pb-0">
         {/* Topbar (Desktop & Mobile combined logic) */}
         <header className="flex items-center justify-between h-14 px-4 md:px-6 border-b border-border bg-surface/50 shrink-0 backdrop-blur-sm z-20">
@@ -713,7 +740,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      {/* ── Mobile Bottom Navigation ────────────────────── */}
+      {/* â”€â”€ Mobile Bottom Navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border z-50 flex items-center justify-around h-16 pb-safe">
         {[
           { to: "/", icon: LayoutDashboard, label: "Home" },
@@ -737,7 +764,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </button>
       </div>
 
-      {/* ── Mobile Side Drawer (Menu) ───────────────────── */}
+      {/* â”€â”€ Mobile Side Drawer (Menu) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {mobileMenuOpen && (
         <div className="md:hidden fixed inset-0 z-[100] flex">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => setMobileMenuOpen(false)} />
@@ -876,4 +903,5 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
 
