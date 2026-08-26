@@ -29,10 +29,10 @@ export default function LoginPage() {
       if (!config.auth_url || !config.client_id || !config.redirect_uri) {
         throw new Error("SSO config is incomplete");
       }
-      
+
       // Generate a CSRF state token and store it for verification on callback
-      const state = (typeof crypto !== 'undefined' && crypto.randomUUID) 
-        ? crypto.randomUUID() 
+      const state = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
         : Math.random().toString(36).substring(2) + Date.now().toString(36);
       sessionStorage.setItem("sso_state", state);
 
@@ -70,7 +70,7 @@ export default function LoginPage() {
           <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
 
           <div className="space-y-6 relative z-10 text-center">
-            
+
             <p className="text-sm text-foreground-muted mb-6">
               Authentication is managed centrally via SSO. Please log in using your corporate credentials.
             </p>
@@ -101,7 +101,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="text-center mt-8 text-foreground-muted text-xs">
-          &copy; {new Date().getFullYear()} 死神  .
+          &copy; {new Date().getFullYear()} 死神.
         </p>
       </div>
     </div>

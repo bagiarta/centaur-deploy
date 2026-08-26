@@ -7470,6 +7470,8 @@ import('./routes/eslRoutes.js').then((routerModule) => {
 
 // \u2500€\u2500€ STATIC FILES & SPA FALLBACK \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.get('/api/test-assets', (req, res) => res.json({ message: "Hello from server.cjs!" }));
+app.use('/api/assets', require('./server_assets.cjs')(sql, dbConfig));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'dist')));
 app.get(/.*/, (req, res) => {

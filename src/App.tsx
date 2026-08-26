@@ -32,6 +32,17 @@ import CCTVMonitoringPage from "./pages/CCTVMonitoringPage";
 import PMDashboardPage from "./pages/PMDashboardPage";
 import PMSchedulePage from "./pages/PMSchedulePage";
 import PMActionItemsPage from "./pages/PMActionItemsPage";
+
+import AssetDashboardPage from "./pages/assets/AssetDashboardPage";
+import AssetRegisterPage from "./pages/assets/AssetRegisterPage";
+import AssetLocationsPage from "./pages/assets/AssetLocationsPage";
+import AssetDepartmentsPage from "./pages/assets/AssetDepartmentsPage";
+import AssetVendorsPage from "./pages/assets/AssetVendorsPage";
+import AssetCategoriesPage from "./pages/assets/AssetCategoriesPage";
+import AssetDetailPage from "./pages/assets/AssetDetailPage";
+import AssetAssignmentsPage from "./pages/assets/AssetAssignmentsPage";
+import AssetBASTPage from "./pages/assets/AssetBASTPage";
+import AssetMovementsPage from "./pages/assets/AssetMovementsPage";
 import StorePMApprovalPage from "./pages/StorePMApprovalPage";
 import DeviceHealthPage from "./pages/DeviceHealthPage";
 import InstallersPage from "./pages/InstallersPage";
@@ -227,6 +238,19 @@ const App = () => (
             <Route path="/crm/abc-analysis" element={<ProtectedRoute><AppShell><CrmAbcAnalysisPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/reports/:type" element={<ProtectedRoute><AppShell><CrmReportsPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/dev-loyalty" element={<ProtectedRoute><AppShell><CrmDevLoyaltyPage /></AppShell></ProtectedRoute>} />
+            
+            {/* Asset Management Routes */}
+            <Route path="/assets/dashboard" element={<ProtectedRoute><AppShell><AssetDashboardPage /></AppShell></ProtectedRoute>} />
+            <Route path="/assets" element={<ProtectedRoute><AppShell><AssetRegisterPage /></AppShell></ProtectedRoute>} />
+            <Route path="/assets/assignments" element={<ProtectedRoute><AppShell><AssetAssignmentsPage /></AppShell></ProtectedRoute>} />
+            <Route path="/assets/assignments/bast/:id" element={<ProtectedRoute><AssetBASTPage /></ProtectedRoute>} />
+            <Route path="/assets/movements" element={<ProtectedRoute><AppShell><AssetMovementsPage /></AppShell></ProtectedRoute>} />
+            <Route path="/assets/:id" element={<ProtectedRoute><AppShell><AssetDetailPage /></AppShell></ProtectedRoute>} />
+            <Route path="/assets/locations" element={<ProtectedRoute><AppShell><AssetLocationsPage /></AppShell></ProtectedRoute>} />
+            <Route path="/assets/departments" element={<ProtectedRoute><AppShell><AssetDepartmentsPage /></AppShell></ProtectedRoute>} />
+            <Route path="/assets/vendors" element={<ProtectedRoute><AppShell><AssetVendorsPage /></AppShell></ProtectedRoute>} />
+            <Route path="/assets/categories" element={<ProtectedRoute><AppShell><AssetCategoriesPage /></AppShell></ProtectedRoute>} />
+
             <Route path="/scales" element={
               <ProtectedRoute>
                 <AppShell>
