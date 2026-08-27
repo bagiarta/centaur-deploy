@@ -22,6 +22,7 @@ interface ActionItem {
   created_at: string;
   execution_date: string;
   pic_name: string;
+  asset_code?: string;
 }
 
 const formatLocalDate = (dateStr: string | null | undefined) => {
@@ -359,7 +360,16 @@ export default function PMActionItemsPage() {
                             {item.device_category}
                           </span>
                         </td>
-                        <td className="px-4 py-3.5 text-sm font-semibold text-foreground">{item.device_name}</td>
+                        <td className="px-4 py-3.5 text-sm font-semibold text-foreground">
+                          <div className="flex flex-col">
+                            <span>{item.device_name}</span>
+                            {item.asset_code && (
+                              <span className="text-[10px] font-mono text-foreground-muted font-normal mt-0.5">
+                                Asset: {item.asset_code}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-4 py-3.5">
                           <div className="flex flex-col max-w-xs">
                             <span className="text-xs text-foreground-subtle bg-surface-raised p-2 rounded-md border border-border/50 truncate" title={item.issue_description}>

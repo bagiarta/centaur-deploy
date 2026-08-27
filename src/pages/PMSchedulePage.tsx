@@ -46,6 +46,7 @@ interface ChecklistItem {
   status: "Good" | "Needs Repair" | "Needs Replacement" | "Not Available";
   issues_found: string;
   cctv_device_id?: string;
+  asset_code?: string;
 }
 
 const DEFAULT_DEVICES = [
@@ -1061,13 +1062,26 @@ export default function PMSchedulePage() {
 
                                   {/* Problem input fields (only show if status is broken) */}
                                   {(item.status === "Needs Repair" || item.status === "Needs Replacement") && (
-                                    <input
-                                      type="text"
-                                      placeholder="Describe the issue... (required)"
-                                      value={item.issues_found}
-                                      onChange={(e) => handleChecklistNotesChange(idx, e.target.value)}
-                                      className="w-full bg-background border border-danger/35 rounded px-2.5 py-1 text-xs text-foreground outline-none focus:border-danger transition-all animate-shake"
-                                    />
+                                    <div className="flex flex-col gap-2">
+                                      <input
+                                        type="text"
+                                        placeholder="Describe the issue... (required)"
+                                        value={item.issues_found}
+                                        onChange={(e) => handleChecklistNotesChange(idx, e.target.value)}
+                                        className="w-full bg-background border border-danger/35 rounded px-2.5 py-1 text-xs text-foreground outline-none focus:border-danger transition-all animate-shake"
+                                      />
+                                      <input
+                                        type="text"
+                                        placeholder="Asset Code (Optional but recommended for replacement)"
+                                        value={item.asset_code || ""}
+                                        onChange={(e) => {
+                                          const newChecklist = [...checklist];
+                                          newChecklist[idx].asset_code = e.target.value;
+                                          setChecklist(newChecklist);
+                                        }}
+                                        className="w-full bg-background border border-border rounded px-2.5 py-1 text-xs text-foreground outline-none focus:border-primary transition-all"
+                                      />
+                                    </div>
                                   )}
                                 </div>
                               )}

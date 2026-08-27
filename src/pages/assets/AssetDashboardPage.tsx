@@ -28,8 +28,8 @@ export default function AssetDashboardPage() {
 
   return (
     <div className="p-4 md:p-8 space-y-6">
-      <PageHeader 
-        title="Asset Dashboard" 
+      <PageHeader
+        title="Asset Dashboard"
         subtitle="Overview of your company's physical and digital assets."
       />
 
@@ -41,13 +41,13 @@ export default function AssetDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalAssets}</div>
-            <p className="text-xs text-muted-foreground mt-1">General: {stats.amAssetsCount} | Devices: {stats.devicesCount} | CCTV: {stats.cctvCount}</p>
+            <p className="text-xs text-muted-foreground mt-1">General: {stats.amAssetsCount}</p>
             <div className="absolute top-2 right-2 flex gap-1 opacity-20">
-               <Server className="w-8 h-8" />
+              <Server className="w-8 h-8" />
             </div>
           </CardContent>
         </Card>
-        
+
         <Card className="bg-green-500/5 border-green-500/20">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Active & Good</CardTitle>
@@ -109,7 +109,7 @@ export default function AssetDashboardPage() {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -118,9 +118,9 @@ export default function AssetDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-               <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
-                 Coming soon...
-               </div>
+              <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
+                Coming soon...
+              </div>
             </div>
           </CardContent>
         </Card>

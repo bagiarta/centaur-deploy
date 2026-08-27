@@ -120,7 +120,31 @@ export const createDevice = async (req, res) => {
         VALUES (@id, @hostname, @ip, @os_version, @cpu, @ram, @disk, @agent_version, @status, @group_ids, @last_seen, @device_type, @location, @latitude, @longitude)
       `);
 
-    res.status(201).json({ message: 'Device created completely' });
+    // Auto-generate Asset Code and Register to AM_Assets
+    const assetCode = 'AST-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.floor(1000 + Math.random() * 9000);
+    const assetName = hostname || ('Device ' + ip);
+    try {
+      await pool.request()
+        .input('asset_code', sql.NVarChar, assetCode)
+        .input('asset_name', sql.NVarChar, assetName)
+        .input('category_code', sql.NVarChar, 'CAT-NET')
+        .input('status', sql.NVarChar, 'IN_USE')
+        .input('condition', sql.NVarChar, 'GOOD')
+        .input('location_code', sql.NVarChar, location || 'HQ')
+        .query(`
+          INSERT INTO AM_Assets (asset_code, asset_name, category_code, status, condition, location_code)
+          VALUES (@asset_code, @asset_name, @category_code, @status, @condition, @location_code)
+        `);
+      
+      await pool.request()
+        .input('asset_code', sql.NVarChar, assetCode)
+        .input('id', sql.NVarChar, id)
+        .query(`UPDATE Devices SET asset_code = @asset_code WHERE id = @id`);
+    } catch (e) {
+      console.error('Failed to auto-register asset for device:', e);
+    }
+
+    res.status(201).json({ message: 'Device created completely', asset_code: assetCode });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -133,7 +157,7 @@ export const updateDevice = async (req, res) => {
     const pool = await poolPromise;
     const gids = Array.isArray(group_ids) ? group_ids.join(',') : '';
 
-    await pool.request()
+    const result = await pool.request()
       .input('id', sql.NVarChar, req.params.id)
       .input('hostname', sql.NVarChar, hostname)
       .input('ip', sql.NVarChar, ip)
@@ -155,8 +179,22 @@ export const updateDevice = async (req, res) => {
           cpu = @cpu, ram = @ram, disk = @disk, agent_version = @agent_version, 
           status = @status, group_ids = @group_ids, last_seen = @last_seen, device_type = @device_type,
           location = @location, latitude = @latitude, longitude = @longitude
+        OUTPUT INSERTED.asset_code
         WHERE id = @id
       `);
+
+    const assetCode = result.recordset[0]?.asset_code;
+    if (assetCode) {
+      await pool.request()
+        .input('asset_code', sql.NVarChar, assetCode)
+        .input('asset_name', sql.NVarChar, hostname || `Device ${ip}`)
+        .input('location_code', sql.NVarChar, location || 'HQ')
+        .query(`
+          UPDATE AM_Assets 
+          SET asset_name = @asset_name, location_code = @location_code 
+          WHERE asset_code = @asset_code
+        `);
+    }
 
     res.status(200).json({ message: 'Device updated completely' });
   } catch (err) {

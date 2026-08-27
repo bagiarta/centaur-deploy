@@ -326,6 +326,30 @@ export const createCCTVDevice = async (req, res) => {
         VALUES (@id, @name, @device_type, @vendor, @model, @ip_address, @port, @username, @password_hash, @is_https, @location_id, @poll_interval, @created_at, @updated_at)
       `);
     
+    // Auto-generate Asset Code and Register to AM_Assets
+    const assetCode = 'AST-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.floor(1000 + Math.random() * 9000);
+    const assetName = finalName || ('CCTV ' + ipAddress);
+    try {
+      await pool.request()
+        .input('asset_code', sql.NVarChar, assetCode)
+        .input('asset_name', sql.NVarChar, assetName)
+        .input('category_code', sql.NVarChar, 'CAT-CCTV')
+        .input('status', sql.NVarChar, 'IN_USE')
+        .input('condition', sql.NVarChar, 'GOOD')
+        .input('location_code', sql.NVarChar, locationId ? locationId.toString() : 'HQ')
+        .query(`
+          INSERT INTO AM_Assets (asset_code, asset_name, category_code, status, condition, location_code)
+          VALUES (@asset_code, @asset_name, @category_code, @status, @condition, @location_code)
+        `);
+      
+      await pool.request()
+        .input('asset_code', sql.NVarChar, assetCode)
+        .input('id', sql.NVarChar, id)
+        .query(`UPDATE CCTVDevices SET asset_code = @asset_code WHERE id = @id`);
+    } catch (e) {
+      console.error('Failed to auto-register asset for CCTV device:', e);
+    }
+    
     // Save discovered channels
     if (discoveredData && discoveredData.channels && discoveredData.channels.length > 0) {
       console.log(`[CCTV] Saving ${discoveredData.channels.length} channels`);
@@ -536,6 +560,26 @@ export const updateCCTVDevice = async (req, res) => {
     request.input('updated_at', sql.DateTime, new Date());
     
     await request.query(`UPDATE CCTVDevices SET ${updates.join(', ')} WHERE id = @id`);
+    
+    // Sync with AM_Assets if name or location changed
+    if (req.body.device_name !== undefined || req.body.location_id !== undefined) {
+      const getAssetReq = await pool.request()
+        .input('id', sql.NVarChar, id)
+        .query('SELECT asset_code, device_name, location_id FROM CCTVDevices WHERE id = @id');
+      
+      const cctv = getAssetReq.recordset[0];
+      if (cctv && cctv.asset_code) {
+        await pool.request()
+          .input('asset_code', sql.NVarChar, cctv.asset_code)
+          .input('asset_name', sql.NVarChar, cctv.device_name || 'CCTV Device')
+          .input('location_code', sql.NVarChar, cctv.location_id ? cctv.location_id.toString() : 'HQ')
+          .query(`
+            UPDATE AM_Assets
+            SET asset_name = @asset_name, location_code = @location_code
+            WHERE asset_code = @asset_code
+          `);
+      }
+    }
     
     res.json({ success: true, message: 'CCTV Device updated successfully' });
   } catch (err) {
