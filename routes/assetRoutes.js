@@ -22,6 +22,30 @@ async function executeQuery(query, params = []) {
   }
 }
 
+// CRM Pool for DimStore access
+let crmPoolPromise = null;
+async function getCrmPool() {
+  if (crmPoolPromise) return crmPoolPromise;
+  try {
+    const config = {
+      user: process.env.CRM_DB_USER || 'sa',
+      password: process.env.CRM_DB_PASS || process.env.DB_PASS,
+      server: process.env.CRM_DB_SERVER || '192.168.85.55',
+      database: process.env.CRM_DB_NAME || 'DBWH_8555',
+      options: { encrypt: false, trustServerCertificate: true },
+      connectionTimeout: 15000,
+      requestTimeout: 30000
+    };
+    const crmPool = new sql.ConnectionPool(config);
+    crmPoolPromise = crmPool.connect();
+    return crmPoolPromise;
+  } catch (err) {
+    console.error('Failed to connect to CRM Pool:', err.message);
+    crmPoolPromise = null;
+    throw err;
+  }
+}
+
 // ==========================================
 // LOCATIONS
 // ==========================================
@@ -34,6 +58,27 @@ router.get('/locations', async (req, res) => {
       FROM AM_Locations l 
       ORDER BY l.location_name ASC
     `);
+
+    try {
+      const crmPool = await getCrmPool();
+      const storeResult = await crmPool.request().query(`
+        SELECT ORG_CD as location_code, ORG_NAME as location_name 
+        FROM DimStore 
+        WHERE ORG_STATUS='O'
+      `);
+      
+      const stores = storeResult.recordset.map(store => ({
+        ...store,
+        type: 'STORE',
+        status: 'ACTIVE',
+        asset_count: 0 // Optional: Could calculate this if needed
+      }));
+      
+      data.push(...stores);
+    } catch (storeErr) {
+      console.error('Failed to fetch stores for locations:', storeErr.message);
+    }
+
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch locations' });
@@ -381,7 +426,7 @@ router.post('/assets', async (req, res) => {
       .input('category_code', sql.VarChar, category_code)
       .input('location_code', sql.VarChar, location_code)
       .input('vendor_id', sql.Int, vendor_id || null)
-      .input('status', sql.VarChar, status || 'ACTIVE')
+      .input('status', sql.VarChar, status || 'IN_USE')
       .input('condition', sql.VarChar, condition || 'NEW')
       .input('pic', sql.VarChar, pic || null)
       .input('purchase_date', sql.Date, purchase_date || null)
@@ -473,7 +518,10 @@ router.get('/assignments', async (req, res) => {
       SELECT 
         asg.*, 
         asg.assignee as assigned_to,
-        ast.asset_name, 
+        ast.asset_name,
+        ast.serial_number,
+        ast.activa_code,
+        ast.physical_address,
         d.name as department_name 
       FROM AM_Assignments asg 
       JOIN AM_Assets ast ON asg.asset_code = ast.asset_code 
@@ -496,6 +544,7 @@ router.get('/assignments', async (req, res) => {
             SELECT 
               asg.id as assignment_id,
               asg.bast_number,
+              asg.return_bast_number,
               asg.assigned_date,
               asg.assignee as assigned_to,
               asg.status as assignment_status,
@@ -660,9 +709,15 @@ router.delete('/assignments/:id', async (req, res) => {
         }
         const asset_code = asgRes.recordset[0].asset_code;
 
+        // Generate return BAST number
+        const dateStr = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 8); // YYYYMMDD
+        const randStr = Math.floor(1000 + Math.random() * 9000); // 4 digit random
+        const return_bast_number = `BAST-RET-${dateStr}-${randStr}`;
+
         await transaction.request()
           .input('id', sql.Int, id)
-          .query(`UPDATE AM_Assignments SET status = 'RETURNED' WHERE id = @id`);
+          .input('return_bast_number', sql.VarChar, return_bast_number)
+          .query(`UPDATE AM_Assignments SET status = 'RETURNED', return_bast_number = @return_bast_number WHERE id = @id`);
 
         await transaction.request()
           .input('asset_code', sql.VarChar, asset_code)
@@ -670,13 +725,12 @@ router.delete('/assignments/:id', async (req, res) => {
           .query(`
             UPDATE AM_Assets 
             SET status = 'IN_STORAGE', 
-                condition = @condition,
-                location_code = NULL
+                condition = @condition
             WHERE asset_code = @asset_code
           `);
 
         await transaction.commit();
-        res.json({ message: 'Asset returned successfully' });
+        res.json({ message: 'Asset returned successfully', return_bast_number });
       } catch (err) {
         await transaction.rollback();
         throw err;
@@ -698,67 +752,6 @@ router.get('/movements', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch movements' });
   }
 });
-
-router.post('/movements', async (req, res) => {
-  try {
-    const { asset_code, request_type, from_location, to_location, reason, requested_by } = req.body;
-    const pool = await poolPromise;
-    const result = await pool.request()
-      .input('asset_code', sql.VarChar, asset_code)
-      .input('request_type', sql.VarChar, request_type)
-      .input('from_location', sql.VarChar, from_location || null)
-      .input('to_location', sql.VarChar, to_location || null)
-      .input('reason', sql.VarChar, reason || null)
-      .input('requested_by', sql.VarChar, requested_by || null)
-      .query(`
-        INSERT INTO AM_Movements (asset_code, request_type, from_location, to_location, reason, requested_by) 
-        OUTPUT INSERTED.*
-        VALUES (@asset_code, @request_type, @from_location, @to_location, @reason, @requested_by)
-      `);
-    res.status(201).json(result.recordset[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to create movement' });
-  }
-});
-
-router.put('/movements/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, approved_by, approval_date } = req.body;
-    const pool = await poolPromise;
-    const result = await pool.request()
-      .input('id', sql.Int, id)
-      .input('status', sql.VarChar, status || 'PENDING')
-      .input('approved_by', sql.VarChar, approved_by || null)
-      .input('approval_date', sql.Date, approval_date || null)
-      .query(`
-        UPDATE AM_Movements 
-        SET status = @status, approved_by = @approved_by, approval_date = @approval_date
-        OUTPUT INSERTED.*
-        WHERE id = @id
-      `);
-    if (result.rowsAffected[0] === 0) return res.status(404).json({ error: 'Not found' });
-    res.json(result.recordset[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to update movement' });
-  }
-});
-
-router.delete('/movements/:id', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request()
-      .input('id', sql.Int, req.params.id)
-      .query('DELETE FROM AM_Movements WHERE id = @id');
-    if (result.rowsAffected[0] === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ message: 'Deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to delete movement' });
-  }
-});
-
 
 // ==========================================
 // COMPONENTS
@@ -812,38 +805,133 @@ router.delete('/components/:id', async (req, res) => {
 });
 
 // ==========================================
+// MOVEMENTS
+// ==========================================
+router.get('/movements', async (req, res) => {
+  try {
+    const data = await executeQuery(`SELECT * FROM AM_Movements ORDER BY request_date DESC`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch movements' });
+  }
+});
+
+router.post('/movements', async (req, res) => {
+  try {
+    const { asset_code, request_type, from_location, to_location, reason, requested_by } = req.body;
+    const pool = await poolPromise;
+    const movement_id = 'MOV-' + Date.now();
+    
+    await pool.request()
+      .input('movement_id', sql.VarChar, movement_id)
+      .input('asset_code', sql.VarChar, asset_code)
+      .input('request_type', sql.VarChar, request_type)
+      .input('from_location', sql.VarChar, from_location || null)
+      .input('to_location', sql.VarChar, to_location || null)
+      .input('reason', sql.VarChar, reason || null)
+      .input('requested_by', sql.VarChar, requested_by)
+      .input('status', sql.VarChar, 'PENDING')
+      .query(`
+        INSERT INTO AM_Movements (movement_id, asset_code, request_type, from_location, to_location, reason, requested_by, status, request_date, created_at)
+        VALUES (@movement_id, @asset_code, @request_type, @from_location, @to_location, @reason, @requested_by, @status, GETDATE(), GETDATE())
+      `);
+      
+    res.status(201).json({ message: 'Movement created successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create movement' });
+  }
+});
+
+router.put('/movements/:id', async (req, res) => {
+  try {
+    const { status, approved_by } = req.body;
+    const pool = await poolPromise;
+    
+    const result = await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .input('status', sql.VarChar, status)
+      .input('approved_by', sql.VarChar, approved_by || 'Admin')
+      .query(`
+        UPDATE AM_Movements 
+        SET status = @status, 
+            approved_by = @approved_by,
+            completion_date = CASE WHEN @status = 'APPROVED' THEN GETDATE() ELSE completion_date END
+        OUTPUT INSERTED.asset_code, INSERTED.to_location, INSERTED.request_type
+        WHERE id = @id
+      `);
+      
+    if (status === 'APPROVED' && result.recordset.length > 0) {
+      const { asset_code, to_location, request_type } = result.recordset[0];
+      
+      let updates = [];
+      const updateReq = pool.request();
+      updateReq.input('asset_code', sql.VarChar, asset_code);
+
+      if (to_location) {
+        updates.push('location_code = @location_code');
+        updateReq.input('location_code', sql.VarChar, to_location);
+      }
+
+      if (request_type === 'TRANSFER') {
+        updates.push("status = 'IN_USE'");
+      } else if (request_type === 'RETURN') {
+        updates.push("status = 'IN_STORAGE'");
+      } else if (request_type === 'DISPOSAL') {
+        updates.push("status = 'RETIRED'");
+        updates.push("condition = 'DAMAGED'");
+      }
+
+      if (updates.length > 0) {
+        await updateReq.query(`
+          UPDATE AM_Assets
+          SET ${updates.join(', ')}
+          WHERE asset_code = @asset_code
+        `);
+      }
+    }
+      
+    res.json({ message: 'Movement updated successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update movement' });
+  }
+});
+
+router.delete('/movements/:id', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .query('DELETE FROM AM_Movements WHERE id = @id');
+    res.json({ message: 'Deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete movement' });
+  }
+});
+
+// ==========================================
 // DASHBOARD STATS
 // ==========================================
 router.get('/dashboard-stats', async (req, res) => {
   try {
     const pool = await poolPromise;
     const assetsCountRes = await pool.request().query('SELECT COUNT(*) as count FROM AM_Assets');
-    const devicesCountRes = await pool.request().query('SELECT COUNT(*) as count FROM Devices');
     
-    // Fallback if CCTVDevices doesn't exist
-    let cctvCount = 0;
-    try {
-      const cctvCountRes = await pool.request().query('SELECT COUNT(*) as count FROM CCTVDevices');
-      cctvCount = cctvCountRes.recordset[0].count;
-    } catch(e) { }
-
     const amAssetsCount = assetsCountRes.recordset[0].count;
-    const devicesCount = devicesCountRes.recordset[0].count;
-    
-    const totalCount = amAssetsCount + devicesCount + cctvCount;
+    const totalCount = amAssetsCount; // Only count from AM_Assets now
 
     // Status distributions
-    const activeAssetsRes = await pool.request().query("SELECT COUNT(*) as count FROM AM_Assets WHERE status = 'ACTIVE' OR condition = 'GOOD'");
+    const activeAssetsRes = await pool.request().query("SELECT COUNT(*) as count FROM AM_Assets WHERE status = 'IN_USE' OR condition = 'GOOD'");
     const activeAssets = activeAssetsRes.recordset[0].count;
-    const activeDevicesRes = await pool.request().query("SELECT COUNT(*) as count FROM Devices WHERE status = 'online' OR status = 'ACTIVE'");
-    const activeDevices = activeDevicesRes.recordset[0].count;
-    const totalActive = activeAssets + activeDevices;
+    const totalActive = activeAssets;
 
     res.json({
       totalAssets: totalCount,
       amAssetsCount,
-      devicesCount,
-      cctvCount,
+      devicesCount: 0, // Legacy field, kept for UI compatibility if needed
+      cctvCount: 0,    // Legacy field, kept for UI compatibility if needed
       totalActive
     });
   } catch (err) {

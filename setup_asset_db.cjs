@@ -101,6 +101,7 @@ async function setupAssetDB() {
         assigned_date DATE NOT NULL,
         status VARCHAR(20) DEFAULT 'ACTIVE',
         bast_number VARCHAR(50) NULL,
+        return_bast_number VARCHAR(50) NULL,
         asset_condition VARCHAR(50) NULL,
         created_at DATETIME DEFAULT GETDATE()
       )

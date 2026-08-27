@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PageHeader, SectionCard } from '@/components/ui-enterprise';
-import { Search, Plus, Filter, LayoutTemplate, Tag, QrCode, MoreHorizontal, Eye, Edit, Trash2, Check, ChevronsUpDown } from 'lucide-react';
+import { Search, Plus, Filter, LayoutTemplate, Tag, QrCode, MoreHorizontal, Eye, Edit, Trash2, Check, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -26,18 +26,23 @@ import { LocationSelect } from '@/components/LocationSelect';
 export default function AssetRegisterPage() {
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('ALL');
+  const [filterStatus, setFilterStatus] = useState('ALL');
+  const [filterCondition, setFilterCondition] = useState('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingAssetId, setEditingAssetId] = useState<number | null>(null);
   const [assets, setAssets] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   
   const [formData, setFormData] = useState({ 
     asset_name: '', 
     category_code: '', 
     location_code: '', 
     vendor_id: '',
-    status: 'ACTIVE',
+    status: 'IN_USE',
     condition: 'NEW',
     price: 0,
     purchase_date: '',
@@ -71,28 +76,69 @@ export default function AssetRegisterPage() {
   }, []);
 
   const filteredAssets = assets.filter(a => {
-    const matchSearch = a.asset_name.toLowerCase().includes(search.toLowerCase()) || 
-                        a.asset_code.toLowerCase().includes(search.toLowerCase());
+    const searchStr = search.toLowerCase();
+    const matchSearch = (a.asset_name || '').toLowerCase().includes(searchStr) || 
+                        (a.asset_code || '').toLowerCase().includes(searchStr) ||
+                        (a.serial_number || '').toLowerCase().includes(searchStr) ||
+                        (a.activa_code || '').toLowerCase().includes(searchStr) ||
+                        (a.physical_address || '').toLowerCase().includes(searchStr);
     const matchCategory = filterCategory === 'ALL' || a.category_code === filterCategory;
-    return matchSearch && matchCategory;
+    const matchStatus = filterStatus === 'ALL' || a.status === filterStatus;
+    const matchCondition = filterCondition === 'ALL' || a.condition === filterCondition;
+    return matchSearch && matchCategory && matchStatus && matchCondition;
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterCategory, filterStatus, filterCondition]);
+
+  const totalPages = Math.ceil(filteredAssets.length / itemsPerPage);
+  const paginatedAssets = filteredAssets.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const handleEditClick = (asset: any) => {
+    setEditingAssetId(asset.id);
+    setFormData({
+      asset_name: asset.asset_name || '',
+      category_code: asset.category_code || '',
+      location_code: asset.location_code || '',
+      vendor_id: asset.vendor_id ? asset.vendor_id.toString() : '',
+      status: asset.status || 'IN_USE',
+      condition: asset.condition || 'NEW',
+      price: asset.price || 0,
+      purchase_date: asset.purchase_date ? asset.purchase_date.substring(0, 10) : '',
+      po_number: asset.po_number || '',
+      serial_number: asset.serial_number || '',
+      activa_code: asset.activa_code || '',
+      physical_address: asset.physical_address || ''
+    });
+    setIsModalOpen(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await assetApi.createAsset({
+      const payload = {
         ...formData,
         vendor_id: formData.vendor_id ? parseInt(formData.vendor_id) : null
-      });
+      };
+      if (editingAssetId) {
+        await assetApi.updateAsset(editingAssetId, payload);
+      } else {
+        await assetApi.createAsset(payload);
+      }
       setIsModalOpen(false);
+      setEditingAssetId(null);
       setFormData({ 
         asset_name: '', category_code: '', location_code: '', vendor_id: '', 
-        status: 'ACTIVE', condition: 'NEW', price: 0,
+        status: 'IN_USE', condition: 'NEW', price: 0,
         purchase_date: '', po_number: '', serial_number: '', activa_code: '', physical_address: '' 
       });
       fetchData();
     } catch (err) {
-      alert("Failed to create asset.");
+      alert(`Failed to ${editingAssetId ? 'update' : 'create'} asset.`);
     }
   };
 
@@ -121,7 +167,7 @@ export default function AssetRegisterPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search assets by name or code..."
+                placeholder="Search assets by name, code, SN, aktiva, or address..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-md text-sm outline-none focus:border-primary transition-all"
@@ -137,9 +183,43 @@ export default function AssetRegisterPage() {
                 <option key={c.code} value={c.code}>{c.name}</option>
               ))}
             </select>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-background border border-border rounded-md text-sm outline-none focus:border-primary px-3 py-2 w-32"
+            >
+              <option value="ALL">All Status</option>
+              <option value="ACTIVE">Active</option>
+              <option value="IN_USE">In Use</option>
+              <option value="IN_STORAGE">In Storage</option>
+              <option value="UNDER_REPAIR">Under Repair</option>
+              <option value="RETIRED">Retired</option>
+            </select>
+            <select
+              value={filterCondition}
+              onChange={(e) => setFilterCondition(e.target.value)}
+              className="bg-background border border-border rounded-md text-sm outline-none focus:border-primary px-3 py-2 w-32"
+            >
+              <option value="ALL">All Conditions</option>
+              <option value="NEW">New</option>
+              <option value="GOOD">Good</option>
+              <option value="USED">Used</option>
+              <option value="FAIR">Fair</option>
+              <option value="DAMAGED">Damaged</option>
+            </select>
           </div>
           
-          <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+          <Dialog open={isModalOpen} onOpenChange={(open) => {
+            setIsModalOpen(open);
+            if (!open) {
+              setEditingAssetId(null);
+              setFormData({ 
+                asset_name: '', category_code: '', location_code: '', vendor_id: '', 
+                status: 'IN_USE', condition: 'NEW', price: 0,
+                purchase_date: '', po_number: '', serial_number: '', activa_code: '', physical_address: '' 
+              });
+            }
+          }}>
             <DialogTrigger asChild>
               <button className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors">
                 <Plus className="w-4 h-4" />
@@ -148,9 +228,9 @@ export default function AssetRegisterPage() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
-                <DialogTitle>Register New Asset</DialogTitle>
+                <DialogTitle>{editingAssetId ? 'Edit Asset' : 'Register New Asset'}</DialogTitle>
                 <DialogDescription>
-                  Enter the basic details to register a new asset into the system.
+                  {editingAssetId ? 'Update the details of the asset.' : 'Enter the basic details to register a new asset into the system.'}
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4 py-4 max-h-[60vh] overflow-y-auto px-1">
@@ -237,7 +317,7 @@ export default function AssetRegisterPage() {
                     </div>
                   </div>
                 <DialogFooter className="pt-4">
-                  <button type="submit" className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium">Save Asset</button>
+                  <button type="submit" className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium">{editingAssetId ? 'Update Asset' : 'Save Asset'}</button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -250,15 +330,16 @@ export default function AssetRegisterPage() {
               <tr className="border-b border-border bg-muted/50">
                 <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Asset Details</th>
                 <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Category</th>
-                <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Location</th>
+                <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Identifiers (SN/Aktiva)</th>
+                <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Location & Address</th>
                 <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
                 <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Condition</th>
                 <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredAssets.length > 0 ? (
-                filteredAssets.map(asset => (
+              {paginatedAssets.length > 0 ? (
+                paginatedAssets.map(asset => (
                   <tr key={asset.id} className="border-b border-border hover:bg-muted/20 transition-colors">
                     <td className="p-3">
                       <div className="flex items-center gap-3">
@@ -278,13 +359,23 @@ export default function AssetRegisterPage() {
                         <Tag className="w-3 h-3" /> {asset.category_code}
                       </span>
                     </td>
+                    <td className="p-3 text-sm">
+                      <div className="flex flex-col gap-1">
+                        {asset.serial_number ? <span className="text-xs text-muted-foreground">SN: <span className="font-medium text-foreground">{asset.serial_number}</span></span> : null}
+                        {asset.activa_code ? <span className="text-xs text-muted-foreground">Aktiva: <span className="font-medium text-foreground">{asset.activa_code}</span></span> : null}
+                        {!asset.serial_number && !asset.activa_code && <span className="text-xs text-muted-foreground">-</span>}
+                      </div>
+                    </td>
                       <td className="p-3 text-sm text-muted-foreground">
-                        {locations.find(l => l.location_code === asset.location_code)?.location_name || asset.location_code}
+                        <div className="flex flex-col gap-1">
+                          <span>{locations.find(l => l.location_code === asset.location_code)?.location_name || asset.location_code}</span>
+                          {asset.physical_address && <span className="text-xs">Addr: {asset.physical_address}</span>}
+                        </div>
                       </td>
                     <td className="p-3">
                       <span className={cn(
                         "px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                        asset.status === 'ACTIVE' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
+                        asset.status === 'IN_USE' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
                         asset.status === 'IN_STORAGE' ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
                         asset.status === 'UNDER_REPAIR' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
                         "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400"
@@ -306,7 +397,7 @@ export default function AssetRegisterPage() {
                           <DropdownMenuItem onClick={() => navigate(`/assets/${asset.id}`)} className="cursor-pointer">
                             <Eye className="w-4 h-4 mr-2" /> View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => alert("Edit not implemented")} className="cursor-pointer">
+                          <DropdownMenuItem onClick={() => handleEditClick(asset)} className="cursor-pointer">
                             <Edit className="w-4 h-4 mr-2" /> Edit Asset
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
@@ -328,6 +419,34 @@ export default function AssetRegisterPage() {
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-4 px-2">
+            <p className="text-sm text-muted-foreground">
+              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredAssets.length)} of {filteredAssets.length} assets
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-2 border border-border rounded-md hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-sm font-medium px-2">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-2 border border-border rounded-md hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </SectionCard>
     </div>
   );

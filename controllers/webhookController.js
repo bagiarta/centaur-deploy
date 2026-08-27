@@ -173,6 +173,31 @@ export const devicePing = async (req, res) => {
             @id, @hostname, @ip, @os_version, @status, @last_seen, @device_type, @network_ports, @cpu, @ram, @disk, @system_metrics
           )
         `);
+      
+      // Auto-generate Asset Code and Register to AM_Assets
+      const assetCode = 'AST-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.floor(1000 + Math.random() * 9000);
+      const assetName = hostname || ('Device ' + req.ip);
+      try {
+        await pool.request()
+          .input('asset_code', sql.NVarChar, assetCode)
+          .input('asset_name', sql.NVarChar, assetName)
+          .input('category_code', sql.NVarChar, 'CAT-NET')
+          .input('status', sql.NVarChar, 'IN_USE')
+          .input('condition', sql.NVarChar, 'GOOD')
+          .input('location_code', sql.NVarChar, 'HQ') // Default location
+          .query(`
+            INSERT INTO AM_Assets (asset_code, asset_name, category_code, status, condition, location_code)
+            VALUES (@asset_code, @asset_name, @category_code, @status, @condition, @location_code)
+          `);
+        
+        await pool.request()
+          .input('asset_code', sql.NVarChar, assetCode)
+          .input('id', sql.NVarChar, deviceId)
+          .query(`UPDATE Devices SET asset_code = @asset_code WHERE id = @id`);
+      } catch (e) {
+        console.error('Failed to auto-register asset for webhook device:', e);
+      }
+
       console.log(`✅ Network Hook: Registered new device ${hostname}`);
     }
 

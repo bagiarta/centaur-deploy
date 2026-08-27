@@ -351,12 +351,42 @@ export const submitPMResult = async (req, res) => {
           .input('device_category', sql.NVarChar, check.device_category)
           .input('device_name', sql.NVarChar, check.device_name)
           .input('cctv_device_id', sql.NVarChar, check.cctv_device_id || null)
+          .input('asset_code', sql.NVarChar, check.asset_code || null)
           .input('issue_description', sql.NVarChar, check.issues_found || 'Issues detected during Preventive Maintenance')
           .input('action_type', sql.NVarChar, action_type)
           .query(`
-            INSERT INTO Trial_PMActionItems (result_id, store_code, device_category, device_name, cctv_device_id, issue_description, action_type, status)
-            VALUES (@result_id, @store_code, @device_category, @device_name, @cctv_device_id, @issue_description, @action_type, 'Pending')
+            INSERT INTO Trial_PMActionItems (result_id, store_code, device_category, device_name, cctv_device_id, asset_code, issue_description, action_type, status)
+            VALUES (@result_id, @store_code, @device_category, @device_name, @cctv_device_id, @asset_code, @issue_description, @action_type, 'Pending')
           `);
+          
+        if (check.asset_code) {
+          // 4a. Update Asset Condition
+          const assetStatus = action_type === 'Replacement' ? 'RETIRED' : 'UNDER_REPAIR'; // Or 'DAMAGED'
+          await transaction.request()
+            .input('asset_code', sql.NVarChar, check.asset_code)
+            .query(`
+              UPDATE AM_Assets
+              SET condition = 'DAMAGED',
+                  status = '${assetStatus}'
+              WHERE asset_code = @asset_code
+            `);
+
+          // 4b. Auto Movement Request (If Replacement)
+          if (action_type === 'Replacement') {
+            const movement_id = 'MOV-' + Date.now() + Math.floor(Math.random() * 1000);
+            await transaction.request()
+              .input('movement_id', sql.VarChar, movement_id)
+              .input('asset_code', sql.VarChar, check.asset_code)
+              .input('request_type', sql.VarChar, 'RETURN')
+              .input('from_location', sql.VarChar, store_code)
+              .input('reason', sql.VarChar, 'Auto-generated from PM Action Item: ' + (check.issues_found || 'Replacement needed'))
+              .input('requested_by', sql.VarChar, 'PM System')
+              .query(`
+                INSERT INTO AM_Movements (movement_id, asset_code, request_type, from_location, reason, requested_by, status, request_date, created_at)
+                VALUES (@movement_id, @asset_code, @request_type, @from_location, @reason, @requested_by, 'PENDING', GETDATE(), GETDATE())
+              `);
+          }
+        }
       }
     }
 

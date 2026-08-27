@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PageHeader, SectionCard } from '@/components/ui-enterprise';
-import { Search, Plus, Map, ArrowRightLeft, FileText, CheckCircle2, XCircle, Clock, MoreHorizontal, Check, X, Trash2 } from 'lucide-react';
+import { Search, Plus, Map, ArrowRightLeft, FileText, CheckCircle2, XCircle, Clock, MoreHorizontal, Check, X, Trash2, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -20,10 +20,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { assetApi } from '@/lib/api-assets';
+import { LocationSelect } from '@/components/LocationSelect';
+import { AssetSelect } from '@/components/AssetSelect';
 
 export default function AssetMovementsPage() {
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [viewMovement, setViewMovement] = useState<any>(null);
   const [movements, setMovements] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
@@ -44,6 +47,12 @@ export default function AssetMovementsPage() {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const getLocationName = (code: string | undefined | null) => {
+    if (!code) return '-';
+    const loc = locations.find(l => l.location_code === code);
+    return loc ? loc.location_name : code;
   };
 
   useEffect(() => {
@@ -141,25 +150,39 @@ export default function AssetMovementsPage() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Asset Code</label>
-                  <select required value={formData.asset_code} onChange={e => setFormData({...formData, asset_code: e.target.value})} className="w-full p-2 border rounded-md bg-background">
-                    <option value="">-- Choose Asset --</option>
-                    {assets.map(a => <option key={a.asset_code} value={a.asset_code}>{a.asset_name} ({a.asset_code})</option>)}
-                  </select>
+                  <AssetSelect
+                    required
+                    assets={assets}
+                    value={formData.asset_code}
+                    onChange={v => {
+                      const selectedAsset = assets.find(a => a.asset_code === v);
+                      setFormData({
+                        ...formData, 
+                        asset_code: v,
+                        from_location: selectedAsset?.location_code || ''
+                      });
+                    }}
+                    placeholder="-- Choose Asset --"
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">From Location</label>
-                    <select required value={formData.from_location} onChange={e => setFormData({...formData, from_location: e.target.value})} className="w-full p-2 border rounded-md bg-background">
-                      <option value="">-- Optional --</option>
-                      {locations.map(l => <option key={l.location_code} value={l.location_code}>{l.location_name}</option>)}
-                    </select>
+                    <LocationSelect 
+                      locations={locations}
+                      value={formData.from_location}
+                      onChange={v => setFormData({...formData, from_location: v})}
+                      placeholder="-- Optional --"
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">To Location</label>
-                    <select required value={formData.to_location} onChange={e => setFormData({...formData, to_location: e.target.value})} className="w-full p-2 border rounded-md bg-background">
-                      <option value="">-- Optional --</option>
-                      {locations.map(l => <option key={l.location_code} value={l.location_code}>{l.location_name}</option>)}
-                    </select>
+                    <LocationSelect 
+                      locations={locations}
+                      value={formData.to_location}
+                      onChange={v => setFormData({...formData, to_location: v})}
+                      placeholder="-- Optional --"
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -199,10 +222,10 @@ export default function AssetMovementsPage() {
                   <td className="p-3">
                     <div className="flex flex-col gap-1">
                       <span className="text-xs font-semibold">{mov.request_type}</span>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{mov.from_location || '-'}</span>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground whitespace-normal">
+                        <span>{getLocationName(mov.from_location)}</span>
                         <ArrowRightLeft className="w-3 h-3 shrink-0" />
-                        <span>{mov.to_location || '-'}</span>
+                        <span>{getLocationName(mov.to_location)}</span>
                       </div>
                     </div>
                   </td>
@@ -229,6 +252,9 @@ export default function AssetMovementsPage() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuLabel>Manage Request</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={() => setViewMovement(mov)} className="cursor-pointer">
+                          <Eye className="w-4 h-4 mr-2" /> View Details
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         {mov.status === 'PENDING' && (
                           <>
@@ -261,6 +287,66 @@ export default function AssetMovementsPage() {
           </table>
         </div>
       </SectionCard>
+
+      <Dialog open={!!viewMovement} onOpenChange={(open) => !open && setViewMovement(null)}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Movement Details</DialogTitle>
+            <DialogDescription>
+              {viewMovement?.movement_id || 'Detail Request'}
+            </DialogDescription>
+          </DialogHeader>
+          {viewMovement && (
+            <div className="space-y-4 py-2">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground block mb-1">Asset Code</span>
+                  <span className="font-medium">{viewMovement.asset_code}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block mb-1">Status</span>
+                  <span className={cn(
+                      "px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1 w-max",
+                      viewMovement.status === 'APPROVED' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : 
+                      viewMovement.status === 'REJECTED' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                      "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                    )}>
+                    {viewMovement.status}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block mb-1">Request Type</span>
+                  <span className="font-medium">{viewMovement.request_type}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block mb-1">Requested By</span>
+                  <span className="font-medium">{viewMovement.requested_by}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block mb-1">From Location</span>
+                  <span className="font-medium">{getLocationName(viewMovement.from_location)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block mb-1">To Location</span>
+                  <span className="font-medium">{getLocationName(viewMovement.to_location)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block mb-1">Request Date</span>
+                  <span className="font-medium">{new Date(viewMovement.request_date).toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block mb-1">Approved By</span>
+                  <span className="font-medium">{viewMovement.approved_by || '-'}</span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-muted-foreground block mb-1">Reason</span>
+                  <div className="p-3 bg-muted/50 rounded-md whitespace-pre-wrap border border-border mt-1">{viewMovement.reason || '-'}</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -36,6 +36,9 @@ export default function AssetAssignmentsPage() {
   const [selectedAssignment, setSelectedAssignment] = useState<any>(null);
   const [returnFormData, setReturnFormData] = useState({ return_condition: 'USED', return_notes: '' });
 
+  // Grouping State
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
   const fetchData = async () => {
     try {
       const [assigData, assetData, deptData, locData] = await Promise.all([
@@ -57,10 +60,38 @@ export default function AssetAssignmentsPage() {
     fetchData();
   }, []);
 
-  const filteredAssignments = assignments.filter(a => 
-    a.assigned_to?.toLowerCase().includes(search.toLowerCase()) || 
-    a.asset_code?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredAssignments = assignments.filter(a => {
+    const s = search.toLowerCase();
+    return a.assigned_to?.toLowerCase().includes(s) || 
+           a.asset_code?.toLowerCase().includes(s) ||
+           a.bast_number?.toLowerCase().includes(s) ||
+           a.asset_name?.toLowerCase().includes(s) ||
+           a.serial_number?.toLowerCase().includes(s) ||
+           a.activa_code?.toLowerCase().includes(s) ||
+           a.physical_address?.toLowerCase().includes(s);
+  });
+
+  const groupedAssignments = filteredAssignments.reduce((acc: any, curr: any) => {
+    const key = curr.bast_number || `no-bast-${curr.id || curr.assignment_id}`;
+    if (!acc[key]) {
+      acc[key] = {
+        key: key,
+        bast_number: curr.bast_number,
+        assigned_to: curr.assigned_to,
+        department_name: curr.department_name || curr.department_code,
+        assigned_date: curr.assigned_date,
+        items: []
+      };
+    }
+    acc[key].items.push(curr);
+    return acc;
+  }, {});
+
+  const groupedArray = Object.values(groupedAssignments) as any[];
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -238,66 +269,124 @@ export default function AssetAssignmentsPage() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-border bg-muted/50">
-                <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Asset Info</th>
+                <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">BAST Number</th>
                 <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Assigned To</th>
                 <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Department</th>
                 <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Assigned Date</th>
-                <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Items</th>
                 <th className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filteredAssignments.map(assig => (
-                <tr key={assig.id} className="hover:bg-muted/30 transition-colors group">
-                  <td className="p-3">
-                    <div className="font-medium text-sm">{assig.asset_name}</div>
-                    <div className="text-xs text-muted-foreground">{assig.asset_code}</div>
-                  </td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      <UserCheck className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm">{assig.assigned_to}</span>
-                    </div>
-                  </td>
-                  <td className="p-3 text-sm text-muted-foreground">{assig.department_name || assig.department_code || '-'}</td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Calendar className="w-4 h-4" />
-                      {new Date(assig.assigned_date).toLocaleDateString()}
-                    </div>
-                  </td>
-                  <td className="p-3">
-                    <span className={cn(
-                      "px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 w-max",
-                      assig.status === 'ACTIVE' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-muted text-muted-foreground"
-                    )}>
-                      {assig.status === 'ACTIVE' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                      {assig.status}
-                    </span>
-                  </td>
-                  <td className="p-3 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger className="p-2 hover:bg-gray-100 rounded-md dark:hover:bg-gray-800">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => window.open(`/assets/assignments/bast/${assig.bast_number || assig.id}`, '_blank')} className="cursor-pointer">
-                          <Printer className="w-4 h-4 mr-2" /> Print BAST
-                        </DropdownMenuItem>
-                        {assig.status === 'ACTIVE' && (
-                          <DropdownMenuItem onClick={() => openReturnModal(assig)} className="cursor-pointer">
-                            <Clock className="w-4 h-4 mr-2" /> Mark as Returned
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => handleDelete(assig.id)} className="cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-100 dark:focus:bg-red-900/30">
-                          <Trash2 className="w-4 h-4 mr-2" /> Delete Record
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
-                </tr>
-              ))}
+              {groupedArray.map(group => {
+                const isExpanded = expandedGroups[group.key];
+                return (
+                  <React.Fragment key={group.key}>
+                    <tr className="hover:bg-muted/30 transition-colors group cursor-pointer" onClick={() => toggleGroup(group.key)}>
+                      <td className="p-3">
+                        <div className="font-bold text-sm text-primary">{group.bast_number || 'No BAST'}</div>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <UserCheck className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">{group.assigned_to}</span>
+                        </div>
+                      </td>
+                      <td className="p-3 text-sm text-muted-foreground">{group.department_name || '-'}</td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Calendar className="w-4 h-4" />
+                          {group.assigned_date ? new Date(group.assigned_date).toLocaleDateString() : '-'}
+                        </div>
+                      </td>
+                      <td className="p-3 text-sm">
+                        <span className="bg-muted px-2 py-1 rounded-full text-xs font-medium">
+                          {group.items.length} Asset{group.items.length > 1 ? 's' : ''}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="p-2 hover:bg-gray-200 rounded-md dark:hover:bg-gray-800" onClick={(e) => e.stopPropagation()}>
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {group.bast_number && (
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); window.open(`/assets/assignments/bast/${group.bast_number}`, '_blank'); }} className="cursor-pointer">
+                                <Printer className="w-4 h-4 mr-2" /> Print BAST
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={6} className="p-0 bg-muted/10 border-b border-border">
+                          <div className="p-4 pl-12 space-y-2">
+                            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Asset Details</h4>
+                            <table className="w-full text-left">
+                              <thead>
+                                <tr className="border-b border-border text-xs text-muted-foreground">
+                                  <th className="pb-2 font-medium">Asset Name</th>
+                                  <th className="pb-2 font-medium">Code</th>
+                                  <th className="pb-2 font-medium">Identifiers</th>
+                                  <th className="pb-2 font-medium">Location</th>
+                                  <th className="pb-2 font-medium">Status</th>
+                                  <th className="pb-2 font-medium text-right">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {group.items.map((assig: any) => (
+                                  <tr key={assig.id || assig.assignment_id} className="border-b border-border/50 last:border-0 hover:bg-muted/20">
+                                    <td className="py-3 text-sm font-medium">{assig.asset_name}</td>
+                                    <td className="py-3 text-sm text-muted-foreground">{assig.asset_code}</td>
+                                    <td className="py-3 text-sm text-muted-foreground">
+                                      {assig.serial_number && <div className="text-xs">SN: {assig.serial_number}</div>}
+                                      {assig.activa_code && <div className="text-xs">Aktiva: {assig.activa_code}</div>}
+                                      {!assig.serial_number && !assig.activa_code && '-'}
+                                    </td>
+                                    <td className="py-3 text-sm text-muted-foreground">
+                                      {assig.physical_address || '-'}
+                                    </td>
+                                    <td className="py-3">
+                                      <div className="flex flex-col gap-1">
+                                        <span className={cn(
+                                          "px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 w-max",
+                                          assig.status === 'ACTIVE' || assig.assignment_status === 'ACTIVE' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-muted text-muted-foreground"
+                                        )}>
+                                          {assig.status === 'ACTIVE' || assig.assignment_status === 'ACTIVE' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                                          {assig.assignment_status || assig.status}
+                                        </span>
+                                        {(assig.assignment_status === 'RETURNED' || assig.status === 'RETURNED') && assig.return_bast_number && (
+                                          <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                                            <FileText className="w-3 h-3" /> {assig.return_bast_number}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="py-3 text-right">
+                                      {(assig.status === 'ACTIVE' || assig.assignment_status === 'ACTIVE') && (
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); openReturnModal(assig); }}
+                                          className="text-xs px-2 py-1 bg-secondary text-secondary-foreground rounded hover:bg-secondary/80 flex items-center gap-1 ml-auto"
+                                        >
+                                          <Clock className="w-3 h-3" /> Return Item
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
               {filteredAssignments.length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-muted-foreground">
