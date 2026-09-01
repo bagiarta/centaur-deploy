@@ -3,6 +3,9 @@ import * as crmController from '../controllers/crmController.js';
 const router = express.Router();
 
 router.get('/api/reports/crm-sync', crmController.getCrmSyncStatusLegacy);
+router.get('/api/crm/dashboard', crmController.getApiCrmDashboard);
+router.get('/api/crm/dashboard/transactions', crmController.getApiCrmDashboardTransactions);
+router.get('/api/crm/dashboard/competition', crmController.getApiCrmDashboardCompetition);
 router.get('/api/crm/customer/:phone', crmController.getApiCrmCustomerPhone);
 router.get('/api/dev/loyalty/stats', crmController.getApiDevLoyaltyStats);
 router.get('/api/dev/loyalty/summary', crmController.getApiDevLoyaltySummary);

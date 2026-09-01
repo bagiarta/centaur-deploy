@@ -106,7 +106,7 @@ async function getHoServerPool() {
 }
 
 export const getCrmSyncStatusLegacy = async (req, res) => {
-try {
+  try {
     const pool = await poolPromise;
 
     // Fetch HOSERVER connection
@@ -225,7 +225,7 @@ async function getH2hToken() {
 }
 
 export const getApiCrmCustomerPhone = async (req, res) => {
-const { phone } = req.params;
+  const { phone } = req.params;
 
   if (!phone) {
     return res.status(400).json({ error: 'Phone number is required.' });
@@ -259,11 +259,11 @@ const { phone } = req.params;
 }
 
 export const getApiDevLoyaltyStats = async (req, res) => {
-const { fromDate, toDate, store = '' } = req.query;
+  const { fromDate, toDate, store = '' } = req.query;
   try {
     const pool = await poolPromise;
     const request = pool.request();
-    
+
     let whereClause = "WHERE 1=1";
     if (fromDate && toDate) {
       whereClause += " AND summary_date BETWEEN @fromDate AND @toDate";
@@ -300,7 +300,7 @@ const { fromDate, toDate, store = '' } = req.query;
 }
 
 export const getApiDevLoyaltySummary = async (req, res) => {
-const { page = 1, perPage = 50, search = '', sortBy = 'summary_date', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
+  const { page = 1, perPage = 50, search = '', sortBy = 'summary_date', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(perPage);
   const limit = parseInt(perPage);
   const safeSortDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
@@ -341,7 +341,7 @@ const { page = 1, perPage = 50, search = '', sortBy = 'summary_date', sortDir = 
       ORDER BY s.${safeSortCol} ${safeSortDir}
       OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     `);
-    
+
     res.json({ summaries: result.recordset, total, page: parseInt(page), perPage: limit });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -349,7 +349,7 @@ const { page = 1, perPage = 50, search = '', sortBy = 'summary_date', sortDir = 
 }
 
 export const getApiDevLoyaltyProfiles = async (req, res) => {
-const { page = 1, perPage = 50, search = '', sortBy = 'total_spent', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
+  const { page = 1, perPage = 50, search = '', sortBy = 'total_spent', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(perPage);
   const limit = parseInt(perPage);
   const safeSortDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
@@ -360,7 +360,7 @@ const { page = 1, perPage = 50, search = '', sortBy = 'total_spent', sortDir = '
     const pool = await poolPromise;
     let whereClause = "WHERE 1=1";
     const request = pool.request();
-    
+
     if (search) {
       whereClause += " AND (member_id LIKE @search OR name LIKE @search OR mobile_no LIKE @search OR city LIKE @search)";
       request.input('search', sql.NVarChar, `%${search}%`);
@@ -395,22 +395,22 @@ const { page = 1, perPage = 50, search = '', sortBy = 'total_spent', sortDir = '
     }
 
     const memberIds = profiles.map(p => p.member_id);
-    
+
     const chunkArray = (arr, size) => {
       const res = [];
-      for(let i = 0; i < arr.length; i += size) res.push(arr.slice(i, i + size));
+      for (let i = 0; i < arr.length; i += size) res.push(arr.slice(i, i + size));
       return res;
     };
     const idChunks = chunkArray(memberIds, 500);
-    
+
     const allSummaries = [];
     const allPromos = [];
 
     for (const chunk of idChunks) {
       if (chunk.length === 0) continue;
-      
+
       const idPlaceholders = chunk.map((id, idx) => `@id_${idx}`).join(', ');
-      
+
       let summaryQuery = `
         SELECT * FROM LOYAL_MEMBER_DAILY_SUMMARY 
         WHERE member_id IN (${idPlaceholders})
@@ -476,7 +476,7 @@ const { page = 1, perPage = 50, search = '', sortBy = 'total_spent', sortDir = '
 
     const result = profiles.map(p => {
       const memberSummaries = summariesByMember[p.member_id] || [];
-      
+
       // Calculate dynamic spent and txn based on filtered summaries
       let dynamicSpent = 0;
       let dynamicTxn = 0;
@@ -522,7 +522,7 @@ const { page = 1, perPage = 50, search = '', sortBy = 'total_spent', sortDir = '
 }
 
 export const getApiDevLoyaltyItemsales = async (req, res) => {
-const { page = 1, perPage = 50, search = '', sortBy = 'bill_dt', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
+  const { page = 1, perPage = 50, search = '', sortBy = 'bill_dt', sortDir = 'desc', fromDate, toDate, store = '' } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(perPage);
   const limit = parseInt(perPage);
   const safeSortDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
@@ -612,7 +612,7 @@ const { page = 1, perPage = 50, search = '', sortBy = 'bill_dt', sortDir = 'desc
         const crmPool = await getCrmPool();
         const nameMap = new Map();
         const batchSize = 1000;
-        
+
         for (let i = 0; i < uniqueCards.length; i += batchSize) {
           const batch = uniqueCards.slice(i, i + batchSize);
           const nameReq = crmPool.request();
@@ -620,14 +620,14 @@ const { page = 1, perPage = 50, search = '', sortBy = 'bill_dt', sortDir = 'desc
             nameReq.input('c' + idx, sql.NVarChar, c);
             return '@c' + idx;
           }).join(',');
-          
+
           const namesRes = await nameReq.query(`SELECT MEMBER_ID, PHONE_NUMBER, CUST_NAME FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) WHERE MEMBER_ID IN (${cardParams}) OR PHONE_NUMBER IN (${cardParams})`);
           namesRes.recordset.forEach(n => {
             if (n.MEMBER_ID) nameMap.set(n.MEMBER_ID, n.CUST_NAME);
             if (n.PHONE_NUMBER) nameMap.set(n.PHONE_NUMBER, n.CUST_NAME);
           });
         }
-        
+
         salesRes.recordset.forEach(r => {
           r.member_name = nameMap.get(r.card_no) || r.member_name;
         });
@@ -692,11 +692,11 @@ const { page = 1, perPage = 50, search = '', sortBy = 'bill_dt', sortDir = 'desc
 }
 
 export const exportDevLoyalty = async (req, res) => {
-const { tab, format } = req.params;
+  const { tab, format } = req.params;
   if (format !== 'excel') return res.status(400).json({ error: 'Only excel supported for now' });
 
   const { store, fromDate, toDate, search } = req.query;
-  
+
   try {
     const pool = await poolPromise;
     const request = pool.request();
@@ -853,11 +853,11 @@ const { tab, format } = req.params;
 }
 
 export const getApiDevLoyaltyEtlstatus = (req, res) => {
-res.json({ running: devEtlRunning, logs: devEtlLogs });
+  res.json({ running: devEtlRunning, logs: devEtlLogs });
 }
 
 export const postApiDevLoyaltyTriggeretl = async (req, res) => {
-const { fromDate, toDate } = req.body;
+  const { fromDate, toDate } = req.body;
   if (!fromDate || !toDate) {
     return res.status(400).json({ error: 'Please specify fromDate and toDate' });
   }
@@ -867,10 +867,10 @@ const { fromDate, toDate } = req.body;
   }
 
   const { runDevEtl } = require('../scripts/sync_dev_loyalty_etl.cjs');
-  
+
   devEtlRunning = true;
   devEtlLogs = [];
-  
+
   const logFn = (msg) => {
     const timeStr = new Date().toLocaleTimeString();
     devEtlLogs.push(`[${timeStr}] ${msg}`);
@@ -878,12 +878,12 @@ const { fromDate, toDate } = req.body;
   };
 
   logFn(`Starting manual ETL trigger for range: ${fromDate} to ${toDate}`);
-  
+
   (async () => {
     try {
       logFn(`Step 1/3: Syncing HOSERVER DIM_ITEM...`);
       await runHoServerDimItemSync();
-      
+
       logFn(`Step 2/3: Syncing ITEM_SALES_MEMBER...`);
       await runItemSalesSync(fromDate, toDate, logFn);
 
@@ -902,7 +902,7 @@ const { fromDate, toDate } = req.body;
 }
 
 export const getApiCrmReportsStores = async (req, res) => {
-try {
+  try {
     const crmPool = await getCrmPool();
     const result = await crmPool.request().query(`
       SELECT DISTINCT ORG_CD AS org_cd, ORG_NAME AS org_name 
@@ -917,7 +917,7 @@ try {
 }
 
 export const exportCrmReport = async (req, res) => {
-const { type, format } = req.params;
+  const { type, format } = req.params;
   const { fromDate, toDate, store, search, sortBy, sortDir = 'desc' } = req.query;
 
   try {
@@ -1091,77 +1091,88 @@ const { type, format } = req.params;
     else if (type === 'wakeup-call') {
       title = "Wakeup Call Customer";
       columns = [
+        { header: 'Store', key: 'last_store', width: 25 },
         { header: 'Name', key: 'name', width: 25 },
         { header: 'Card No', key: 'card_no', width: 20 },
-        { header: 'Phone No', key: 'phone_no', width: 15 },
-        { header: 'Tier', key: 'tier', width: 10 },
-        { header: 'Activation Status', key: 'activation_status', width: 15 },
-        { header: 'Current Point', key: 'current_point', width: 15 },
-        { header: 'Total Transaction', key: 'total_txn', width: 15 },
-        { header: 'Total Amount', key: 'total_amount', width: 20, style: { numFmt: '#,##0' } },
+        { header: 'Mobile No', key: 'phone_no', width: 15 },
+        { header: 'Transaction Type', key: 'transaction_type', width: 15 },
         { header: 'Last Txn Date', key: 'last_txn_date', width: 15 },
-        { header: 'Last Txn Store', key: 'last_store', width: 25 },
+        { header: 'Last Txn Days', key: 'last_txn_days', width: 15 },
+        { header: 'Current Points', key: 'current_point', width: 15 },
+        { header: 'Last Txn Store', key: 'last_store_name', width: 25 },
+        { header: 'Tier', key: 'tier', width: 10 }
       ];
 
-      let where = "WHERE 1=1";
+      let batasAkhir = toDate ? toDate.split(' ')[0] : new Date().toISOString().split('T')[0];
+      params.batas_akhir = batasAkhir;
+
+      let storeFilter = "(@store_cd IS NULL OR T.STORE_CD = @store_cd)";
       if (store && store !== 'All Store') {
         const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
         if (scRes.recordset.length > 0) {
-           where += " AND last_store = @storeCd";
-           params.storeCd = scRes.recordset[0].ORG_CD;
+          params.store_cd = scRes.recordset[0].ORG_CD;
         } else {
-           where += " AND last_store = @storeName";
-           params.storeName = store;
+          params.store_cd = null;
         }
+      } else {
+        params.store_cd = null;
       }
 
+      let searchFilter = '';
       if (search) {
-        where += " AND (member_name LIKE @search OR card_no LIKE @search)";
+        searchFilter = " AND (L.CUST_NAME LIKE @search OR L.MEMBER_ID LIKE @search)";
         params.search = `%${search}%`;
       }
 
-      if (fromDate && toDate) {
-         where += ` AND last_purchase_date >= @fromDate AND last_purchase_date <= @toDate`;
-         params.fromDate = fromDate + ' 00:00:00';
-         params.toDate = toDate + ' 23:59:59';
-      }
-
-      let orderCol = 'total_amount';
-      if (sortBy === 'name') orderCol = 'member_name';
-      else if (sortBy === 'phone_no') orderCol = 'mobile_no';
-      else if (sortBy === 'current_point') orderCol = 'total_transactions'; // Fallback
-      else if (sortBy === 'total_txn') orderCol = 'total_transactions';
-      else if (sortBy === 'last_txn_date') orderCol = 'last_purchase_date';
-      else if (sortBy === 'last_store') orderCol = 'last_store';
-      else if (sortBy === 'total_amount') orderCol = 'total_amount';
-      else if (sortBy === 'card_no') orderCol = 'card_no';
+      let orderCol = 'L.TRANS_DATE';
+      if (sortBy === 'name') orderCol = 'L.CUST_NAME';
+      else if (sortBy === 'phone_no') orderCol = 'L.PHONE_NUMBER';
+      else if (sortBy === 'last_txn_date') orderCol = 'L.TRANS_DATE';
+      else if (sortBy === 'last_store') orderCol = 'L.STORE_NAME';
+      else if (sortBy === 'card_no') orderCol = 'L.MEMBER_ID';
+      else if (sortBy === 'tier') orderCol = 'C.CARD_TIER_NAME';
       if (!sortDir) sortDir = 'desc';
 
       query = `
-        SELECT 
-            member_name as name,
-            card_no,
-            mobile_no as phone_no,
-            'Regular' as tier,
-            'Activated' as activation_status,
-            0 as current_point,
-            total_transactions as total_txn,
-            total_amount,
-            CONVERT(DATE, last_purchase_date) as last_txn_date,
-            last_store
-        FROM WakeupCallCache
-        ${where}
+        WITH LastTxn AS (
+          SELECT
+            T.MEMBER_ID,
+            T.STORE_CD,
+            T.STORE_NAME,
+            T.CUST_NAME,
+            T.PHONE_NUMBER,
+            T.TRANSACTION_TYPE,
+            T.TRANS_DATE,
+            T.LATEST_POINT,
+            ROW_NUMBER() OVER (
+              PARTITION BY T.MEMBER_ID
+              ORDER BY T.TRANS_DATE DESC, T.CREATED_AT DESC
+            ) AS RN
+          FROM RXL_LOYALID_TRANSACTIONS (NOLOCK) T
+          WHERE ${storeFilter}
+        )
+        SELECT
+          L.STORE_CD AS last_store,
+          L.CUST_NAME AS name,
+          L.MEMBER_ID AS card_no,
+          L.PHONE_NUMBER AS phone_no,
+          CAST(L.TRANS_DATE AS DATE) AS last_txn_date,
+          DATEDIFF(DAY, CAST(L.TRANS_DATE AS DATE), CAST(GETDATE() AS DATE)) AS last_txn_days,
+          L.LATEST_POINT AS current_point,
+          L.STORE_NAME AS last_store_name,
+          C.CARD_TIER_NAME AS tier,
+          L.TRANSACTION_TYPE as transaction_type
+        FROM LastTxn L
+        INNER JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) C
+          ON C.RLICM_CARD_NO = L.MEMBER_ID
+        WHERE L.RN = 1
+          AND L.TRANS_DATE <= @batas_akhir
+          ${searchFilter}
         ORDER BY ${orderCol} ${sortDir}
       `;
     }
 
-    let request;
-    if (type === 'wakeup-call') {
-      const pool = await poolPromise;
-      request = pool.request();
-    } else {
-      request = crmPool.request();
-    }
+    let request = crmPool.request();
     Object.keys(params).forEach(key => {
       request.input(key, sql.NVarChar, params[key]);
     });
@@ -1257,7 +1268,7 @@ const { type, format } = req.params;
 }
 
 export const getApiCrmSyncstatus = async (req, res) => {
-let hoPool = null;
+  let hoPool = null;
   try {
     hoPool = await getHoServerPool();
 
@@ -1310,7 +1321,7 @@ let hoPool = null;
 }
 
 export const getApiCrmTestconnection = async (req, res) => {
-let hoPool = null;
+  let hoPool = null;
   try {
     hoPool = await getHoServerPool();
     const result = await hoPool.request().query('SELECT @@VERSION as version');
@@ -1324,7 +1335,7 @@ let hoPool = null;
 }
 
 export const getApiCrmSynclogs = async (req, res) => {
-let hoPool = null;
+  let hoPool = null;
   try {
     hoPool = await getHoServerPool();
 
@@ -1360,7 +1371,7 @@ let hoPool = null;
 }
 
 export const postApiCrmSyncretry = async (req, res) => {
-let hoPool = null;
+  let hoPool = null;
   try {
     const days = Math.max(1, Math.min(30, parseInt(req.body.days) || 2));
     hoPool = await getHoServerPool();
@@ -1483,39 +1494,36 @@ export const getApiCrmReportsType = async (req, res) => {
     let params = { fromDate, toDate };
 
     if (type === 'txn-analysis') {
-      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%'";
       if (store && store !== 'All Store') {
-        where += " AND d.ORG_NAME = @store";
+        where += " AND STORE_NAME = @store";
         params.store = store;
       }
       if (search) {
-        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
 
-      const orderCol = sortBy || 'h.bill_DT';
+      const orderCol = sortBy || 'TRANS_DATE';
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       query = `
         SELECT
-            q.RLITQ_ORG_CD AS org_cd,
-            d.ORG_NAME AS store_name,
-            q.RLITQ_BILL_NO AS bill_no,
-            CONVERT(DATE, h.bill_dt) AS txn_date,
-            h.bill_time AS txn_time,
-            q.RLITQ_CARD_NO AS card_no,
-            m.RLICM_NAME AS cust_name,
-            m.RLICM_MOBILE_NO AS phone_no,
-            q.RLITQ_OPENING_POINTS AS prev_points,
-            FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) AS point_earned,
-            h.NET_VALUE AS bill_value,
-            (ISNULL(q.RLITQ_OPENING_POINTS, 0) + FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points,
-            CASE WHEN FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
-            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
-        FROM POS_SALES_HDR (NOLOCK) h
-        INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
-        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            STORE_CD AS org_cd,
+            STORE_NAME AS store_name,
+            TRANSACTION_PARTNER_ID AS bill_no,
+            CAST(TRANS_DATE AS DATE) AS txn_date,
+            CONVERT(VARCHAR(8), CREATED_AT, 108) AS txn_time,
+            MEMBER_ID AS card_no,
+            CUST_NAME AS cust_name,
+            PHONE_NUMBER AS phone_no,
+            (ISNULL(LATEST_POINT, 0) - ISNULL(POINTS_EARNED, 0)) AS prev_points,
+            ISNULL(POINTS_EARNED, 0) AS point_earned,
+            ISNULL(LATEST_POINT, 0) AS total_points,
+            CASE WHEN ISNULL(POINTS_EARNED, 0) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
+            ISNULL(BILL_VALUE, 0) AS bill_value,
+            CASE WHEN ISNULL(BILL_VALUE, 0) >= 500000 THEN 'Premium' WHEN ISNULL(BILL_VALUE, 0) >= 200000 THEN 'High' WHEN ISNULL(BILL_VALUE, 0) >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
         ${where}
         ORDER BY ${orderCol} ${orderDir}
         OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
@@ -1524,23 +1532,20 @@ export const getApiCrmReportsType = async (req, res) => {
       countQuery = `
         SELECT 
             COUNT(*) as total,
-            SUM(ISNULL(h.NET_VALUE, 0)) AS total_bill_value,
-            SUM(FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points_earned
-        FROM POS_SALES_HDR (NOLOCK) h
-        INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
-        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            SUM(ISNULL(BILL_VALUE, 0)) AS total_bill_value,
+            SUM(ISNULL(POINTS_EARNED, 0)) AS total_points_earned
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
         ${where}
       `;
     }
     else if (type === 'frequent-shopper') {
-      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%' AND TRANSACTION_PARTNER_ID IS NOT NULL";
       if (store && store !== 'All Store') {
-        where += " AND d.ORG_NAME = @store";
+        where += " AND STORE_NAME = @store";
         params.store = store;
       }
       if (search) {
-        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
 
@@ -1549,29 +1554,23 @@ export const getApiCrmReportsType = async (req, res) => {
                CASE WHEN x.frequently > 3 THEN 'LOYAL' WHEN x.frequently >= 1 THEN 'REGULAR' ELSE 'PASSIVE' END AS cust_category
         FROM (
             SELECT
-                q.RLITQ_ORG_CD AS org_cd,
-                d.ORG_NAME AS store_name,
-                q.RLITQ_CARD_NO AS card_no,
-                m.RLICM_NAME AS cust_name,
-                m.RLICM_MOBILE_NO AS phone_no,
-                COUNT(q.RLITQ_CARD_NO) AS frequently
-            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
-            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
-            LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
+                STORE_CD AS org_cd,
+                MAX(STORE_NAME) AS store_name,
+                MEMBER_ID AS card_no,
+                MAX(CUST_NAME) AS cust_name,
+                MAX(PHONE_NUMBER) AS phone_no,
+                COUNT(BILL_NO) AS frequently
+            FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
             ${where}
-            GROUP BY q.RLITQ_ORG_CD, d.ORG_NAME, q.RLITQ_CARD_NO, m.RLICM_NAME, m.RLICM_MOBILE_NO
+            GROUP BY STORE_CD, MEMBER_ID
         ) x
         ORDER BY frequently DESC
         OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
       `;
 
       countQuery = `
-        SELECT COUNT(DISTINCT q.RLITQ_CARD_NO) as total
-        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
-        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-        LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
-        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        SELECT COUNT(DISTINCT MEMBER_ID) as total
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
         ${where}
       `;
     }
@@ -1601,29 +1600,26 @@ export const getApiCrmReportsType = async (req, res) => {
     }
     else if (type === 'top-spender') {
       const topLimit = parseInt(req.query.top) || 100;
-      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.BILL_DT BETWEEN @fromDate AND @toDate";
+      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%'";
       if (store && store !== 'All Store') {
-        where += " AND d.ORG_NAME = @store";
+        where += " AND STORE_NAME = @store";
         params.store = store;
       }
       if (search) {
-        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
 
       query = `
         SELECT TOP ${topLimit}
-            q.RLITQ_CARD_NO AS card_no,
-            MAX(m.RLICM_NAME) AS cust_name,
-            MAX(m.RLICM_MOBILE_NO) AS phone_no,
-            COUNT(DISTINCT q.RLITQ_BILL_NO) AS total_txn,
-            SUM(ISNULL(h.NET_VALUE, 0)) AS total_net_sales
-        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
-        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
-        LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
-        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+            MEMBER_ID AS card_no,
+            MAX(CUST_NAME) AS cust_name,
+            MAX(PHONE_NUMBER) AS phone_no,
+            COUNT(DISTINCT BILL_NO) AS total_txn,
+            SUM(ISNULL(BILL_VALUE, 0)) AS total_net_sales
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
         ${where}
-        GROUP BY q.RLITQ_CARD_NO
+        GROUP BY MEMBER_ID
         ORDER BY total_net_sales DESC
       `;
       countQuery = `SELECT ${topLimit} AS total`;
@@ -1698,77 +1694,119 @@ export const getApiCrmReportsType = async (req, res) => {
       `;
     }
     else if (type === 'wakeup-call') {
-      const pageNum    = parseInt(page)    || 1;
+      const pageNum = parseInt(page) || 1;
       const perPageNum = parseInt(perPage) || 50;
       const offset = (pageNum - 1) * perPageNum;
 
       try {
-        let where = 'WHERE 1=1';
-        const pool = await poolPromise;
-        const reqDb = pool.request(); // Use default pool (DBWH_8529)
+        const reqDb = crmPool.request();
 
+        let batasAkhir = toDate ? toDate.split(' ')[0] : new Date().toISOString().split('T')[0];
+        reqDb.input('batas_akhir', sql.VarChar, batasAkhir);
+
+        let storeFilter = "(@store_cd IS NULL OR T.STORE_CD = @store_cd)";
         if (store && store !== 'All Store') {
           const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
           if (scRes.recordset.length > 0) {
-            where += ` AND last_store = @storeCd`;
-            reqDb.input('storeCd', sql.VarChar, scRes.recordset[0].ORG_CD);
+            reqDb.input('store_cd', sql.VarChar, scRes.recordset[0].ORG_CD);
           } else {
-            where += ` AND last_store = @storeName`;
-            reqDb.input('storeName', sql.VarChar, store);
+            reqDb.input('store_cd', sql.VarChar, null);
           }
+        } else {
+          reqDb.input('store_cd', sql.VarChar, null);
         }
 
-        if (fromDate && toDate) {
-           where += ` AND last_purchase_date >= @fromDate AND last_purchase_date <= @toDate`;
-           reqDb.input('fromDate', sql.VarChar, fromDate + ' 00:00:00');
-           reqDb.input('toDate', sql.VarChar, toDate + ' 23:59:59');
-        }
-
+        let searchFilter = '';
         if (search) {
-           where += ` AND (member_name LIKE @s OR card_no LIKE @s)`;
-           reqDb.input('s', sql.NVarChar, `%${search}%`);
+          searchFilter = " AND (L.CUST_NAME LIKE @search OR L.MEMBER_ID LIKE @search)";
+          reqDb.input('search', sql.NVarChar, `%${search}%`);
         }
 
-        const countRes = await reqDb.query(`SELECT COUNT(*) as total FROM WakeupCallCache ${where}`);
+        const baseCte = `
+          WITH LastTxn AS (
+            SELECT
+              T.MEMBER_ID,
+              T.STORE_CD,
+              T.STORE_NAME,
+              T.CUST_NAME,
+              T.PHONE_NUMBER,
+              T.TRANSACTION_TYPE,
+              T.TRANS_DATE,
+              T.LATEST_POINT,
+              ROW_NUMBER() OVER (
+                PARTITION BY T.MEMBER_ID
+                ORDER BY T.TRANS_DATE DESC, T.CREATED_AT DESC
+              ) AS RN
+            FROM RXL_LOYALID_TRANSACTIONS (NOLOCK) T
+            WHERE ${storeFilter}
+              AND T.BILL_NO NOT LIKE '%mig%'
+          )
+        `;
+
+        const baseSelect = `
+          SELECT
+            L.STORE_CD AS last_store,
+            L.CUST_NAME AS name,
+            L.MEMBER_ID AS card_no,
+            L.PHONE_NUMBER AS phone_no,
+            CAST(L.TRANS_DATE AS DATE) AS last_txn_date,
+            DATEDIFF(DAY, CAST(L.TRANS_DATE AS DATE), CAST(GETDATE() AS DATE)) AS last_txn_days,
+            L.LATEST_POINT AS current_point,
+            L.STORE_NAME AS last_store_name,
+            C.CARD_TIER_NAME AS tier,
+            L.TRANSACTION_TYPE as transaction_type
+          FROM LastTxn L
+          INNER JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) C
+            ON C.RLICM_CARD_NO = L.MEMBER_ID
+          WHERE L.RN = 1
+            AND L.TRANS_DATE <= @batas_akhir
+            ${searchFilter}
+        `;
+
+        const countQuery = `
+          ${baseCte}
+          SELECT COUNT(*) as total
+          FROM LastTxn L
+          INNER JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) C ON C.RLICM_CARD_NO = L.MEMBER_ID
+          WHERE L.RN = 1 AND L.TRANS_DATE <= @batas_akhir ${searchFilter}
+        `;
+
+        const countRes = await reqDb.query(countQuery);
         const total = countRes.recordset[0].total;
+
+        let orderCol = 'last_txn_date';
+        if (sortBy === 'name') orderCol = 'name';
+        else if (sortBy === 'phone_no') orderCol = 'phone_no';
+        else if (sortBy === 'last_txn_date') orderCol = 'last_txn_date';
+        else if (sortBy === 'last_txn_days') orderCol = 'last_txn_days';
+        else if (sortBy === 'last_store') orderCol = 'last_store_name';
+        else if (sortBy === 'card_no') orderCol = 'card_no';
+        else if (sortBy === 'tier') orderCol = 'tier';
+        if (!sortDir) sortDir = 'desc';
+
+        const dataQuery = `
+          ${baseCte}
+          ${baseSelect}
+          ORDER BY ${orderCol} ${sortDir}
+          OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+        `;
 
         reqDb.input('offset', sql.Int, offset);
         reqDb.input('limit', sql.Int, perPageNum);
 
-        let orderCol = 'total_amount';
-        if (sortBy === 'name') orderCol = 'member_name';
-        else if (sortBy === 'phone_no') orderCol = 'mobile_no';
-        else if (sortBy === 'current_point') orderCol = 'total_transactions'; // Fallback since points are removed
-        else if (sortBy === 'total_txn') orderCol = 'total_transactions';
-        else if (sortBy === 'last_txn_date') orderCol = 'last_purchase_date';
-        else if (sortBy === 'last_store') orderCol = 'last_store';
-        else if (sortBy === 'total_amount') orderCol = 'total_amount';
-        else if (sortBy === 'card_no') orderCol = 'card_no';
-        if (!sortDir) sortDir = 'desc';
-
-        const dataRes = await reqDb.query(`
-          SELECT *
-          FROM WakeupCallCache 
-          ${where} 
-          ORDER BY ${orderCol} ${sortDir} 
-          OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
-        `);
-
-        const allStoresRes = await crmPool.request().query('SELECT ORG_CD, ORG_NAME FROM DimStore');
-        const storeMap = {};
-        allStoresRes.recordset.forEach(r => { storeMap[r.ORG_CD] = r.ORG_NAME; });
+        const dataRes = await reqDb.query(dataQuery);
 
         const rows = dataRes.recordset.map(r => ({
-          name: r.member_name,
+          last_store: r.last_store,
+          name: r.name,
           card_no: r.card_no,
-          phone_no: r.mobile_no,
-          tier: 'Regular',
-          activation_status: 'Activated',
-          current_point: 0,
-          total_txn: r.total_transactions,
-          total_amount: r.total_amount,
-          last_txn_date: r.last_purchase_date,
-          last_store: storeMap[r.last_store] || r.last_store
+          phone_no: r.phone_no,
+          transaction_type: r.transaction_type,
+          last_txn_date: r.last_txn_date,
+          last_txn_days: r.last_txn_days,
+          current_point: r.current_point || 0,
+          last_store_name: r.last_store_name || r.last_store,
+          tier: r.tier || 'Regular'
         }));
 
         return res.json({
@@ -1817,5 +1855,176 @@ export const getApiCrmReportsType = async (req, res) => {
   } catch (err) {
     console.error(`CRM Report Error (${type}):`, err.message);
     res.status(500).json({ error: err.message });
+  }
+}
+
+export async function getApiCrmDashboard(req, res) {
+  try {
+    const query = `
+      SELECT
+        JOIN_DATE AS join_date,
+        COUNT(MEMBER_ID) AS new_members,
+        SUM(COUNT(MEMBER_ID)) OVER (
+          ORDER BY JOIN_DATE
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS cumulative_members,
+        SUM(CASE WHEN IS_ACTIVE = 1 THEN 1 ELSE 0 END) AS active_members,
+        SUM(CASE WHEN IS_ACTIVE = 0 THEN 1 ELSE 0 END) AS inactive_members
+      FROM RXL_LOYALID_ENROLLMENT (NOLOCK)
+      WHERE JOIN_DATE IS NOT NULL
+      GROUP BY JOIN_DATE
+      ORDER BY JOIN_DATE
+    `;
+
+    const crmPool = await getCrmPool();
+    const request = crmPool.request();
+    const result = await request.query(query);
+
+    return res.json({
+      success: true,
+      data: result.recordset
+    });
+  } catch (err) {
+    console.error('CRM Dashboard Error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+let storeDailyTxnCache = {
+  date: null,
+  data: new Map()
+};
+
+export async function getApiCrmDashboardTransactions(req, res) {
+  const { startDate, endDate } = req.query;
+  const todayDate = new Date().toISOString().split('T')[0];
+
+  try {
+    if (storeDailyTxnCache.date !== todayDate) {
+      storeDailyTxnCache.date = todayDate;
+      storeDailyTxnCache.data.clear();
+    }
+
+    const cacheKey = `${startDate}_${endDate}`;
+    if (storeDailyTxnCache.data.has(cacheKey)) {
+      return res.json({
+        success: true,
+        data: storeDailyTxnCache.data.get(cacheKey),
+        cached: true
+      });
+    }
+
+    let dateFilter = "WHERE TRANS_DATE IS NOT NULL AND BILL_NO NOT LIKE '%mig%'";
+    if (startDate) {
+      dateFilter += " AND TRANS_DATE >= @startDate";
+    }
+    if (endDate) {
+      dateFilter += " AND TRANS_DATE <= @endDate";
+    }
+
+    const query = `
+      SELECT
+        TRANS_DATE AS trans_date
+       ,STORE_CD AS store_cd
+       ,STORE_NAME AS store_name
+       ,COUNT(BILL_NO) AS total_transactions
+       ,COUNT(DISTINCT MEMBER_ID) AS unique_customers
+       ,SUM(BILL_VALUE) AS total_bill_value
+       ,SUM(POINTS_EARNED) AS total_points_earned
+       ,SUM(POINTS_REDEEM) AS total_points_redeem
+       ,AVG(BILL_VALUE) AS avg_bill_value
+      FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+      ${dateFilter}
+      GROUP BY TRANS_DATE, STORE_CD, STORE_NAME
+      ORDER BY TRANS_DATE, STORE_CD
+    `;
+
+    const crmPool = await getCrmPool();
+    const request = crmPool.request();
+
+    if (startDate) request.input('startDate', startDate);
+    if (endDate) request.input('endDate', endDate);
+
+    const result = await request.query(query);
+
+    storeDailyTxnCache.data.set(cacheKey, result.recordset);
+
+    return res.json({
+      success: true,
+      data: result.recordset,
+      cached: false
+    });
+  } catch (err) {
+    console.error('CRM Dashboard Transactions Error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function getApiCrmDashboardCompetition(req, res) {
+  const { period = '1M' } = req.query;
+
+  try {
+    const query = `
+      DECLARE @periode VARCHAR(5) = @periodParam;
+
+      DECLARE @date_from DATE = CASE
+          WHEN @periode = '1M' THEN CAST(DATEADD(MONTH, -1, GETDATE()) AS DATE)
+          WHEN @periode = '1Y' THEN CAST(DATEADD(YEAR,  -1, GETDATE()) AS DATE)
+          ELSE CAST(DATEADD(MONTH, -1, GETDATE()) AS DATE)
+      END;
+
+      SELECT
+        T.STORE_CD AS store_cd
+       ,MAX(T.STORE_NAME) AS store_name
+
+        -- Volume transaksi
+       ,COUNT(T.BILL_NO) AS total_transactions
+       ,COUNT(DISTINCT T.MEMBER_ID) AS unique_members
+       ,COUNT(DISTINCT T.TRANS_DATE) AS active_days
+
+        -- Nilai transaksi
+       ,SUM(T.BILL_VALUE) AS total_bill_value
+       ,AVG(T.BILL_VALUE) AS avg_bill_value
+       ,MAX(T.BILL_VALUE) AS max_bill_value
+
+        -- Points
+       ,SUM(T.POINTS_EARNED) AS total_points_earned
+       ,SUM(T.POINTS_REDEEM) AS total_points_redeem
+
+        -- Rata-rata transaksi per hari aktif
+       ,CAST(COUNT(T.BILL_NO) * 1.0 /
+        NULLIF(COUNT(DISTINCT T.TRANS_DATE), 0) AS DECIMAL(10, 2))
+        AS avg_txn_per_day
+
+        -- Rata-rata member per hari aktif
+       ,CAST(COUNT(DISTINCT T.MEMBER_ID) * 1.0 /
+        NULLIF(COUNT(DISTINCT T.TRANS_DATE), 0) AS DECIMAL(10, 2))
+        AS avg_member_per_day
+
+        -- Rank berdasarkan total transaksi
+       ,RANK() OVER (ORDER BY COUNT(T.BILL_NO) DESC) AS rank_by_txn
+       ,RANK() OVER (ORDER BY SUM(T.BILL_VALUE) DESC) AS rank_by_value
+       ,RANK() OVER (ORDER BY COUNT(DISTINCT T.MEMBER_ID) DESC) AS rank_by_member
+
+      FROM RXL_LOYALID_TRANSACTIONS T (NOLOCK)
+      WHERE T.TRANS_DATE >= @date_from
+      AND T.BILL_NO NOT LIKE '%mig%'
+      AND T.TRANS_DATE <= CAST(GETDATE() AS DATE)
+      GROUP BY T.STORE_CD
+      ORDER BY total_transactions DESC
+    `;
+
+    const crmPool = await getCrmPool();
+    const request = crmPool.request();
+    request.input('periodParam', period);
+    const result = await request.query(query);
+
+    return res.json({
+      success: true,
+      data: result.recordset
+    });
+  } catch (err) {
+    console.error('CRM Dashboard Competition Error:', err.message);
+    return res.status(500).json({ error: err.message });
   }
 }

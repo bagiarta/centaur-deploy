@@ -360,9 +360,13 @@ export default function AssetAssignmentsPage() {
                                           {assig.assignment_status || assig.status}
                                         </span>
                                         {(assig.assignment_status === 'RETURNED' || assig.status === 'RETURNED') && assig.return_bast_number && (
-                                          <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
-                                            <FileText className="w-3 h-3" /> {assig.return_bast_number}
-                                          </span>
+                                          <button 
+                                            onClick={(e) => { e.stopPropagation(); window.open(`/assets/assignments/bast/${assig.return_bast_number}`, '_blank'); }}
+                                            className="text-[10px] text-muted-foreground hover:text-primary font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                                            title="Print Return BAST"
+                                          >
+                                            <FileText className="w-3 h-3" /> {assig.return_bast_number} <Printer className="w-3 h-3 ml-1" />
+                                          </button>
                                         )}
                                       </div>
                                     </td>

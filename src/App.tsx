@@ -21,6 +21,7 @@ import UserManagementPage from "./pages/UserManagementPage";
 import RoleManagementPage from "./pages/RoleManagementPage";
 import TicketsPage from "./pages/TicketsPage";
 import CrmLookupPage from "./pages/CrmLookupPage";
+import CrmDashboardPage from "./pages/CrmDashboardPage";
 import CrmReportsPage from "./pages/CrmReportsPage";
 import CrmAbcAnalysisPage from "./pages/CrmAbcAnalysisPage";
 import CrmSyncPage from "./pages/CrmSyncPage";
@@ -233,6 +234,7 @@ const App = () => (
               </ProtectedRoute>
             } />
             {/* CRM Center */}
+            <Route path="/crm/dashboard" element={<ProtectedRoute><AppShell><CrmDashboardPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/lookup" element={<ProtectedRoute><AppShell><CrmLookupPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/sync" element={<ProtectedRoute><AppShell><CrmSyncPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/abc-analysis" element={<ProtectedRoute><AppShell><CrmAbcAnalysisPage /></AppShell></ProtectedRoute>} />
