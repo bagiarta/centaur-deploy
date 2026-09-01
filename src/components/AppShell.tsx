@@ -7,7 +7,7 @@ import {
   UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
   UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw, Wrench,
   Video, Trophy, HardDrive, LayoutTemplate, Briefcase, MapPin, Building,
-  UserCheck, ArrowRightLeft, CalendarClock,
+  UserCheck, ArrowRightLeft, CalendarClock, PhoneCall, LayoutDashboardIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -71,7 +71,7 @@ export const navItems: NavigationItem[] = [
     icon: Database,
     group: "main",
     children: [
-      { id: "crm_dashboard", to: "/crm/dashboard", icon: Activity, label: "CRM Dashboard" },
+      { id: "crm_dashboard", to: "/crm/dashboard", icon: LayoutDashboardIcon, label: "CRM Dashboard" },
       { id: "crm_lookup", to: "/crm/lookup", icon: Search, label: "Customer Lookup" },
       { id: "crm_sync", to: "/crm/sync", icon: RefreshCw, label: "Manual Re-Sync CRM Items" },
       { id: "crm_abc_analysis", to: "/crm/abc-analysis", icon: Activity, label: "ABC Analysis Report" },
@@ -80,7 +80,7 @@ export const navItems: NavigationItem[] = [
       { id: "crm_report_enrollment", to: "/crm/reports/member-enrollment", icon: UserPlus, label: "Member Enrollment" },
       { id: "crm_report_spender", to: "/crm/reports/top-spender", icon: TrendingUp, label: "Top Spender" },
       { id: "crm_report_fraud", to: "/crm/reports/fraud-analysis", icon: Shield, label: "Fraud Analysis" },
-      { id: "crm_report_wakeup", to: "/crm/reports/wakeup-call", icon: Users, label: "Wakeup Call Customer" },
+      { id: "crm_report_wakeup", to: "/crm/reports/wakeup-call", icon: PhoneCall, label: "Wakeup Call Customer" },
       { id: "crm_report_deleted", to: "/crm/reports/deleted-member", icon: Database, label: "Deleted Member" },
       { id: "crm_dev_loyalty", to: "/crm/dev-loyalty", icon: Trophy, label: "[DEV] Loyalty & Achievements" },
     ]
@@ -530,11 +530,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
                     // Active check for parent (including if any child is active)
                     const isParentActive = item.to && (item.exact || item.to === "/"
-                        ? location.pathname === item.to
-                        : location.pathname === item.to || location.pathname.startsWith(item.to + "/"));
+                      ? location.pathname === item.to
+                      : location.pathname === item.to || location.pathname.startsWith(item.to + "/"));
 
                     const isChildActive = hasChildren && item.children?.some(child =>
-                        child.exact ? location.pathname === child.to : (location.pathname === child.to || location.pathname.startsWith(child.to + "/"))
+                      child.exact ? location.pathname === child.to : (location.pathname === child.to || location.pathname.startsWith(child.to + "/"))
                     );
 
                     const active = isParentActive || isChildActive;
