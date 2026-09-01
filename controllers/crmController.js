@@ -1821,6 +1821,42 @@ export const getApiCrmReportsType = async (req, res) => {
         return res.status(500).json({ error: `WAKEUP-CALL: ${e.message}` });
       }
     }
+    else if (type === 'deleted-member') {
+      try {
+        const response = await fetch("https://dashboard.pepito.co.id/api/public/questions/1787808790729236", {
+          headers: {
+            "Authorization": "Bearer qapi_tjljuabCLYXj1pIKOpF9XLOVla5QktxzjqyYuQyB8Xg"
+          }
+        });
+        if (!response.ok) {
+          throw new Error(`Metabase API error: ${response.status}`);
+        }
+        const jsonData = await response.json();
+        const allRows = jsonData.rows || [];
+        
+        const lowerSearch = (search || '').toLowerCase();
+        let filteredData = allRows;
+        if (lowerSearch) {
+           filteredData = allRows.filter(r => (r.member_name || '').toLowerCase().includes(lowerSearch));
+        }
+
+        const total = filteredData.length;
+        const pageNum = parseInt(page) || 1;
+        const perPageNum = parseInt(perPage) || 100;
+        const offsetNum = (pageNum - 1) * perPageNum;
+        const pageData = filteredData.slice(offsetNum, offsetNum + perPageNum);
+
+        return res.json({
+          rows: pageData,
+          total: total,
+          page: pageNum,
+          perPage: perPageNum,
+          totalPages: Math.ceil(total / perPageNum)
+        });
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
+      }
+    }
     else {
       return res.status(400).json({ error: 'Invalid report type' });
     }

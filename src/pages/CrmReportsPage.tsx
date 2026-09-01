@@ -114,6 +114,18 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
       { key: 'last_store_name', label: 'Last Txn Store', type: 'string' },
       { key: 'tier', label: 'Tier', type: 'string' },
     ]
+  },
+  'deleted-member': {
+    title: "Deleted Member",
+    icon: Database,
+    endpoint: "deleted-member",
+    columns: [
+      { key: 'member_name', label: 'Name', type: 'string' },
+      { key: 'latest_redeem_point', label: 'Points', type: 'number' },
+      { key: 'latest_tier', label: 'Tier', type: 'string' },
+      { key: 'note', label: 'Note', type: 'string' }
+    ],
+    description: "Live data fetched from CRM Backend"
   }
 };
 
@@ -344,7 +356,7 @@ export default function CrmReportsPage() {
                   </select>
                 </div>
               </div>
-            ) : (
+            ) : type !== 'deleted-member' && (
               <div className="flex flex-col gap-1.5 min-w-[150px]">
                 <label className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider ml-1">Date Range</label>
                 <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2">
@@ -387,7 +399,7 @@ export default function CrmReportsPage() {
               </div>
             )}
 
-            {config.endpoint !== 'member-enrollment' && (
+            {config.endpoint !== 'member-enrollment' && config.endpoint !== 'deleted-member' && (
               <div className="flex flex-col gap-1.5 min-w-[200px]">
                 <label className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider ml-1">Store Filter</label>
                 <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2">
