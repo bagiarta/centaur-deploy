@@ -58,6 +58,8 @@ export default function AssetBASTPage() {
     'LOST': 'Hilang'
   };
 
+  const isReturn = id?.startsWith('BAST-RET-');
+
   return (
     <div className="min-h-screen bg-white text-black p-8 print:p-0 font-sans print:text-sm">
       {/* Action buttons (hidden in print) */}
@@ -93,15 +95,17 @@ export default function AssetBASTPage() {
         </div>
 
         <div className="relative z-10">
-          <h2 className="text-xl font-bold text-center mb-8 print:mb-4">Berita Acara Serah Terima Aset IT</h2>
+          <h2 className="text-xl font-bold text-center mb-8 print:mb-4">
+            {isReturn ? "Berita Acara Pengembalian Aset IT" : "Berita Acara Serah Terima Aset IT"}
+          </h2>
 
           <div className="space-y-4 leading-relaxed text-justify">
             <p>
-              Pada tanggal : {assignedDate}, pihak IT menyerahkan aset :
+              Pada tanggal : {assignedDate}, pihak IT {isReturn ? 'menerima pengembalian' : 'menyerahkan'} aset :
             </p>
 
             <div>
-              <p className="font-bold">A. Kepada :</p>
+              <p className="font-bold">A. {isReturn ? 'Dari' : 'Kepada'} :</p>
               <table className="ml-4 w-full">
                 <tbody>
                   <tr>
@@ -159,11 +163,13 @@ export default function AssetBASTPage() {
                 *Note : Tabel identitas aset bisa ditambahkan sebagai lampiran bila diperlukan
               </p>
             </div>
-
-            <div>
-              <p className="font-bold mt-2">C. Tanggung Jawab :</p>
-              <p className="mt-1">
-                Penerima bertanggung jawab untuk menjaga, merawat dan mempergunakan aset IT untuk kepentingan perusahaan sesuai dengan ketentuan yang berlaku. Segala kerusakan atau kehilangan yang disebabkan oleh kelalaian atau tindakan yang tidak sesuai akan menjadi tanggung jawab penerima aset IT.
+            <div className="mt-8 border-t border-black pt-4">
+              <p className="font-bold">Ketentuan :</p>
+              <p className="text-sm mt-1 leading-relaxed">
+                {isReturn 
+                  ? "Aset telah dikembalikan kepada pihak IT. Pihak IT akan melakukan pengecekan lebih lanjut terhadap kondisi aset."
+                  : "Penerima bertanggung jawab untuk menjaga, merawat dan mempergunakan aset IT untuk kepentingan perusahaan sesuai dengan ketentuan yang berlaku. Segala kerusakan atau kehilangan yang disebabkan oleh kelalaian atau tindakan yang tidak sesuai akan menjadi tanggung jawab penerima aset IT."
+                }
               </p>
               <p className="mt-2">
                 Demikian berita acara ini dibuat dengan sebernarnya untuk digunakan sebagaimana mestinya.
@@ -174,12 +180,12 @@ export default function AssetBASTPage() {
           {/* Signatures */}
           <div className="flex justify-between mt-16 print:mt-8">
             <div className="text-center w-64">
-              <p className="mb-24 print:mb-16">Yang Menyerahkan,</p>
+              <p className="mb-24 print:mb-16">Yang {isReturn ? 'Menerima' : 'Menyerahkan'},</p>
               <p className="mb-1">(………………………)</p>
               <p className="">Admin IT</p>
             </div>
             <div className="text-center w-64">
-              <p className="mb-24 print:mb-16">Yang Menerima,</p>
+              <p className="mb-24 print:mb-16">Yang {isReturn ? 'Menyerahkan' : 'Menerima'},</p>
               <p className="mb-1">(………………………)</p>
               <p className="">User</p>
             </div>

@@ -71,6 +71,7 @@ export const navItems: NavigationItem[] = [
     icon: Database,
     group: "main",
     children: [
+      { id: "crm_dashboard", to: "/crm/dashboard", icon: Activity, label: "CRM Dashboard" },
       { id: "crm_lookup", to: "/crm/lookup", icon: Search, label: "Customer Lookup" },
       { id: "crm_sync", to: "/crm/sync", icon: RefreshCw, label: "Manual Re-Sync CRM Items" },
       { id: "crm_abc_analysis", to: "/crm/abc-analysis", icon: Activity, label: "ABC Analysis Report" },

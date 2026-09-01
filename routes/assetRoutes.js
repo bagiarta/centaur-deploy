@@ -538,7 +538,7 @@ router.get('/assignments', async (req, res) => {
       try {
           const { bast_number } = req.params;
           const isNumeric = !isNaN(bast_number);
-          const whereClause = isNumeric ? `asg.id = ${bast_number}` : `asg.bast_number = '${bast_number}'`;
+          const whereClause = isNumeric ? `asg.id = ${bast_number}` : `(asg.bast_number = '${bast_number}' OR asg.return_bast_number = '${bast_number}')`;
 
           const data = await executeQuery(`
             SELECT 

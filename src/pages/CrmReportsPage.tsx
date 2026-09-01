@@ -103,16 +103,16 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
     icon: Users,
     endpoint: "wakeup-call",
     columns: [
+      { key: 'last_store', label: 'Store', type: 'string' },
       { key: 'name', label: 'Name', type: 'string' },
       { key: 'card_no', label: 'Card No', type: 'string' },
       { key: 'phone_no', label: 'Phone No', type: 'string' },
-      { key: 'tier', label: 'Tier', type: 'string' },
-      { key: 'activation_status', label: 'Activation Status', type: 'string' },
-      { key: 'current_point', label: 'Current Point', type: 'number' },
-      { key: 'total_txn', label: 'Total Transaction', type: 'number' },
-      { key: 'total_amount', label: 'Total Amount', type: 'currency' },
+      { key: 'transaction_type', label: 'Transaction Type', type: 'string' },
       { key: 'last_txn_date', label: 'Last Txn Date', type: 'date' },
-      { key: 'last_store', label: 'Last Txn Store', type: 'string' },
+      { key: 'last_txn_days', label: 'Last Txn Days', type: 'number' },
+      { key: 'current_point', label: 'Current Point', type: 'number' },
+      { key: 'last_store_name', label: 'Last Txn Store', type: 'string' },
+      { key: 'tier', label: 'Tier', type: 'string' },
     ]
   }
 };
@@ -146,7 +146,7 @@ export default function CrmReportsPage() {
 
   useEffect(() => {
     setPage(1); // Reset page on type change
-    setSortBy('');
+    setSortBy(type === 'wakeup-call' ? 'last_txn_date' : '');
     setSortDir('desc');
     setSearchTerm('');
     setTopLimit(100);
