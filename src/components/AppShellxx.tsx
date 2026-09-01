@@ -34,6 +34,7 @@ export const navItems = [
       { id: "crm_report_enrollment", to: "/crm/reports/member-enrollment", icon: UserPlus, label: "Member Enrollment" },
       { id: "crm_report_spender", to: "/crm/reports/top-spender", icon: TrendingUp, label: "Top Spender" },
       { id: "crm_report_fraud", to: "/crm/reports/fraud-analysis", icon: Shield, label: "Fraud Analysis" },
+      { id: "crm_report_deleted", to: "/crm/reports/deleted-member", icon: Database, label: "Deleted Member" },
     ]
   },
   { id: "reports", to: "/reports", icon: Activity, label: "Reports", group: "main" },
