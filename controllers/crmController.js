@@ -947,31 +947,40 @@ export const exportCrmReport = async (req, res) => {
         { header: 'Category', key: 'bill_category', width: 10 },
       ];
 
-      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%'";
       if (store && store !== 'All Store') {
-        where += " AND d.ORG_NAME = @store";
-        params.store = store;
+        const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
+        if (scRes.recordset.length > 0) {
+          where += " AND STORE_CD = @store_cd";
+          params.store_cd = scRes.recordset[0].ORG_CD;
+        } else {
+          where += " AND 1=0";
+        }
       }
       if (search) {
-        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
-      const orderCol = sortBy || 'h.bill_DT';
+      const orderCol = sortBy || 'TRANS_DATE';
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       query = `
         SELECT
-            q.RLITQ_ORG_CD AS org_cd, d.ORG_NAME AS store_name, q.RLITQ_BILL_NO AS bill_no,
-            CONVERT(DATE, h.bill_dt) AS txn_date, h.bill_time AS txn_time,
-            q.RLITQ_CARD_NO AS card_no, m.RLICM_NAME AS cust_name, m.RLICM_MOBILE_NO AS phone_no,
-            q.RLITQ_OPENING_POINTS AS prev_points, FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) AS point_earned,
-            h.NET_VALUE AS bill_value, (ISNULL(q.RLITQ_OPENING_POINTS, 0) + FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points,
-            CASE WHEN FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
-            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
-        FROM POS_SALES_HDR (NOLOCK) h
-        INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
-        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+            STORE_CD AS org_cd,
+            STORE_NAME AS store_name,
+            TRANSACTION_PARTNER_ID AS bill_no,
+            CAST(TRANS_DATE AS DATE) AS txn_date,
+            CONVERT(VARCHAR(8), CREATED_AT, 108) AS txn_time,
+            MEMBER_ID AS card_no,
+            CUST_NAME AS cust_name,
+            PHONE_NUMBER AS phone_no,
+            (ISNULL(LATEST_POINT, 0) - ISNULL(POINTS_EARNED, 0)) AS prev_points,
+            ISNULL(POINTS_EARNED, 0) AS point_earned,
+            ISNULL(LATEST_POINT, 0) AS total_points,
+            CASE WHEN ISNULL(POINTS_EARNED, 0) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
+            ISNULL(BILL_VALUE, 0) AS bill_value,
+            CASE WHEN ISNULL(BILL_VALUE, 0) >= 500000 THEN 'Premium' WHEN ISNULL(BILL_VALUE, 0) >= 200000 THEN 'High' WHEN ISNULL(BILL_VALUE, 0) >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
         ${where}
         ORDER BY ${orderCol} ${orderDir}
       `;
@@ -988,27 +997,35 @@ export const exportCrmReport = async (req, res) => {
         { header: 'Category', key: 'cust_category', width: 15 },
       ];
 
-      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.bill_DT BETWEEN @fromDate AND @toDate";
+      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%' AND TRANSACTION_PARTNER_ID IS NOT NULL";
       if (store && store !== 'All Store') {
-        where += " AND d.ORG_NAME = @store";
-        params.store = store;
+        const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
+        if (scRes.recordset.length > 0) {
+          where += " AND STORE_CD = @store_cd";
+          params.store_cd = scRes.recordset[0].ORG_CD;
+        } else {
+          where += " AND 1=0";
+        }
       }
       if (search) {
-        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
 
       query = `
-        SELECT x.*, CASE WHEN x.frequently > 3 THEN 'LOYAL' WHEN x.frequently >= 1 THEN 'REGULAR' ELSE 'PASSIVE' END AS cust_category
+        SELECT x.*,
+               CASE WHEN x.frequently > 3 THEN 'LOYAL' WHEN x.frequently >= 1 THEN 'REGULAR' ELSE 'PASSIVE' END AS cust_category
         FROM (
-            SELECT q.RLITQ_ORG_CD AS org_cd, d.ORG_NAME AS store_name, q.RLITQ_CARD_NO AS card_no,
-                   m.RLICM_NAME AS cust_name, m.RLICM_MOBILE_NO AS phone_no, COUNT(q.RLITQ_CARD_NO) AS frequently
-            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
-            LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
-            LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
-            LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
+            SELECT
+                STORE_CD AS org_cd,
+                MAX(STORE_NAME) AS store_name,
+                MEMBER_ID AS card_no,
+                MAX(CUST_NAME) AS cust_name,
+                MAX(PHONE_NUMBER) AS phone_no,
+                COUNT(BILL_NO) AS frequently
+            FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
             ${where}
-            GROUP BY q.RLITQ_ORG_CD, d.ORG_NAME, q.RLITQ_CARD_NO, m.RLICM_NAME, m.RLICM_MOBILE_NO
+            GROUP BY STORE_CD, MEMBER_ID
         ) x
         ORDER BY frequently DESC
       `;
@@ -1057,34 +1074,36 @@ export const exportCrmReport = async (req, res) => {
         { header: 'Tier', key: 'spender_tier', width: 15 },
       ];
 
-      let where = "WHERE q.RLITQ_INTEG_CODE = '110' AND h.BILL_DT BETWEEN @fromDate AND @toDate";
+      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%' AND TRANSACTION_PARTNER_ID IS NOT NULL ";
       if (store && store !== 'All Store') {
-        where += " AND d.ORG_NAME = @store";
-        params.store = store;
+        const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
+        if (scRes.recordset.length > 0) {
+          where += " AND STORE_CD = @store_cd";
+          params.store_cd = scRes.recordset[0].ORG_CD;
+        } else {
+          where += " AND 1=0";
+        }
       }
       if (search) {
-        where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
 
       query = `
         SELECT TOP ${topLimit}
-            q.RLITQ_CARD_NO AS card_no,
-            MAX(m.RLICM_NAME) AS cust_name,
-            MAX(m.RLICM_MOBILE_NO) AS phone_no,
-            COUNT(DISTINCT q.RLITQ_BILL_NO) AS total_txn,
-            SUM(ISNULL(h.NET_VALUE, 0)) AS total_net_sales,
+            MEMBER_ID AS card_no,
+            MAX(CUST_NAME) AS cust_name,
+            MAX(PHONE_NUMBER) AS phone_no,
+            COUNT(DISTINCT BILL_NO) AS total_txn,
+            SUM(ISNULL(BILL_VALUE, 0)) AS total_net_sales,
             CASE 
-                WHEN SUM(ISNULL(h.NET_VALUE, 0)) >= 5000000 THEN 'Platinum'
-                WHEN SUM(ISNULL(h.NET_VALUE, 0)) >= 1000000 THEN 'Gold'
+                WHEN SUM(ISNULL(BILL_VALUE, 0)) >= 5000000 THEN 'Platinum'
+                WHEN SUM(ISNULL(BILL_VALUE, 0)) >= 1000000 THEN 'Gold'
                 ELSE 'Silver' 
             END AS spender_tier
-        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
-        LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
-        LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
-        LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
         ${where}
-        GROUP BY q.RLITQ_CARD_NO
+        GROUP BY MEMBER_ID
         ORDER BY total_net_sales DESC
       `;
     }
@@ -1150,6 +1169,7 @@ export const exportCrmReport = async (req, res) => {
             ) AS RN
           FROM RXL_LOYALID_TRANSACTIONS (NOLOCK) T
           WHERE ${storeFilter}
+            AND T.BILL_NO NOT LIKE '%mig%'
         )
         SELECT
           L.STORE_CD AS last_store,
@@ -1171,14 +1191,43 @@ export const exportCrmReport = async (req, res) => {
         ORDER BY ${orderCol} ${sortDir}
       `;
     }
+    else if (type === 'deleted-member') {
+      title = "Deleted Member List";
+      columns = [
+        { header: 'Member Name', key: 'member_name', width: 30 },
+        { header: 'Latest Redeem Point', key: 'latest_redeem_point', width: 20, style: { numFmt: '#,##0' } },
+        { header: 'Latest Tier', key: 'latest_tier', width: 20 },
+        { header: 'Note', key: 'note', width: 50 },
+      ];
+    }
 
-    let request = crmPool.request();
-    Object.keys(params).forEach(key => {
-      request.input(key, sql.NVarChar, params[key]);
-    });
+    let rows = [];
+    if (type === 'deleted-member') {
+      const apiUrl = 'https://dashboard.pepito.co.id/api/public/questions/1787808790729236';
+      const token = 'qapi_tjljuabCLYXj1pIKOpF9XLOVla5QktxzjqyYuQyB8Xg';
 
-    const result = await request.query(query);
-    const rows = result.recordset;
+      const response = await fetch(apiUrl, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error(`Metabase API error: ${response.status}`);
+      const jsonData = await response.json();
+      const allRows = jsonData.rows || [];
+
+      const lowerSearch = (search || '').toLowerCase();
+      if (lowerSearch) {
+        rows = allRows.filter(r => (r.member_name || '').toLowerCase().includes(lowerSearch));
+      } else {
+        rows = allRows;
+      }
+    } else {
+      let request = crmPool.request();
+      Object.keys(params).forEach(key => {
+        request.input(key, sql.NVarChar, params[key]);
+      });
+
+      const result = await request.query(query);
+      rows = result.recordset;
+    }
 
     if (format === 'excel') {
       const workbook = new ExcelJS.Workbook();
@@ -1496,8 +1545,13 @@ export const getApiCrmReportsType = async (req, res) => {
     if (type === 'txn-analysis') {
       let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%'";
       if (store && store !== 'All Store') {
-        where += " AND STORE_NAME = @store";
-        params.store = store;
+        const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
+        if (scRes.recordset.length > 0) {
+          where += " AND STORE_CD = @store_cd";
+          params.store_cd = scRes.recordset[0].ORG_CD;
+        } else {
+          where += " AND 1=0";
+        }
       }
       if (search) {
         where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
@@ -1541,8 +1595,13 @@ export const getApiCrmReportsType = async (req, res) => {
     else if (type === 'frequent-shopper') {
       let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%' AND TRANSACTION_PARTNER_ID IS NOT NULL";
       if (store && store !== 'All Store') {
-        where += " AND STORE_NAME = @store";
-        params.store = store;
+        const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
+        if (scRes.recordset.length > 0) {
+          where += " AND STORE_CD = @store_cd";
+          params.store_cd = scRes.recordset[0].ORG_CD;
+        } else {
+          where += " AND 1=0";
+        }
       }
       if (search) {
         where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
@@ -1602,8 +1661,13 @@ export const getApiCrmReportsType = async (req, res) => {
       const topLimit = parseInt(req.query.top) || 100;
       let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%'";
       if (store && store !== 'All Store') {
-        where += " AND STORE_NAME = @store";
-        params.store = store;
+        const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
+        if (scRes.recordset.length > 0) {
+          where += " AND STORE_CD = @store_cd";
+          params.store_cd = scRes.recordset[0].ORG_CD;
+        } else {
+          where += " AND 1=0";
+        }
       }
       if (search) {
         where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
@@ -1833,11 +1897,11 @@ export const getApiCrmReportsType = async (req, res) => {
         }
         const jsonData = await response.json();
         const allRows = jsonData.rows || [];
-        
+
         const lowerSearch = (search || '').toLowerCase();
         let filteredData = allRows;
         if (lowerSearch) {
-           filteredData = allRows.filter(r => (r.member_name || '').toLowerCase().includes(lowerSearch));
+          filteredData = allRows.filter(r => (r.member_name || '').toLowerCase().includes(lowerSearch));
         }
 
         const total = filteredData.length;
@@ -1849,6 +1913,7 @@ export const getApiCrmReportsType = async (req, res) => {
         return res.json({
           rows: pageData,
           total: total,
+          summary: { total: total, status: 'COMPLETED' },
           page: pageNum,
           perPage: perPageNum,
           totalPages: Math.ceil(total / perPageNum)
