@@ -7,7 +7,7 @@ import {
   UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
   UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw, Wrench,
   Video, Trophy, HardDrive, LayoutTemplate, Briefcase, MapPin, Building,
-  UserCheck, ArrowRightLeft, CalendarClock, PhoneCall, LayoutDashboardIcon,
+  UserCheck, ArrowRightLeft, CalendarClock, PhoneCall, LayoutDashboardIcon, ShoppingBag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -82,6 +82,7 @@ export const navItems: NavigationItem[] = [
       { id: "crm_report_fraud", to: "/crm/reports/fraud-analysis", icon: Shield, label: "Fraud Analysis" },
       { id: "crm_report_wakeup", to: "/crm/reports/wakeup-call", icon: PhoneCall, label: "Wakeup Call Customer" },
       { id: "crm_report_deleted", to: "/crm/reports/deleted-member", icon: Database, label: "Deleted Member" },
+      { id: "crm_report_repeat", to: "/crm/reports/repeat-purchase", icon: ShoppingBag, label: "Customer Repeat Purchase" },
       { id: "crm_dev_loyalty", to: "/crm/dev-loyalty", icon: Trophy, label: "[DEV] Loyalty & Achievements" },
     ]
   },

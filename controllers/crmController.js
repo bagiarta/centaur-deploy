@@ -1030,6 +1030,126 @@ export const exportCrmReport = async (req, res) => {
         ORDER BY frequently DESC
       `;
     }
+    else if (type === 'repeat-purchase') {
+      title = "Customer Repeat Purchase";
+      columns = [
+        { header: 'Store Name', key: 'store_name', width: 25 },
+        { header: 'Card No', key: 'card_no', width: 20 },
+        { header: 'Customer', key: 'cust_name', width: 25 },
+        { header: 'Phone No', key: 'phone_no', width: 15 },
+        { header: 'Channel', key: 'channel', width: 15 },
+        { header: 'Activated App', key: 'activated_app', width: 15 },
+        { header: 'Tier', key: 'tier', width: 15 },
+        { header: 'Points', key: 'latest_point', width: 10 },
+        { header: 'Repeat Trx', key: 'total_txn', width: 10 },
+        { header: 'Net Sales', key: 'total_net_sales', width: 15, style: { numFmt: '#,##0' } },
+        { header: 'First Purchase', key: 'first_txn_date', width: 15 },
+        { header: 'Last Purchase', key: 'last_txn_date', width: 15 },
+        { header: 'Trx 1 Bill', key: 'trx_1_no', width: 20 },
+        { header: 'Trx 1 Date', key: 'trx_1_date', width: 15 },
+        { header: 'Trx 2 Bill', key: 'trx_2_no', width: 20 },
+        { header: 'Trx 2 Date', key: 'trx_2_date', width: 15 },
+        { header: 'Trx 3 Bill', key: 'trx_3_no', width: 20 },
+        { header: 'Trx 3 Date', key: 'trx_3_date', width: 15 },
+        { header: 'Trx 4 Bill', key: 'trx_4_no', width: 20 },
+        { header: 'Trx 4 Date', key: 'trx_4_date', width: 15 },
+        { header: 'Trx 5 Bill', key: 'trx_5_no', width: 20 },
+        { header: 'Trx 5 Date', key: 'trx_5_date', width: 15 },
+      ];
+
+      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%' AND TRANSACTION_PARTNER_ID IS NOT NULL";
+      if (store && store !== 'All Store') {
+        const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
+        if (scRes.recordset.length > 0) {
+          where += " AND STORE_CD = @store_cd";
+          params.store_cd = scRes.recordset[0].ORG_CD;
+        } else {
+          where += " AND 1=0";
+        }
+      }
+      if (search) {
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const allowedSortCols = [
+        'store_name', 'card_no', 'cust_name', 'phone_no', 'channel', 
+        'activated_app', 'tier', 'latest_point', 'total_txn', 'total_net_sales', 
+        'first_txn_date', 'last_txn_date'
+      ];
+      let orderCol = 'a.total_txn';
+      if (sortBy && allowedSortCols.includes(sortBy)) {
+         if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
+         else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+         else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
+         else orderCol = `a.${sortBy}`;
+      }
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+      query = `
+        WITH RankedTxn AS (
+            SELECT
+                MEMBER_ID,
+                STORE_NAME,
+                CUST_NAME,
+                PHONE_NUMBER,
+                BILL_VALUE,
+                LATEST_POINT,
+                TRANSACTION_PARTNER_ID,
+                TRANS_DATE,
+                ROW_NUMBER() OVER (PARTITION BY MEMBER_ID ORDER BY TRANS_DATE ASC) as rn
+            FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+            ${where}
+        ),
+        AggregatedTxn AS (
+            SELECT
+                MEMBER_ID,
+                MAX(STORE_NAME) AS store_name,
+                MAX(CUST_NAME) AS cust_name,
+                MAX(PHONE_NUMBER) AS phone_no,
+                CAST(MIN(TRANS_DATE) AS DATE) AS first_txn_date,
+                CAST(MAX(TRANS_DATE) AS DATE) AS last_txn_date,
+                COUNT(DISTINCT TRANSACTION_PARTNER_ID) AS total_txn,
+                SUM(ISNULL(BILL_VALUE, 0)) AS total_net_sales,
+                MAX(LATEST_POINT) AS latest_point,
+                MAX(CASE WHEN rn = 1 THEN TRANSACTION_PARTNER_ID END) AS trx_1_no,
+                MAX(CASE WHEN rn = 1 THEN CAST(TRANS_DATE AS DATE) END) AS trx_1_date,
+                MAX(CASE WHEN rn = 2 THEN TRANSACTION_PARTNER_ID END) AS trx_2_no,
+                MAX(CASE WHEN rn = 2 THEN CAST(TRANS_DATE AS DATE) END) AS trx_2_date,
+                MAX(CASE WHEN rn = 3 THEN TRANSACTION_PARTNER_ID END) AS trx_3_no,
+                MAX(CASE WHEN rn = 3 THEN CAST(TRANS_DATE AS DATE) END) AS trx_3_date,
+                MAX(CASE WHEN rn = 4 THEN TRANSACTION_PARTNER_ID END) AS trx_4_no,
+                MAX(CASE WHEN rn = 4 THEN CAST(TRANS_DATE AS DATE) END) AS trx_4_date,
+                MAX(CASE WHEN rn = 5 THEN TRANSACTION_PARTNER_ID END) AS trx_5_no,
+                MAX(CASE WHEN rn = 5 THEN CAST(TRANS_DATE AS DATE) END) AS trx_5_date
+            FROM RankedTxn
+            GROUP BY MEMBER_ID
+            HAVING COUNT(DISTINCT TRANSACTION_PARTNER_ID) > 1
+        )
+        SELECT 
+            a.store_name,
+            a.MEMBER_ID AS card_no,
+            a.cust_name,
+            a.phone_no,
+            e.REGISTRATION_TYPE AS channel,
+            CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app,
+            c.CARD_TIER_NAME AS tier,
+            a.latest_point,
+            a.total_txn,
+            a.total_net_sales,
+            a.first_txn_date,
+            a.last_txn_date,
+            a.trx_1_no, a.trx_1_date,
+            a.trx_2_no, a.trx_2_date,
+            a.trx_3_no, a.trx_3_date,
+            a.trx_4_no, a.trx_4_date,
+            a.trx_5_no, a.trx_5_date
+        FROM AggregatedTxn a
+        LEFT JOIN RXL_LOYALID_ENROLLMENT e WITH (NOLOCK) ON a.MEMBER_ID = e.MEMBER_ID
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST c WITH (NOLOCK) ON a.MEMBER_ID = c.RLICM_CARD_NO
+        ORDER BY ${orderCol} ${orderDir}
+      `;
+    }
     else if (type === 'member-enrollment') {
       title = "Member Enrollment Analysis";
       columns = [
@@ -1041,25 +1161,45 @@ export const exportCrmReport = async (req, res) => {
         { header: 'Channel', key: 'REGISTRATION_TYPE', width: 20 },
         { header: 'Starting Points', key: 'STARTING_POINTS', width: 15 },
         { header: 'Active', key: 'IS_ACTIVE', width: 10 },
+        { header: 'Activated App', key: 'activated_app', width: 15 },
+        { header: 'Activated At', key: 'activated_at', width: 20 },
+        { header: 'Card Tier', key: 'card_tier_name', width: 15 },
+        { header: 'OTP', key: 'otp', width: 10 },
       ];
 
-      let where = "WHERE JOIN_DATE BETWEEN @fromDate AND @toDate";
+      let where = "WHERE e.JOIN_DATE BETWEEN @fromDate AND @toDate";
       if (store && store !== 'All Store') {
-        where += " AND STORE_NAME = @store";
+        where += " AND e.STORE_NAME = @store";
         params.store = store;
       }
       if (search) {
-        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search OR PHONE_NUMBER LIKE @search)";
+        where += " AND (e.MEMBER_ID LIKE @search OR e.CUST_NAME LIKE @search OR e.PHONE_NUMBER LIKE @search)";
         params.search = `%${search}%`;
       }
 
+      const allowedSortCols = ['STORE_NAME', 'MEMBER_ID', 'CUST_NAME', 'PHONE_NUMBER', 'JOIN_DATE', 'REGISTRATION_TYPE', 'STARTING_POINTS', 'IS_ACTIVE', 'activated_app', 'activated_at', 'card_tier_name', 'otp'];
+      let orderCol = 'e.JOIN_DATE';
+      if (sortBy && allowedSortCols.includes(sortBy)) {
+         if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+         else if (sortBy === 'activated_at') orderCol = 'c.MOBILE_APP_ACTIVATED_AT';
+         else if (sortBy === 'card_tier_name') orderCol = 'c.CARD_TIER_NAME';
+         else if (sortBy === 'otp') orderCol = 'e.ACTIVATION_OTP';
+         else orderCol = `e.${sortBy}`;
+      }
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
       query = `
-        SELECT STORE_NAME, MEMBER_ID, CUST_NAME, PHONE_NUMBER, 
-               JOIN_DATE, REGISTRATION_TYPE, STARTING_POINTS,
-               CASE WHEN IS_ACTIVE = 1 THEN 'Yes' ELSE 'No' END AS IS_ACTIVE
-        FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK)
-        ${where}
-        ORDER BY JOIN_DATE DESC, CREATED_AT DESC
+         SELECT e.STORE_NAME, e.MEMBER_ID, e.CUST_NAME, e.PHONE_NUMBER, 
+                e.JOIN_DATE, e.REGISTRATION_TYPE, e.STARTING_POINTS,
+                CASE WHEN e.IS_ACTIVE = 1 THEN 'Yes' ELSE 'No' END AS IS_ACTIVE,
+                CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app,
+                c.MOBILE_APP_ACTIVATED_AT AS activated_at,
+                c.CARD_TIER_NAME AS card_tier_name,
+                e.ACTIVATION_OTP AS otp
+         FROM RXL_LOYALID_ENROLLMENT e WITH (NOLOCK)
+         LEFT JOIN RXL_LOYALID_CUSTOMER_MST c WITH (NOLOCK) ON e.MEMBER_ID = c.RLICM_CARD_NO
+         ${where}
+         ORDER BY ${orderCol} ${orderDir}${orderCol === 'e.JOIN_DATE' ? ', e.CREATED_AT DESC' : ''}
       `;
     }
     else if (type === 'top-spender') {
@@ -1633,29 +1773,150 @@ export const getApiCrmReportsType = async (req, res) => {
         ${where}
       `;
     }
-    else if (type === 'member-enrollment') {
-      // member-enrollment and top-spender typically use data warehouse tables
-      // For trial, I'll implement member-enrollment
-      let where = "WHERE JOIN_DATE BETWEEN @fromDate AND @toDate";
+    else if (type === 'repeat-purchase') {
+      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%' AND TRANSACTION_PARTNER_ID IS NOT NULL";
       if (store && store !== 'All Store') {
-        where += " AND STORE_NAME = @store";
-        params.store = store;
+        const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
+        if (scRes.recordset.length > 0) {
+          where += " AND STORE_CD = @store_cd";
+          params.store_cd = scRes.recordset[0].ORG_CD;
+        } else {
+          where += " AND 1=0";
+        }
       }
       if (search) {
-        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search OR PHONE_NUMBER LIKE @search)";
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
 
+      const allowedSortCols = [
+        'store_name', 'card_no', 'cust_name', 'phone_no', 'channel', 
+        'activated_app', 'tier', 'latest_point', 'total_txn', 'total_net_sales', 
+        'first_txn_date', 'last_txn_date'
+      ];
+      let orderCol = 'a.total_txn';
+      if (sortBy && allowedSortCols.includes(sortBy)) {
+         if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
+         else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+         else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
+         else orderCol = `a.${sortBy}`;
+      }
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
       query = `
-         SELECT STORE_NAME, MEMBER_ID, CUST_NAME, PHONE_NUMBER, 
-                JOIN_DATE, REGISTRATION_TYPE, STARTING_POINTS,
-                CASE WHEN IS_ACTIVE = 1 THEN 'Yes' ELSE 'No' END AS IS_ACTIVE
-         FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK)
+        WITH RankedTxn AS (
+            SELECT
+                MEMBER_ID,
+                STORE_NAME,
+                CUST_NAME,
+                PHONE_NUMBER,
+                BILL_VALUE,
+                LATEST_POINT,
+                TRANSACTION_PARTNER_ID,
+                TRANS_DATE,
+                ROW_NUMBER() OVER (PARTITION BY MEMBER_ID ORDER BY TRANS_DATE ASC) as rn
+            FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+            ${where}
+        ),
+        AggregatedTxn AS (
+            SELECT
+                MEMBER_ID,
+                MAX(STORE_NAME) AS store_name,
+                MAX(CUST_NAME) AS cust_name,
+                MAX(PHONE_NUMBER) AS phone_no,
+                CAST(MIN(TRANS_DATE) AS DATE) AS first_txn_date,
+                CAST(MAX(TRANS_DATE) AS DATE) AS last_txn_date,
+                COUNT(DISTINCT TRANSACTION_PARTNER_ID) AS total_txn,
+                SUM(ISNULL(BILL_VALUE, 0)) AS total_net_sales,
+                MAX(LATEST_POINT) AS latest_point,
+                MAX(CASE WHEN rn = 1 THEN TRANSACTION_PARTNER_ID END) AS trx_1_no,
+                MAX(CASE WHEN rn = 1 THEN CAST(TRANS_DATE AS DATE) END) AS trx_1_date,
+                MAX(CASE WHEN rn = 2 THEN TRANSACTION_PARTNER_ID END) AS trx_2_no,
+                MAX(CASE WHEN rn = 2 THEN CAST(TRANS_DATE AS DATE) END) AS trx_2_date,
+                MAX(CASE WHEN rn = 3 THEN TRANSACTION_PARTNER_ID END) AS trx_3_no,
+                MAX(CASE WHEN rn = 3 THEN CAST(TRANS_DATE AS DATE) END) AS trx_3_date,
+                MAX(CASE WHEN rn = 4 THEN TRANSACTION_PARTNER_ID END) AS trx_4_no,
+                MAX(CASE WHEN rn = 4 THEN CAST(TRANS_DATE AS DATE) END) AS trx_4_date,
+                MAX(CASE WHEN rn = 5 THEN TRANSACTION_PARTNER_ID END) AS trx_5_no,
+                MAX(CASE WHEN rn = 5 THEN CAST(TRANS_DATE AS DATE) END) AS trx_5_date
+            FROM RankedTxn
+            GROUP BY MEMBER_ID
+            HAVING COUNT(DISTINCT TRANSACTION_PARTNER_ID) > 1
+        )
+        SELECT 
+            a.store_name,
+            a.MEMBER_ID AS card_no,
+            a.cust_name,
+            a.phone_no,
+            e.REGISTRATION_TYPE AS channel,
+            CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app,
+            c.CARD_TIER_NAME AS tier,
+            a.latest_point,
+            a.total_txn,
+            a.total_net_sales,
+            a.first_txn_date,
+            a.last_txn_date,
+            a.trx_1_no, a.trx_1_date,
+            a.trx_2_no, a.trx_2_date,
+            a.trx_3_no, a.trx_3_date,
+            a.trx_4_no, a.trx_4_date,
+            a.trx_5_no, a.trx_5_date
+        FROM AggregatedTxn a
+        LEFT JOIN RXL_LOYALID_ENROLLMENT e WITH (NOLOCK) ON a.MEMBER_ID = e.MEMBER_ID
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST c WITH (NOLOCK) ON a.MEMBER_ID = c.RLICM_CARD_NO
+        ORDER BY ${orderCol} ${orderDir}
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+      `;
+
+      countQuery = `
+        SELECT COUNT(*) as total FROM (
+          SELECT MEMBER_ID
+          FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+          ${where}
+          GROUP BY MEMBER_ID
+          HAVING COUNT(DISTINCT TRANSACTION_PARTNER_ID) > 1
+        ) z
+      `;
+    }
+    else if (type === 'member-enrollment') {
+      // member-enrollment and top-spender typically use data warehouse tables
+      // For trial, I'll implement member-enrollment
+      let where = "WHERE e.JOIN_DATE BETWEEN @fromDate AND @toDate";
+      if (store && store !== 'All Store') {
+        where += " AND e.STORE_NAME = @store";
+        params.store = store;
+      }
+      if (search) {
+        where += " AND (e.MEMBER_ID LIKE @search OR e.CUST_NAME LIKE @search OR e.PHONE_NUMBER LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const allowedSortCols = ['STORE_NAME', 'MEMBER_ID', 'CUST_NAME', 'PHONE_NUMBER', 'JOIN_DATE', 'REGISTRATION_TYPE', 'STARTING_POINTS', 'IS_ACTIVE', 'activated_app', 'activated_at', 'card_tier_name', 'otp'];
+      let orderCol = 'e.JOIN_DATE';
+      if (sortBy && allowedSortCols.includes(sortBy)) {
+         if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+         else if (sortBy === 'activated_at') orderCol = 'c.MOBILE_APP_ACTIVATED_AT';
+         else if (sortBy === 'card_tier_name') orderCol = 'c.CARD_TIER_NAME';
+         else if (sortBy === 'otp') orderCol = 'e.ACTIVATION_OTP';
+         else orderCol = `e.${sortBy}`;
+      }
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+      query = `
+         SELECT e.STORE_NAME, e.MEMBER_ID, e.CUST_NAME, e.PHONE_NUMBER, 
+                e.JOIN_DATE, e.REGISTRATION_TYPE, e.STARTING_POINTS,
+                CASE WHEN e.IS_ACTIVE = 1 THEN 'Yes' ELSE 'No' END AS IS_ACTIVE,
+                CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app,
+                c.MOBILE_APP_ACTIVATED_AT AS activated_at,
+                c.CARD_TIER_NAME AS card_tier_name,
+                e.ACTIVATION_OTP AS otp
+         FROM RXL_LOYALID_ENROLLMENT e WITH (NOLOCK)
+         LEFT JOIN RXL_LOYALID_CUSTOMER_MST c WITH (NOLOCK) ON e.MEMBER_ID = c.RLICM_CARD_NO
          ${where}
-         ORDER BY JOIN_DATE DESC, CREATED_AT DESC
+         ORDER BY ${orderCol} ${orderDir}${orderCol === 'e.JOIN_DATE' ? ', e.CREATED_AT DESC' : ''}
          OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
        `;
-      countQuery = `SELECT COUNT(*) as total FROM RXL_LOYALID_ENROLLMENT WITH (NOLOCK) ${where}`;
+      countQuery = `SELECT COUNT(*) as total FROM RXL_LOYALID_ENROLLMENT e WITH (NOLOCK) ${where}`;
     }
     else if (type === 'top-spender') {
       const topLimit = parseInt(req.query.top) || 100;
