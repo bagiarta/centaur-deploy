@@ -4,7 +4,7 @@ import {
   Search, Filter, Download, Calendar, RefreshCw,
   ChevronLeft, ChevronRight, FileSpreadsheet, FileText,
   TrendingUp, Activity, Users, UserPlus, Database,
-  ArrowUpDown, MoreHorizontal
+  ArrowUpDown, MoreHorizontal, ShoppingBag
 } from "lucide-react";
 import { PageHeader, SectionCard, StatCard } from "@/components/ui-enterprise";
 import { toast } from "sonner";
@@ -54,6 +54,35 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
       { key: 'cust_category', label: 'Category', type: 'string' },
     ]
   },
+  'repeat-purchase': {
+    title: "Customer Repeat Purchase",
+    icon: ShoppingBag,
+    endpoint: "repeat-purchase",
+    columns: [
+      { key: 'store_name', label: 'Store Name', type: 'string' },
+      { key: 'card_no', label: 'Card No', type: 'string' },
+      { key: 'cust_name', label: 'Customer', type: 'string' },
+      { key: 'phone_no', label: 'Phone No', type: 'string' },
+      { key: 'channel', label: 'Channel', type: 'string' },
+      { key: 'activated_app', label: 'Activated App', type: 'string' },
+      { key: 'tier', label: 'Tier', type: 'string' },
+      { key: 'latest_point', label: 'Points', type: 'number' },
+      { key: 'total_txn', label: 'Repeat Trx', type: 'number' },
+      { key: 'total_net_sales', label: 'Net Sales', type: 'currency' },
+      { key: 'first_txn_date', label: 'First Purchase', type: 'date' },
+      { key: 'last_txn_date', label: 'Last Purchase', type: 'date' },
+      { key: 'trx_1_no', label: 'Trx 1 Bill', type: 'string' },
+      { key: 'trx_1_date', label: 'Trx 1 Date', type: 'date' },
+      { key: 'trx_2_no', label: 'Trx 2 Bill', type: 'string' },
+      { key: 'trx_2_date', label: 'Trx 2 Date', type: 'date' },
+      { key: 'trx_3_no', label: 'Trx 3 Bill', type: 'string' },
+      { key: 'trx_3_date', label: 'Trx 3 Date', type: 'date' },
+      { key: 'trx_4_no', label: 'Trx 4 Bill', type: 'string' },
+      { key: 'trx_4_date', label: 'Trx 4 Date', type: 'date' },
+      { key: 'trx_5_no', label: 'Trx 5 Bill', type: 'string' },
+      { key: 'trx_5_date', label: 'Trx 5 Date', type: 'date' },
+    ]
+  },
   'member-enrollment': {
     title: "Member Enrollment Analysis",
     icon: UserPlus,
@@ -67,6 +96,10 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
       { key: 'REGISTRATION_TYPE', label: 'Channel', type: 'string' },
       { key: 'STARTING_POINTS', label: 'Starting Points', type: 'number' },
       { key: 'IS_ACTIVE', label: 'Active', type: 'string' },
+      { key: 'activated_app', label: 'Activated App', type: 'string' },
+      { key: 'activated_at', label: 'Activated At', type: 'date' },
+      { key: 'card_tier_name', label: 'Card Tier', type: 'string' },
+      { key: 'otp', label: 'OTP', type: 'string' },
     ]
   },
   'top-spender': {
@@ -141,9 +174,34 @@ export default function CrmReportsPage() {
   const [loading, setLoading] = useState(true);
   const [totalPages, setTotalPages] = useState(1);
 
+  // Helper to get initial dates based on type
+  const getInitialFromDate = () => {
+    if (searchParams.get('fromDate')) return searchParams.get('fromDate')!;
+    if (type === 'wakeup-call') {
+      const date = new Date();
+      const mOffset = parseInt(searchParams.get('monthOffset') || '1');
+      date.setMonth(date.getMonth() - mOffset);
+      const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
+      return `${firstDay.getFullYear()}-${String(firstDay.getMonth() + 1).padStart(2, '0')}-${String(firstDay.getDate()).padStart(2, '0')}`;
+    }
+    return new Date(new Date().setDate(1)).toISOString().split('T')[0];
+  };
+
+  const getInitialToDate = () => {
+    if (searchParams.get('toDate')) return searchParams.get('toDate')!;
+    if (type === 'wakeup-call') {
+      const date = new Date();
+      const mOffset = parseInt(searchParams.get('monthOffset') || '1');
+      date.setMonth(date.getMonth() - mOffset);
+      const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      return `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
+    }
+    return new Date().toISOString().split('T')[0];
+  };
+
   // Filters
-  const [fromDate, setFromDate] = useState(searchParams.get('fromDate') || new Date(new Date().setDate(1)).toISOString().split('T')[0]);
-  const [toDate, setToDate] = useState(searchParams.get('toDate') || new Date().toISOString().split('T')[0]);
+  const [fromDate, setFromDate] = useState(getInitialFromDate());
+  const [toDate, setToDate] = useState(getInitialToDate());
   const [selectedStore, setSelectedStore] = useState(searchParams.get('store') || 'All Store');
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [page, setPage] = useState(parseInt(searchParams.get('page') || '1'));

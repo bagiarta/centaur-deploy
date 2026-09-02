@@ -4626,6 +4626,68 @@ router.post('/api/tickets', async (req, res) => {
   }
 });
 
+router.put('/api/tickets/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, category, priority, outlet_name, hostname, performed_by } = req.body;
+    const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('title', sql.NVarChar, title)
+      .input('description', sql.NVarChar, description)
+      .input('category', sql.NVarChar, category)
+      .input('priority', sql.NVarChar, priority)
+      .input('outlet_name', sql.NVarChar, outlet_name)
+      .input('hostname', sql.NVarChar, hostname)
+      .input('now', sql.NVarChar, nowStr)
+      .query(`
+        UPDATE TroubleTickets 
+        SET title = @title, description = @description, category = @category, 
+            priority = @priority, outlet_name = @outlet_name, hostname = @hostname, updated_at = @now
+        WHERE id = @id
+      `);
+
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, 'Ticket updated by administrator')
+      .input('performed_by', sql.NVarChar, performed_by || 'system')
+      .input('now', sql.NVarChar, nowStr)
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.json({ message: 'Ticket updated successfully' });
+  } catch (err) {
+    console.error("PUT /api/tickets/:id Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/tickets/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    const nowStr = getISOTimestamp();
+
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('now', sql.NVarChar, nowStr)
+      .query("UPDATE TroubleTickets SET status = 'Canceled', updated_at = @now WHERE id = @id");
+
+    await pool.request()
+      .input('ticket_id', sql.NVarChar, id)
+      .input('action', sql.NVarChar, 'Ticket canceled by administrator')
+      .input('performed_by', sql.NVarChar, 'system')
+      .input('now', sql.NVarChar, nowStr)
+      .query(`INSERT INTO TicketLogs (ticket_id, action, performed_by, created_at) VALUES (@ticket_id, @action, @performed_by, @now)`);
+
+    res.json({ message: 'Ticket canceled successfully' });
+  } catch (err) {
+    console.error("DELETE /api/tickets/:id Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/api/tickets/:id/status', async (req, res) => {
   try {
     const { id } = req.params;

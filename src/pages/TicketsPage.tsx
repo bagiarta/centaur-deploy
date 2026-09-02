@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Ticket, Search, CheckCircle, Clock, AlertCircle, MessageSquare, ChevronRight, Download, Filter, X } from "lucide-react";
+import { Ticket, Search, CheckCircle, Clock, AlertCircle, MessageSquare, ChevronRight, Download, Filter, X, Edit, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from "recharts";
@@ -78,6 +78,11 @@ export default function TicketsPage() {
   const [manageTargetsData, setManageTargetsData] = useState({
     hostname: "",
     selected_group_ids: [] as string[]
+  });
+  
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editTicketData, setEditTicketData] = useState({
+    title: "", description: "", category: "", priority: "", outlet_name: "", hostname: ""
   });
 
   const resolveUserDisplayName = (value?: string) => {
@@ -364,6 +369,45 @@ export default function TicketsPage() {
     }
   };
 
+  const handleUpdateTicket = async () => {
+    if (!selectedTicket) return;
+    setActionLoading(true);
+    try {
+      const payload = { ...editTicketData, performed_by: user?.username };
+      const res = await fetch(`/api/tickets/${selectedTicket.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error("Failed to update ticket");
+      
+      await fetchTickets();
+      setSelectedTicket(prev => prev ? { ...prev, ...editTicketData } : prev);
+      await fetchLogs(selectedTicket.id);
+      setIsEditModalOpen(false);
+    } catch (err) {
+      alert("Update failed.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteTicket = async (id: string) => {
+    if (!confirm("Are you sure you want to cancel this ticket? It will be marked as Canceled.")) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/tickets/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete ticket");
+      
+      await fetchTickets();
+      setSelectedTicket(null);
+    } catch (err) {
+      alert("Delete failed.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const selected_ticket_can_edit = selectedTicket && (user?.username === selectedTicket.created_by || canManageTickets) && selectedTicket.status !== 'Closed' && selectedTicket.status !== 'Resolved';
   const canAssign = selectedTicket && (canManageTickets || user?.username === selectedTicket.created_by);
 
@@ -469,6 +513,7 @@ export default function TicketsPage() {
       case "In Progress": return <Clock className="w-4 h-4 text-warning" />;
       case "Resolved": return <CheckCircle className="w-4 h-4 text-success" />;
       case "Closed": return <CheckCircle className="w-4 h-4 text-foreground-muted" />;
+      case "Canceled": return <X className="w-4 h-4 text-danger" />;
       default: return <Ticket className="w-4 h-4" />;
     }
   };
@@ -549,7 +594,7 @@ export default function TicketsPage() {
                 </div>
 
                 <div className="flex bg-surface/95 p-1 rounded-3xl border border-border shadow-sm">
-                  {['All', 'Open', 'In Progress', 'Resolved', 'Closed'].map(s => (
+                  {['All', 'Open', 'In Progress', 'Resolved', 'Closed', 'Canceled'].map(s => (
                     <button
                       key={s}
                       onClick={() => setFilterStatus(s)}
@@ -630,7 +675,8 @@ export default function TicketsPage() {
                             <span className={
                               ticket.status === 'Resolved' ? 'text-success' :
                                 ticket.status === 'In Progress' ? 'text-warning' :
-                                  ticket.status === 'Closed' ? 'text-foreground-muted' : 'text-primary'
+                                  ticket.status === 'Closed' ? 'text-foreground-muted' :
+                                    ticket.status === 'Canceled' ? 'text-danger' : 'text-primary'
                             }>{ticket.status}</span>
                           </div>
                           {ticket.assigned_to && (
@@ -673,11 +719,40 @@ export default function TicketsPage() {
                     </div>
 
                     <div className="flex gap-2 items-center">
+                      {user?.is_admin && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditTicketData({
+                                title: selectedTicket.title,
+                                description: selectedTicket.description,
+                                category: selectedTicket.category,
+                                priority: selectedTicket.priority,
+                                outlet_name: selectedTicket.outlet_name || '',
+                                hostname: selectedTicket.hostname || ''
+                              });
+                              setIsEditModalOpen(true);
+                            }}
+                            className="p-1.5 bg-surface border border-border rounded-md text-foreground-muted hover:bg-primary/10 hover:text-primary transition-colors"
+                            title="Edit Ticket"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTicket(selectedTicket.id)}
+                            className="p-1.5 bg-surface border border-border rounded-md text-foreground-muted hover:bg-danger/10 hover:text-danger transition-colors"
+                            title="Delete Ticket"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                       <div className={cn("px-3 py-1 flex items-center gap-1.5 rounded-full border text-sm font-semibold",
                         selectedTicket.status === 'Resolved' ? 'bg-success/10 border-success/30 text-success' :
                           selectedTicket.status === 'Closed' ? 'bg-surface border-border text-foreground-muted' :
-                            selectedTicket.status === 'In Progress' ? 'bg-warning/10 border-warning/30 text-warning' :
-                              'bg-primary/10 border-primary/30 text-primary'
+                            selectedTicket.status === 'Canceled' ? 'bg-danger/10 border-danger/30 text-danger' :
+                              selectedTicket.status === 'In Progress' ? 'bg-warning/10 border-warning/30 text-warning' :
+                                'bg-primary/10 border-primary/30 text-primary'
                       )}>
                         {getStatusIcon(selectedTicket.status)}
                         {selectedTicket.status}
@@ -818,7 +893,7 @@ export default function TicketsPage() {
                           </div>
                         </div>
                       </div>
-                      <div className="grid gap-3">
+                      <div className="grid gap-3 max-h-[300px] overflow-y-auto pr-2">
                         {selectedTicket.targets
                           .filter(t => t.hostname.toLowerCase().includes(targetSearchQuery.toLowerCase()))
                           .filter(t => targetStatusFilter === "All" || t.status === targetStatusFilter)
@@ -1129,6 +1204,108 @@ export default function TicketsPage() {
           )}
         </div>
       </div>
+
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsEditModalOpen(false)} />
+          <div className="bg-card w-full max-w-2xl rounded-3xl shadow-2xl relative flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200">
+            <div className="p-4 md:p-6 border-b border-border bg-surface/50 flex justify-between items-center shrink-0 rounded-t-3xl">
+              <div>
+                <h3 className="text-xl font-bold text-foreground">Edit Ticket</h3>
+                <p className="text-xs text-foreground-muted mt-1">Update ticket details</p>
+              </div>
+              <button onClick={() => setIsEditModalOpen(false)} className="p-2 text-foreground-muted hover:text-foreground rounded-full hover:bg-surface transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="col-span-1 md:col-span-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-1.5">Title</label>
+                    <input
+                      type="text"
+                      value={editTicketData.title}
+                      onChange={e => setEditTicketData({ ...editTicketData, title: e.target.value })}
+                      className="w-full bg-surface border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary transition-all"
+                    />
+                  </div>
+                  <div className="col-span-1 md:col-span-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-1.5">Description</label>
+                    <textarea
+                      value={editTicketData.description}
+                      onChange={e => setEditTicketData({ ...editTicketData, description: e.target.value })}
+                      className="w-full bg-surface border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary transition-all min-h-[100px]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-1.5">Category</label>
+                    <select
+                      value={editTicketData.category}
+                      onChange={e => setEditTicketData({ ...editTicketData, category: e.target.value })}
+                      className="w-full bg-surface border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary transition-all cursor-pointer"
+                    >
+                      <option value="Hardware">Hardware</option>
+                      <option value="Software">Software</option>
+                      <option value="Network">Network</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-1.5">Priority</label>
+                    <select
+                      value={editTicketData.priority}
+                      onChange={e => setEditTicketData({ ...editTicketData, priority: e.target.value })}
+                      className="w-full bg-surface border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary transition-all cursor-pointer"
+                    >
+                      <option value="Low">Low</option>
+                      <option value="Medium">Medium</option>
+                      <option value="High">High</option>
+                      <option value="Critical">Critical</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-1.5">Outlet / Branch</label>
+                    <input
+                      type="text"
+                      value={editTicketData.outlet_name}
+                      onChange={e => setEditTicketData({ ...editTicketData, outlet_name: e.target.value })}
+                      className="w-full bg-surface border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-foreground-muted mb-1.5">Target Hostnames (comma separated)</label>
+                    <input
+                      type="text"
+                      value={editTicketData.hostname}
+                      onChange={e => setEditTicketData({ ...editTicketData, hostname: e.target.value })}
+                      className="w-full bg-surface border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary transition-all"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-border bg-surface/50 flex justify-end gap-3 rounded-b-3xl shrink-0">
+              <button
+                onClick={() => setIsEditModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-foreground hover:bg-surface rounded-md"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={actionLoading}
+                onClick={handleUpdateTicket}
+                className="px-6 py-2 bg-primary text-white text-sm font-bold rounded-md hover:bg-primary-hover disabled:opacity-50"
+              >
+                {actionLoading ? "Updating..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
