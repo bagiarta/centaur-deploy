@@ -7,7 +7,7 @@ import {
   UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
   UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw, Wrench,
   Video, Trophy, HardDrive, LayoutTemplate, Briefcase, MapPin, Building,
-  UserCheck, ArrowRightLeft, CalendarClock, PhoneCall, LayoutDashboardIcon, ShoppingBag,
+  UserCheck, ArrowRightLeft, CalendarClock, PhoneCall, LayoutDashboardIcon, ShoppingCart, ShoppingBag, ChartNoAxesCombined,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -74,15 +74,16 @@ export const navItems: NavigationItem[] = [
       { id: "crm_dashboard", to: "/crm/dashboard", icon: LayoutDashboardIcon, label: "CRM Dashboard" },
       { id: "crm_lookup", to: "/crm/lookup", icon: Search, label: "Customer Lookup" },
       { id: "crm_sync", to: "/crm/sync", icon: RefreshCw, label: "Manual Re-Sync CRM Items" },
-      { id: "crm_abc_analysis", to: "/crm/abc-analysis", icon: Activity, label: "ABC Analysis Report" },
+      { id: "crm_abc_analysis", to: "/crm/abc-analysis", icon: ChartNoAxesCombined, label: "ABC Analysis Report" },
       { id: "crm_report_txn", to: "/crm/reports/txn-analysis", icon: Activity, label: "Transaction Analysis" },
-      { id: "crm_report_shopper", to: "/crm/reports/frequent-shopper", icon: Users, label: "Frequent Shopper" },
+      { id: "crm_report_shopper", to: "/crm/reports/frequent-shopper", icon: ShoppingCart, label: "Frequent Shopper" },
       { id: "crm_report_enrollment", to: "/crm/reports/member-enrollment", icon: UserPlus, label: "Member Enrollment" },
       { id: "crm_report_spender", to: "/crm/reports/top-spender", icon: TrendingUp, label: "Top Spender" },
       { id: "crm_report_fraud", to: "/crm/reports/fraud-analysis", icon: Shield, label: "Fraud Analysis" },
       { id: "crm_report_wakeup", to: "/crm/reports/wakeup-call", icon: PhoneCall, label: "Wakeup Call Customer" },
       { id: "crm_report_deleted", to: "/crm/reports/deleted-member", icon: Database, label: "Deleted Member" },
       { id: "crm_report_repeat", to: "/crm/reports/repeat-purchase", icon: ShoppingBag, label: "Customer Repeat Purchase" },
+      { id: "crm_report_customer_list", to: "/crm/reports/customer-list", icon: Users, label: "Customer List" },
       { id: "crm_dev_loyalty", to: "/crm/dev-loyalty", icon: Trophy, label: "[DEV] Loyalty & Achievements" },
     ]
   },

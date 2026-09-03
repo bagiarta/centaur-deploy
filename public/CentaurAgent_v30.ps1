@@ -1,4 +1,4 @@
-# --- Centaur Deploy Agent v2.9.0 ---
+# --- Centaur Deploy Agent v3.0.0 ---
 # Capabilities:
 #   1. Send hardware/resource heartbeat
 #   2. Self-update check (download new version if server has newer)
@@ -11,7 +11,7 @@ param(
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
-$Version = "2.9.0"
+$Version = "3.0.0"
 $Hostname = $env:COMPUTERNAME
 # --- IP Selection Logic (Prioritize Internal IPv4) ---
 $allIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" }
@@ -33,7 +33,7 @@ if (!$IPAddress) {
     $IPAddress = ($allIPs | Select-Object -First 1).IPAddress
 }
 $AgentDir = "C:\Program Files\PepiUpdaterAgent"
-$AgentFile = "CentaurAgent_v25.ps1"
+$AgentFile = "CentaurAgent_v30.ps1"
 $AgentPath = "$AgentDir\$AgentFile"
 $LogPath = "C:\Windows\Temp\centaur_agent.log"
 
@@ -356,8 +356,9 @@ try {
             $pkgName = $dep.package_name
             $fileName = $dep.file_name
             $targetDir = $dep.target_path
+            $actionType = $dep.action_type
 
-            Write-Log "[Deployments] Starting deployment: $pkgName ($fileName)"
+            Write-Log "[Deployments] Starting deployment: $pkgName ($fileName) [Action: $actionType]"
 
             # Report running
             $statusPayload = @{
@@ -389,7 +390,10 @@ try {
                 
                 $execLog = ""
                 # Execute based on extension
-                if ($localFile -match "\.msi$") {
+                if ($actionType -eq "copy") {
+                    $execLog = "File copied successfully (Execution skipped based on deployment settings)."
+                }
+                elseif ($localFile -match "\.msi$") {
                     $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$localFile`" /qn /norestart" -Wait -NoNewWindow -PassThru
                     $execLog = "MSI Exit Code: $($process.ExitCode)"
                 }

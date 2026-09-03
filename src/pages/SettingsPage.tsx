@@ -30,7 +30,7 @@ const DOWNLOADS = [
     bg: "bg-success-dim",
     border: "border-success/20",
     size: "~15 KB",
-    file: "Manual-Agent-Installer-v25.ps1",
+    file: "Manual-Agent-Installer-v30.ps1",
     reqs: ["Windows 7 SP1+ / Server 2008 R2+", "64 MB RAM", "PowerShell 5.1+", "TCP outbound to server port"],
   },
   {
@@ -42,7 +42,7 @@ const DOWNLOADS = [
     bg: "bg-info-dim",
     border: "border-info/20",
     size: "~22 MB",
-    file: "Manual-Agent-Installer-v25.ps1",
+    file: "Manual-Agent-Installer-v30.ps1",
     reqs: ["Windows 10+ / Server 2016+", "Admin network access (SMB/WMI)", ".NET 8.0 Runtime", "Firewall: ports 135, 445 open on targets"],
   },
   {

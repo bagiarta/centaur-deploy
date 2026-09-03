@@ -1150,6 +1150,107 @@ export const exportCrmReport = async (req, res) => {
         ORDER BY ${orderCol} ${orderDir}
       `;
     }
+    else if (type === 'customer-list') {
+      title = "Customer List";
+      columns = [
+        { header: 'Card No', key: 'card_no', width: 20 },
+        { header: 'Mobile No', key: 'phone_no', width: 15 },
+        { header: 'Name', key: 'cust_name', width: 25 },
+        { header: 'Email', key: 'email', width: 25 },
+        { header: 'Card ID', key: 'card_id', width: 20 },
+        { header: 'Tier', key: 'tier', width: 15 },
+        { header: 'Gender', key: 'gender', width: 10 },
+        { header: 'Marital Status', key: 'marital_status', width: 15 },
+        { header: 'Registered At', key: 'registered_at', width: 15 },
+        { header: 'Channel', key: 'channel', width: 15 },
+        { header: 'Religion', key: 'religion', width: 15 },
+        { header: 'Nationality', key: 'nationality', width: 15 },
+        { header: 'Activated App', key: 'activated_app', width: 15 },
+        { header: 'Redeem Points', key: 'redeem_points', width: 15, style: { numFmt: '#,##0' } },
+        { header: 'Total Expense', key: 'total_expense', width: 15, style: { numFmt: '#,##0' } },
+        { header: 'Last Trx Dt', key: 'last_txn_date', width: 15 },
+        { header: 'Last Store Trx', key: 'last_store_trx', width: 20 },
+      ];
+
+      let where = "WHERE BILL_NO NOT LIKE '%mig%'";
+      if (search) {
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const allowedSortCols = [
+        'card_no', 'phone_no', 'cust_name', 'email', 'card_id', 'tier', 
+        'gender', 'marital_status', 'registered_at', 'channel', 'religion', 
+        'nationality', 'activated_app', 'redeem_points', 'total_expense', 
+        'last_txn_date', 'last_store_trx'
+      ];
+      let orderCol = 'a.last_txn_date';
+      if (sortBy && allowedSortCols.includes(sortBy)) {
+         if (sortBy === 'email') orderCol = 'c.RLICM_EMAIL_ID';
+         else if (sortBy === 'card_id') orderCol = 'c.RLICM_CARD_NO';
+         else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
+         else if (sortBy === 'gender') orderCol = 'c.GENDER';
+         else if (sortBy === 'marital_status') orderCol = 'c.MARRIED_STATUS';
+         else if (sortBy === 'registered_at') orderCol = 'e.JOIN_DATE';
+         else if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
+         else if (sortBy === 'religion') orderCol = 'c.RELIGION';
+         else if (sortBy === 'nationality') orderCol = 'c.NATIONALITY';
+         else if (sortBy === 'cust_name') orderCol = 'c.RLICM_NAME';
+         else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+         else orderCol = `a.${sortBy}`;
+      }
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+      query = `
+        WITH RankedTxn AS (
+            SELECT
+                MEMBER_ID,
+                STORE_NAME,
+                CUST_NAME,
+                PHONE_NUMBER,
+                BILL_VALUE,
+                POINTS_REDEEM,
+                TRANS_DATE,
+                ROW_NUMBER() OVER (PARTITION BY MEMBER_ID ORDER BY TRANS_DATE DESC) as rn
+            FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+            ${where}
+        ),
+        AggregatedTxn AS (
+            SELECT
+                MEMBER_ID,
+                MAX(CUST_NAME) AS cust_name,
+                MAX(PHONE_NUMBER) AS phone_no,
+                SUM(ISNULL(BILL_VALUE, 0)) AS total_expense,
+                SUM(ISNULL(POINTS_REDEEM, 0)) AS redeem_points,
+                CAST(MAX(TRANS_DATE) AS DATE) AS last_txn_date,
+                MAX(CASE WHEN rn = 1 THEN STORE_NAME END) AS last_store_trx
+            FROM RankedTxn
+            GROUP BY MEMBER_ID
+        )
+        SELECT 
+            a.MEMBER_ID AS card_no,
+            a.phone_no,
+            c.RLICM_NAME AS cust_name,
+            c.RLICM_EMAIL_ID AS email,
+            c.RLICM_CARD_NO AS card_id,
+            c.CARD_TIER_NAME AS tier,
+            c.GENDER AS gender,
+            c.MARRIED_STATUS AS marital_status,
+            e.JOIN_DATE AS registered_at,
+            e.REGISTRATION_TYPE AS channel,
+            c.RELIGION AS religion,
+            c.NATIONALITY AS nationality,
+            CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app,
+            a.redeem_points,
+            a.total_expense,
+            a.last_txn_date,
+            a.last_store_trx
+        FROM AggregatedTxn a
+        LEFT JOIN RXL_LOYALID_ENROLLMENT e WITH (NOLOCK) ON a.MEMBER_ID = e.MEMBER_ID
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST c WITH (NOLOCK) ON a.MEMBER_ID = c.RLICM_CARD_NO
+        ORDER BY ${orderCol} ${orderDir}
+      `;
+    }
     else if (type === 'member-enrollment') {
       title = "Member Enrollment Analysis";
       columns = [
@@ -1876,6 +1977,93 @@ export const getApiCrmReportsType = async (req, res) => {
           GROUP BY MEMBER_ID
           HAVING COUNT(DISTINCT TRANSACTION_PARTNER_ID) > 1
         ) z
+      `;
+    }
+    else if (type === 'customer-list') {
+      let where = "WHERE BILL_NO NOT LIKE '%mig%'";
+      if (search) {
+        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
+        params.search = `%${search}%`;
+      }
+
+      const allowedSortCols = [
+        'card_no', 'phone_no', 'cust_name', 'email', 'card_id', 'tier', 
+        'gender', 'marital_status', 'registered_at', 'channel', 'religion', 
+        'nationality', 'activated_app', 'redeem_points', 'total_expense', 
+        'last_txn_date', 'last_store_trx'
+      ];
+      let orderCol = 'a.last_txn_date';
+      if (sortBy && allowedSortCols.includes(sortBy)) {
+         if (sortBy === 'email') orderCol = 'c.RLICM_EMAIL_ID';
+         else if (sortBy === 'card_id') orderCol = 'c.RLICM_CARD_NO';
+         else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
+         else if (sortBy === 'gender') orderCol = 'c.GENDER';
+         else if (sortBy === 'marital_status') orderCol = 'c.MARRIED_STATUS';
+         else if (sortBy === 'registered_at') orderCol = 'e.JOIN_DATE';
+         else if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
+         else if (sortBy === 'religion') orderCol = 'c.RELIGION';
+         else if (sortBy === 'nationality') orderCol = 'c.NATIONALITY';
+         else if (sortBy === 'cust_name') orderCol = 'c.RLICM_NAME';
+         else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+         else orderCol = `a.${sortBy}`;
+      }
+      const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+      query = `
+        WITH RankedTxn AS (
+            SELECT
+                MEMBER_ID,
+                STORE_NAME,
+                CUST_NAME,
+                PHONE_NUMBER,
+                BILL_VALUE,
+                POINTS_REDEEM,
+                TRANS_DATE,
+                ROW_NUMBER() OVER (PARTITION BY MEMBER_ID ORDER BY TRANS_DATE DESC) as rn
+            FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+            ${where}
+        ),
+        AggregatedTxn AS (
+            SELECT
+                MEMBER_ID,
+                MAX(CUST_NAME) AS cust_name,
+                MAX(PHONE_NUMBER) AS phone_no,
+                SUM(ISNULL(BILL_VALUE, 0)) AS total_expense,
+                SUM(ISNULL(POINTS_REDEEM, 0)) AS redeem_points,
+                CAST(MAX(TRANS_DATE) AS DATE) AS last_txn_date,
+                MAX(CASE WHEN rn = 1 THEN STORE_NAME END) AS last_store_trx
+            FROM RankedTxn
+            GROUP BY MEMBER_ID
+        )
+        SELECT 
+            a.MEMBER_ID AS card_no,
+            a.phone_no,
+            c.RLICM_NAME AS cust_name,
+            c.RLICM_EMAIL_ID AS email,
+            c.RLICM_CARD_NO AS card_id,
+            c.CARD_TIER_NAME AS tier,
+            c.GENDER AS gender,
+            c.MARRIED_STATUS AS marital_status,
+            e.JOIN_DATE AS registered_at,
+            e.REGISTRATION_TYPE AS channel,
+            c.RELIGION AS religion,
+            c.NATIONALITY AS nationality,
+            CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app,
+            a.redeem_points,
+            a.total_expense,
+            a.last_txn_date,
+            a.last_store_trx
+        FROM AggregatedTxn a
+        LEFT JOIN RXL_LOYALID_ENROLLMENT e WITH (NOLOCK) ON a.MEMBER_ID = e.MEMBER_ID
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST c WITH (NOLOCK) ON a.MEMBER_ID = c.RLICM_CARD_NO
+        ORDER BY ${orderCol} ${orderDir}
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
+      `;
+
+      countQuery = `
+        SELECT COUNT(DISTINCT MEMBER_ID) as total
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+        ${where}
       `;
     }
     else if (type === 'member-enrollment') {

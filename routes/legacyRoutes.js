@@ -204,7 +204,7 @@ router.post('/api/agent-jobs', async (req, res) => {
     serverUrl = serverUrl.replace(':3002', ':3001').replace('https://', 'http://');
     if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
     const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
-    const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
+    const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v30.ps1');
 
     // \u2500€\u2500€ MODE A: device_targets (per-device, from device list) \u2500€\u2500€
     if (device_targets && Array.isArray(device_targets) && device_targets.length > 0) {
@@ -381,7 +381,7 @@ router.post('/api/agent-jobs/retry', async (req, res) => {
     // 4. Run installation in background (reusing the logic from POST /api/agent-jobs)
     (async () => {
       const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
-      const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
+      const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v30.ps1');
       let serverUrl = `${req.protocol}://${req.get('host')}`;
       serverUrl = serverUrl.replace(':3002', ':3001').replace('https://', 'http://');
       if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
