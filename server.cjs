@@ -368,6 +368,7 @@ async function initDb() {
            created_by NVARCHAR(100),
            created_at NVARCHAR(50),
            status NVARCHAR(50),
+           action_type NVARCHAR(50) DEFAULT 'install',
            total_targets INT DEFAULT 0,
            success_count INT DEFAULT 0,
            failed_count INT DEFAULT 0,
@@ -646,6 +647,15 @@ async function initDb() {
     }
     if (!checkColumns.recordset.find(c => c.COLUMN_NAME === 'last_error')) {
       await pool.request().query('ALTER TABLE DeploymentTargets ADD last_error NVARCHAR(MAX)');
+    }
+
+    // Add action_type to Deployments if it doesn't exist
+    const checkActionCols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'Deployments' AND COLUMN_NAME = 'action_type'
+    `);
+    if (checkActionCols.recordset.length === 0) {
+      await pool.request().query("ALTER TABLE Deployments ADD action_type NVARCHAR(50) DEFAULT 'install'");
     }
 
     // DeviceGroups expansion
@@ -1875,7 +1885,7 @@ app.post('/api/agent-jobs', async (req, res) => {
     serverUrl = serverUrl.replace(':3002', ':3001').replace('https://', 'http://');
     if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
     const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
-    const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
+    const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v30.ps1');
 
     // \u2500€\u2500€ MODE A: device_targets (per-device, from device list) \u2500€\u2500€
     if (device_targets && Array.isArray(device_targets) && device_targets.length > 0) {
@@ -2052,7 +2062,7 @@ app.post('/api/agent-jobs/retry', async (req, res) => {
     // 4. Run installation in background (reusing the logic from POST /api/agent-jobs)
     (async () => {
       const psScript = path.resolve(__dirname, 'scripts', 'push_agent.ps1');
-      const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v25.ps1');
+      const installerPath = path.resolve(__dirname, 'public', 'Manual-Agent-Installer-v30.ps1');
       let serverUrl = `${req.protocol}://${req.get('host')}`;
       serverUrl = serverUrl.replace(':3002', ':3001').replace('https://', 'http://');
       if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) serverUrl = "http://192.168.85.30:3001";
@@ -2256,7 +2266,7 @@ app.post('/api/deployments', async (req, res) => {
     const {
       id, package_id, package_name, package_version,
       target_path, schedule_time, created_by, created_at,
-      status, targets
+      status, action_type, targets
     } = req.body;
 
     const pool = await poolPromise;
@@ -2275,15 +2285,16 @@ app.post('/api/deployments', async (req, res) => {
         .input('created_by', sql.NVarChar, created_by || 'admin')
         .input('created_at', sql.NVarChar, created_at || new Date().toISOString())
         .input('status', sql.NVarChar, status || 'pending')
+        .input('action_type', sql.NVarChar, action_type || 'install')
         .input('total_targets', sql.Int, targets ? targets.length : 0)
         .input('success_count', sql.Int, 0)
         .input('failed_count', sql.Int, 0)
         .input('pending_count', sql.Int, targets ? targets.length : 0)
         .query(`
           INSERT INTO Deployments 
-          (id, package_id, package_name, package_version, target_path, schedule_time, created_by, created_at, status, total_targets, success_count, failed_count, pending_count)
+          (id, package_id, package_name, package_version, target_path, schedule_time, created_by, created_at, status, action_type, total_targets, success_count, failed_count, pending_count)
           VALUES 
-          (@id, @package_id, @package_name, @package_version, @target_path, @schedule_time, @created_by, @created_at, @status, @total_targets, @success_count, @failed_count, @pending_count)
+          (@id, @package_id, @package_name, @package_version, @target_path, @schedule_time, @created_by, @created_at, @status, @action_type, @total_targets, @success_count, @failed_count, @pending_count)
         `);
 
       // 2. Insert Deployment Targets
@@ -2520,10 +2531,10 @@ app.get('/api/agent/version', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query("SELECT [value] FROM SystemConfigs WHERE [key] = 'LATEST_AGENT_VERSION'");
-    const version = result.recordset[0]?.value || '2.7.5';
+    const version = result.recordset[0]?.value || '3.0.0';
     res.json({ version });
   } catch (err) {
-    res.json({ version: '2.7.5' });
+    res.json({ version: '3.0.0' });
   }
 });
 
@@ -2571,6 +2582,7 @@ app.get('/api/agent/pending-deployments', async (req, res) => {
           t.device_id, 
           d.package_name, 
           d.target_path, 
+          d.action_type,
           p.file_path as file_name
         FROM DeploymentTargets t
         INNER JOIN Deployments d ON t.deployment_id = d.id

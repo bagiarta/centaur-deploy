@@ -14,7 +14,7 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 $AgentDir = "C:\Program Files\PepiUpdaterAgent"
-$AgentFile = "CentaurAgent_v25.ps1"
+$AgentFile = "CentaurAgent_v30.ps1"
 $AgentPath = "$AgentDir\$AgentFile"
 $TaskName = "CentaurAgentUpdater"
 $LogPath = "C:\Windows\Temp\centaur_v25_install.log"

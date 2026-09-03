@@ -9,11 +9,11 @@ param(
 # Configuration for 5-minute interval
 $TaskName = "CentaurAgentUpdater"
 $AgentDir = "C:\Program Files\PepiUpdaterAgent"
-$AgentPath = "$AgentDir\CentaurAgent_v25.ps1"
+$AgentPath = "$AgentDir\CentaurAgent_v30.ps1"
 
 # 1. Fallback & Validations
 if (!$InstallerPath) {
-    $InstallerPath = Join-Path $PSScriptRoot "..\public\Manual-Agent-Installer-v25.ps1"
+    $InstallerPath = Join-Path $PSScriptRoot "..\public\Manual-Agent-Installer-v30.ps1"
 }
 if (!$ServerUrl -or $ServerUrl -like "*localhost*") {
     $ServerUrl = "http://192.168.85.30:3001"
@@ -28,11 +28,11 @@ try {
     
     Write-Output "LOG:Transferring v2.6.0 packages (with self-update + command polling)..."
     $LocalInstaller = Resolve-Path $InstallerPath -ErrorAction Stop
-    $AgentFileSource = Join-Path (Split-Path $LocalInstaller.Path) "CentaurAgent_v25.ps1"
+    $AgentFileSource = Join-Path (Split-Path $LocalInstaller.Path) "CentaurAgent_v30.ps1"
     
     # Copy both files
-    Copy-Item -Path $LocalInstaller.Path -Destination "$RemoteTempDir\Manual-Agent-Installer-v25.ps1" -Force -ErrorAction Stop
-    Copy-Item -Path $AgentFileSource -Destination "$RemoteTempDir\CentaurAgent_v25.ps1" -Force -ErrorAction Stop
+    Copy-Item -Path $LocalInstaller.Path -Destination "$RemoteTempDir\Manual-Agent-Installer-v30.ps1" -Force -ErrorAction Stop
+    Copy-Item -Path $AgentFileSource -Destination "$RemoteTempDir\CentaurAgent_v30.ps1" -Force -ErrorAction Stop
     Write-Output "LOG:Package distribution successful."
 } catch {
     Write-Output "STATUS:FAILED|LOG:SMB Error: $($_.Exception.Message)"
@@ -53,7 +53,7 @@ try {
 
     # 3.2 Run the Installer for directory preparation
     Write-Output "LOG:Running directory cleanup and placement..."
-    $installCmd = "powershell.exe -ExecutionPolicy Bypass -Command `"& C:\Windows\Temp\Manual-Agent-Installer-v25.ps1 -ServerUrl '$ServerUrl' -LocalOnly`""
+    $installCmd = "powershell.exe -ExecutionPolicy Bypass -Command `"& C:\Windows\Temp\Manual-Agent-Installer-v30.ps1 -ServerUrl '$ServerUrl' -LocalOnly`""
     Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList $installCmd -ComputerName $TargetIP -Credential $creds | Out-Null
 
     # 3.3 Create the 5-Minute Task (LOCAL call on client via WMI)

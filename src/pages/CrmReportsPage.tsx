@@ -16,6 +16,8 @@ interface ReportConfig {
   endpoint: string;
   columns: { key: string; label: string; type: 'string' | 'number' | 'currency' | 'date' }[];
   description?: string;
+  disableDateRange?: boolean;
+  disableStore?: boolean;
 }
 
 const REPORT_CONFIGS: Record<string, ReportConfig> = {
@@ -81,6 +83,32 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
       { key: 'trx_4_date', label: 'Trx 4 Date', type: 'date' },
       { key: 'trx_5_no', label: 'Trx 5 Bill', type: 'string' },
       { key: 'trx_5_date', label: 'Trx 5 Date', type: 'date' },
+    ]
+  },
+  'customer-list': {
+    title: "Customer List",
+    icon: Users,
+    endpoint: "customer-list",
+    disableDateRange: true,
+    disableStore: true,
+    columns: [
+      { key: 'card_no', label: 'Card No', type: 'string' },
+      { key: 'phone_no', label: 'Mobile No', type: 'string' },
+      { key: 'cust_name', label: 'Name', type: 'string' },
+      { key: 'email', label: 'Email', type: 'string' },
+      { key: 'card_id', label: 'Card ID', type: 'string' },
+      { key: 'tier', label: 'Tier', type: 'string' },
+      { key: 'gender', label: 'Gender', type: 'string' },
+      { key: 'marital_status', label: 'Marital Status', type: 'string' },
+      { key: 'registered_at', label: 'Registered At', type: 'date' },
+      { key: 'channel', label: 'Channel', type: 'string' },
+      { key: 'religion', label: 'Religion', type: 'string' },
+      { key: 'nationality', label: 'Nationality', type: 'string' },
+      { key: 'activated_app', label: 'Activated App', type: 'string' },
+      { key: 'redeem_points', label: 'Redeem Points', type: 'number' },
+      { key: 'total_expense', label: 'Total Expense', type: 'currency' },
+      { key: 'last_txn_date', label: 'Last Trx Dt', type: 'date' },
+      { key: 'last_store_trx', label: 'Last Store Trx', type: 'string' },
     ]
   },
   'member-enrollment': {
@@ -414,7 +442,7 @@ export default function CrmReportsPage() {
                   </select>
                 </div>
               </div>
-            ) : type !== 'deleted-member' && (
+            ) : type !== 'deleted-member' && !config.disableDateRange && (
               <div className="flex flex-col gap-1.5 min-w-[150px]">
                 <label className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider ml-1">Date Range</label>
                 <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2">
@@ -457,7 +485,7 @@ export default function CrmReportsPage() {
               </div>
             )}
 
-            {config.endpoint !== 'member-enrollment' && config.endpoint !== 'deleted-member' && (
+            {config.endpoint !== 'member-enrollment' && config.endpoint !== 'deleted-member' && !config.disableStore && (
               <div className="flex flex-col gap-1.5 min-w-[200px]">
                 <label className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider ml-1">Store Filter</label>
                 <div className="flex items-center gap-2 bg-background border border-border rounded-xl px-3 py-2">

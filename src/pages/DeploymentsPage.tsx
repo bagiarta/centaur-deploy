@@ -18,6 +18,7 @@ export default function DeploymentsPage() {
   // Wizard Form State
   const [selectedPkg, setSelectedPkg] = useState<string>("");
   const [targetPath, setTargetPath] = useState<string>("C:\\Program Files\\");
+  const [actionType, setActionType] = useState<"install" | "copy">("install");
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
   const [scheduleType, setScheduleType] = useState<"immediate" | "scheduled">("immediate");
@@ -78,6 +79,7 @@ export default function DeploymentsPage() {
       package_name: pkg.name,
       package_version: pkg.version,
       target_path: targetPath,
+      action_type: actionType,
       schedule_time: scheduleType === "scheduled" && scheduleTime ? scheduleTime.replace("T", " ") : null,
       created_by: "admin",
       status: scheduleType === "scheduled" && scheduleTime ? "scheduled" : "running",
@@ -98,6 +100,8 @@ export default function DeploymentsPage() {
         setShowWizard(false);
         setWizardStep(1);
         setSelectedPkg("");
+        setTargetPath("C:\\Program Files\\");
+        setActionType("install");
         setSelectedGroups([]);
         setSelectedDevices([]);
         
@@ -464,6 +468,31 @@ export default function DeploymentsPage() {
                       className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono" 
                     />
                   </div>
+                  <div>
+                    <label className="text-xs text-foreground-muted mb-1 block">Deployment Action</label>
+                    <div className="flex gap-4 mt-1">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio" 
+                          name="actionType" 
+                          checked={actionType === "install"} 
+                          onChange={() => setActionType("install")} 
+                          className="accent-primary" 
+                        />
+                        <span className="text-sm text-foreground">Install / Execute</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio" 
+                          name="actionType" 
+                          checked={actionType === "copy"} 
+                          onChange={() => setActionType("copy")} 
+                          className="accent-primary" 
+                        />
+                        <span className="text-sm text-foreground">Copy File Only</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
               )}
               {wizardStep === 2 && (
@@ -554,6 +583,7 @@ export default function DeploymentsPage() {
                   <div className="bg-background-subtle rounded-lg p-4 space-y-2 text-sm border border-border">
                     <div className="flex justify-between"><span className="text-foreground-muted">Package</span><span className="text-foreground font-medium">{packages.find(p => p.id === selectedPkg)?.name ?? "(None)"}</span></div>
                     <div className="flex justify-between"><span className="text-foreground-muted">Target Path</span><span className="text-foreground font-mono text-xs">{targetPath}</span></div>
+                    <div className="flex justify-between"><span className="text-foreground-muted">Action</span><span className="text-foreground font-medium">{actionType === "copy" ? "Copy Only" : "Install / Execute"}</span></div>
                     <div className="flex justify-between"><span className="text-foreground-muted">Targets Groups</span><span className="text-foreground font-medium">{selectedGroups.length}</span></div>
                     <div className="flex justify-between"><span className="text-foreground-muted">Targets Individual</span><span className="text-foreground font-medium">{selectedDevices.length}</span></div>
                     <div className="flex justify-between"><span className="text-foreground-muted">Schedule</span><span className="text-foreground font-medium">{scheduleType === "scheduled" ? scheduleTime.replace('T', ' ') : "Immediate"}</span></div>
