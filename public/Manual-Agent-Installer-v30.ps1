@@ -123,7 +123,7 @@ try {
 }
 
 # FINAL RE-VERIFICATION
-if (& schtasks /query /tn "$TaskName" 2>$null) {
+if (& schtasks /query /tn "$TaskName" 2> $null) {
     Write-Log "INSTALLATION COMPLETE (Verified 5min Interval via $ServerUrl)!"
     Write-Output "STATUS:SUCCESS|LOG:Agent v2.5.0 installed and task verified (Server: $ServerUrl)."
 } else {
