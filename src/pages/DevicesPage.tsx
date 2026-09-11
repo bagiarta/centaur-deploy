@@ -1213,7 +1213,7 @@ export default function DevicesPage() {
                       { icon: <HardDrive className="w-4 h-4" />,   label: "Disk Size",     value: selected.disk },
                       { icon: <Activity className="w-4 h-4" />,    label: "Agent Version", value: selected.agent_version },
                       { icon: <ShieldAlert className="w-4 h-4" />,  label: "Disk Health Status", value: selected.disk_status || "Healthy" },
-                      { icon: <AlertTriangle className="w-4 h-4" />,label: "Bad Sector Count",    value: selected.bad_sectors !== undefined ? selected.bad_sectors.toString() : "0" },
+                      { icon: <AlertTriangle className="w-4 h-4" />,label: "Bad Sector Count",    value: selected.bad_sectors != null ? selected.bad_sectors.toString() : "0" },
                       { icon: <Thermometer className="w-4 h-4" />,  label: "Disk Temperature",   value: selected.disk_temp ? `${selected.disk_temp}°C` : "N/A" },
                       { icon: <Database className="w-4 h-4" />,     label: "Power Supply Status",value: selected.psu_status || "Not Supported" },
                     ].map(row => (
