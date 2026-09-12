@@ -7,7 +7,7 @@ import {
   UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
   UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw, Wrench,
   Video, Trophy, HardDrive, LayoutTemplate, Briefcase, MapPin, Building,
-  UserCheck, ArrowRightLeft, CalendarClock, PhoneCall, LayoutDashboardIcon, ShoppingCart, ShoppingBag, ChartNoAxesCombined,
+  UserCheck, ArrowRightLeft, CalendarClock, PhoneCall, LayoutDashboardIcon, ShoppingCart, ShoppingBag, ChartNoAxesCombined, UsbIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -94,7 +94,7 @@ export const navItems: NavigationItem[] = [
     group: "main",
     children: [
       { id: "sm_device_health", to: "/support-manager/device-health", icon: HardDrive, label: "Device Health Monitor" },
-      { id: "sm_usb_controller", to: "/usb", icon: HardDrive, label: "USB Controller" },
+      { id: "sm_usb_controller", to: "/usb", icon: UsbIcon, label: "USB Controller" },
       { id: "cctv", to: "/cctv", icon: Video, label: "CCTV Monitoring" },
       { id: "network", to: "/network", icon: Globe, label: "Network Map" },
       { id: "groups", to: "/groups", icon: Users, label: "Device Groups" },
