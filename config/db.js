@@ -522,6 +522,29 @@ export async function initDb() {
            disk_temp FLOAT DEFAULT 0.0,
            psu_status NVARCHAR(250),
            logged_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='UsbPolicies' AND xtype='U')
+       CREATE TABLE UsbPolicies (
+           id NVARCHAR(50) PRIMARY KEY,
+           target_type NVARCHAR(50) NOT NULL,
+           target_id NVARCHAR(100) NOT NULL,
+           action NVARCHAR(50) NOT NULL,
+           created_by NVARCHAR(100),
+           updated_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='UsbEvents' AND xtype='U')
+       CREATE TABLE UsbEvents (
+           id INT IDENTITY(1,1) PRIMARY KEY,
+           event_id NVARCHAR(100),
+           device_id NVARCHAR(100),
+           hostname NVARCHAR(200),
+           vendor_id NVARCHAR(50),
+           product_id NVARCHAR(50),
+           serial_number NVARCHAR(200),
+           manufacturer NVARCHAR(200),
+           product_name NVARCHAR(200),
+           action_taken NVARCHAR(50),
+           timestamp DATETIME DEFAULT GETDATE()
        )`
     ];
 

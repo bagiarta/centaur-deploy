@@ -33,6 +33,7 @@ import CCTVMonitoringPage from "./pages/CCTVMonitoringPage";
 import PMDashboardPage from "./pages/PMDashboardPage";
 import PMSchedulePage from "./pages/PMSchedulePage";
 import PMActionItemsPage from "./pages/PMActionItemsPage";
+import UsbControllerPage from "./pages/UsbControllerPage";
 
 import AssetDashboardPage from "./pages/assets/AssetDashboardPage";
 import AssetRegisterPage from "./pages/assets/AssetRegisterPage";
@@ -313,6 +314,13 @@ const App = () => (
               <ProtectedRoute>
                 <AppShell>
                   <DeviceHealthPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/usb" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <UsbControllerPage />
                 </AppShell>
               </ProtectedRoute>
             } />

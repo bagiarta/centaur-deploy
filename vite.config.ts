@@ -70,7 +70,6 @@ export default defineConfig(({ mode }) => ({
             if (id.includes('recharts')) return 'recharts';
             if (id.includes('@codemirror') || id.includes('@lezer') || id.includes('@uiw')) return 'codemirror';
             if (id.includes('exceljs')) return 'exceljs';
-            if (id.includes('radix-ui')) return 'radix';
             return 'vendor';
           }
         }

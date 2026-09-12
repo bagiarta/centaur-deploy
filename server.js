@@ -27,6 +27,7 @@ import legacyRoutes, { startBackgroundTasks } from './routes/legacyRoutes.js';
 import trialSupportManagerRoutes from './routes/trialSupportManagerRoutes.js';
 import crmRoutes from './routes/crmRoutes.js';
 import assetRoutes from './routes/assetRoutes.js';
+import usbRoutes from './routes/usbRoutes.js';
 import { sendWebPush } from './controllers/pushController.js';
 import { startCCTVPollingJob } from './utils/cctvPollingService.js';
 
@@ -226,6 +227,7 @@ app.use('/api/scales', scaleRoutes);
 app.use('/api/cctv', cctvRoutes);
 app.use('/api/esl', eslRoutes);
 app.use('/api/assets', assetRoutes);
+app.use('/api/usb', usbRoutes);
 app.use('/api/trial/support-manager', trialSupportManagerRoutes);
 
 // Mount CRM and legacy routes
