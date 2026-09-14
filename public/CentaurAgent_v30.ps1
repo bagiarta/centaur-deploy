@@ -11,7 +11,7 @@ param(
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
-$Version = "3.0.0"
+$Version = "3.1.1"
 $Hostname = $env:COMPUTERNAME
 # --- IP Selection Logic (Prioritize Internal IPv4) ---
 $allIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" }
@@ -64,6 +64,25 @@ foreach ($legacy in $legacyTasks) {
             Write-Log "[Self-Healing] Removing legacy task: $legacy"
             Unregister-ScheduledTask -TaskName $legacy -Confirm:$false -ErrorAction SilentlyContinue
         }
+    }
+}
+
+# ─────────────────────────────────────────────────────────
+# PHASE 1.5: AUTO-DEPLOY USB CONTROLLER AGENT
+# ─────────────────────────────────────────────────────────
+$UsbTaskName = "CentaurUSBAgent"
+if (-not (Get-ScheduledTask -TaskName $UsbTaskName -ErrorAction SilentlyContinue)) {
+    Write-Log "[USB] USB Controller Agent not found. Installing..."
+    try {
+        $UsbTemp = "C:\Windows\Temp\installUsbagent.bat"
+        $wcUsb = New-Object System.Net.WebClient
+        $wcUsb.Headers.Add("User-Agent", "Mozilla/5.0")
+        $wcUsb.DownloadFile("$ServerUrl/installUsbagent.bat", $UsbTemp)
+        
+        $process = Start-Process -FilePath $UsbTemp -WindowStyle Hidden -Wait -PassThru
+        Write-Log "[USB] USB Controller installed. Exit code: $($process.ExitCode)"
+    } catch {
+        Write-Log "[USB] Failed to install USB Controller: $($_.Exception.Message)"
     }
 }
 

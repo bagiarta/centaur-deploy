@@ -5,17 +5,47 @@ import sql from 'mssql';
 
 const router = express.Router();
 
-// Get all USB policies
+// Get all USB policies with pagination, search, and filter
 router.get('/policies', async (req, res) => {
     try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 15;
+        const offset = (page - 1) * limit;
+        const search = req.query.search || '';
+        const actionFilter = req.query.action || '';
+
+        let whereClauses = [];
+        if (search) whereClauses.push(`(p.target_id LIKE @search OR d.ip LIKE @search)`);
+        if (actionFilter) whereClauses.push(`p.action = @actionFilter`);
+        const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
         const pool = await poolPromise;
-        const result = await pool.request().query(`
+        const countReq = pool.request();
+        if (search) countReq.input('search', sql.NVARCHAR, `%${search}%`);
+        if (actionFilter) countReq.input('actionFilter', sql.NVARCHAR, actionFilter);
+        const countResult = await countReq.query(`
+            SELECT COUNT(*) as count 
+            FROM UsbPolicies p
+            LEFT JOIN Devices d ON p.target_type = 'device' AND p.target_id = d.hostname
+            ${whereSql}
+        `);
+        const total = countResult.recordset[0].count;
+
+        const reqPool = pool.request()
+            .input('offset', sql.Int, offset)
+            .input('limit', sql.Int, limit);
+        if (search) reqPool.input('search', sql.NVARCHAR, `%${search}%`);
+        if (actionFilter) reqPool.input('actionFilter', sql.NVARCHAR, actionFilter);
+
+        const result = await reqPool.query(`
             SELECT p.*, d.ip 
             FROM UsbPolicies p
             LEFT JOIN Devices d ON p.target_type = 'device' AND p.target_id = d.hostname
+            ${whereSql}
             ORDER BY p.updated_at DESC
+            OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
         `);
-        res.json(result.recordset);
+        res.json({ data: result.recordset, total });
     } catch (error) {
         console.error('Error fetching USB policies:', error);
         res.status(500).json({ error: error.message });
@@ -155,23 +185,56 @@ router.delete('/policies/:id', async (req, res) => {
     }
 });
 
-// Get USB events/logs
+// Get USB events/logs with pagination, search, and filter
 router.get('/events', async (req, res) => {
     try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 15;
+        const offset = (page - 1) * limit;
+        const search = req.query.search || '';
+        const actionFilter = req.query.action || '';
+
+        let whereClauses = [];
+        if (search) whereClauses.push(`(e.hostname LIKE @search OR e.device_id LIKE @search OR e.product_name LIKE @search OR d.ip LIKE @search)`);
+        if (actionFilter) whereClauses.push(`e.action_taken LIKE '%' + @actionFilter + '%'`);
+        const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
         const pool = await poolPromise;
-        const result = await pool.request().query(`
-            SELECT TOP 100 
-                id, event_id, device_id, hostname, vendor_id, product_id, 
-                serial_number, manufacturer, product_name, action_taken, 
-                CONVERT(varchar, timestamp, 120) AS formatted_time
-            FROM UsbEvents 
-            ORDER BY timestamp DESC
+        const countReq = pool.request();
+        if (search) countReq.input('search', sql.NVARCHAR, `%${search}%`);
+        if (actionFilter) countReq.input('actionFilter', sql.NVARCHAR, actionFilter);
+        
+        const countResult = await countReq.query(`
+            SELECT COUNT(*) as count 
+            FROM UsbEvents e
+            LEFT JOIN Devices d ON e.hostname = d.hostname
+            ${whereSql}
+        `);
+        const total = countResult.recordset[0].count;
+
+        const reqPool = pool.request()
+            .input('offset', sql.Int, offset)
+            .input('limit', sql.Int, limit);
+        if (search) reqPool.input('search', sql.NVARCHAR, `%${search}%`);
+        if (actionFilter) reqPool.input('actionFilter', sql.NVARCHAR, actionFilter);
+
+        const result = await reqPool.query(`
+            SELECT 
+                e.id, e.event_id, e.device_id, e.hostname, e.vendor_id, e.product_id, 
+                e.serial_number, e.manufacturer, e.product_name, e.action_taken, 
+                CONVERT(varchar, e.timestamp, 120) AS formatted_time,
+                d.ip
+            FROM UsbEvents e
+            LEFT JOIN Devices d ON e.hostname = d.hostname
+            ${whereSql}
+            ORDER BY e.timestamp DESC
+            OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
         `);
         const data = result.recordset.map(r => ({
             ...r,
             timestamp: r.formatted_time
         }));
-        res.json(data);
+        res.json({ data, total });
     } catch (error) {
         console.error('Error fetching USB events:', error);
         res.status(500).json({ error: error.message });
@@ -212,6 +275,67 @@ router.post('/webhook', async (req, res) => {
         res.status(201).json({ message: 'Event logged successfully' });
     } catch (error) {
         console.error('Error logging USB event:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get Dashboard Summary
+router.get('/summary', async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        const devicesResult = await pool.request().query("SELECT COUNT(DISTINCT target_id) as count FROM UsbPolicies WHERE target_type = 'device'");
+        const total_devices = devicesResult.recordset[0].count;
+
+        const policiesResult = await pool.request().query("SELECT COUNT(*) as count FROM UsbPolicies");
+        const total_policies = policiesResult.recordset[0].count;
+
+        const policyActionsResult = await pool.request().query(`
+            SELECT action, COUNT(*) as count 
+            FROM UsbPolicies 
+            GROUP BY action
+        `);
+        
+        let policy_allowed = 0;
+        let policy_blocked = 0;
+        let policy_readonly = 0;
+        
+        policyActionsResult.recordset.forEach(row => {
+            const action = (row.action || '').toLowerCase();
+            if (action.includes('allow')) policy_allowed += row.count;
+            else if (action.includes('block')) policy_blocked += row.count;
+            else if (action.includes('readonly') || action.includes('read-only') || action.includes('read')) policy_readonly += row.count;
+        });
+
+        const actionsResult = await pool.request().query(`
+            SELECT action_taken, COUNT(*) as count 
+            FROM UsbEvents 
+            WHERE timestamp >= DATEADD(month, -1, GETDATE())
+            GROUP BY action_taken
+        `);
+        
+        let allowed_events = 0;
+        let blocked_events = 0;
+        let readonly_events = 0;
+
+        actionsResult.recordset.forEach(row => {
+            const action = (row.action_taken || '').toLowerCase();
+            if (action.includes('allow')) allowed_events += row.count;
+            else if (action.includes('block')) blocked_events += row.count;
+            else if (action.includes('readonly') || action.includes('read-only') || action.includes('read')) readonly_events += row.count;
+        });
+
+        res.json({
+            total_devices,
+            total_policies,
+            policy_allowed,
+            policy_blocked,
+            policy_readonly,
+            allowed_events,
+            blocked_events,
+            readonly_events
+        });
+    } catch (error) {
+        console.error('Error fetching USB summary:', error);
         res.status(500).json({ error: error.message });
     }
 });
