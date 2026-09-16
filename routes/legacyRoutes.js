@@ -1005,9 +1005,14 @@ router.post('/api/agent/config', async (req, res) => {
 router.get('/api/agent/version', async (req, res) => {
   try {
     const pool = await poolPromise;
-    const result = await pool.request().query("SELECT [value] FROM SystemConfigs WHERE [key] = 'LATEST_AGENT_VERSION'");
-    const version = result.recordset[0]?.value || '2.7.5';
-    res.json({ version });
+    const result = await pool.request().query("SELECT [key], [value] FROM SystemConfigs WHERE [key] IN ('LATEST_AGENT_VERSION', 'AGENT_UPDATE_URL')");
+    let version = '2.7.5';
+    let update_url = '';
+    result.recordset.forEach(row => {
+      if (row.key === 'LATEST_AGENT_VERSION') version = row.value;
+      if (row.key === 'AGENT_UPDATE_URL') update_url = row.value;
+    });
+    res.json({ version, update_url });
   } catch (err) {
     res.json({ version: '2.7.5' });
   }
