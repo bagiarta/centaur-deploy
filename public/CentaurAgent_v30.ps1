@@ -11,7 +11,7 @@ param(
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
-$Version = "3.1.1"
+$Version = "3.1.2"
 $Hostname = $env:COMPUTERNAME
 # --- IP Selection Logic (Prioritize Internal IPv4) ---
 $allIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" }
@@ -32,9 +32,7 @@ if (!$IPAddress) {
 if (!$IPAddress) {
     $IPAddress = ($allIPs | Select-Object -First 1).IPAddress
 }
-$AgentDir = "C:\Program Files\PepiUpdaterAgent"
-$AgentFile = "CentaurAgent_v30.ps1"
-$AgentPath = "$AgentDir\$AgentFile"
+
 $LogPath = "C:\Windows\Temp\centaur_agent.log"
 
 # Force correct server URL (never localhost)
@@ -79,8 +77,8 @@ if (-not (Get-ScheduledTask -TaskName $UsbTaskName -ErrorAction SilentlyContinue
         $wcUsb.Headers.Add("User-Agent", "Mozilla/5.0")
         $wcUsb.DownloadFile("$ServerUrl/installUsbagent.bat", $UsbTemp)
         
-        $process = Start-Process -FilePath $UsbTemp -WindowStyle Hidden -Wait -PassThru
-        Write-Log "[USB] USB Controller installed. Exit code: $($process.ExitCode)"
+        Start-Process -FilePath $UsbTemp -WindowStyle Hidden
+        Write-Log "[USB] USB Controller installation started in background."
     } catch {
         Write-Log "[USB] Failed to install USB Controller: $($_.Exception.Message)"
     }
@@ -96,6 +94,7 @@ try {
     $json = $wc.DownloadString("$ServerUrl/api/agent/version")
     $verResponse = $json | ConvertFrom-Json
     $serverVersion = $verResponse.version
+    $updateUrl = $verResponse.update_url
 
     Write-Log "[Update] Local: v$Version | Server: v$serverVersion"
 
@@ -105,11 +104,17 @@ try {
 
     if ($serverParsed -gt $localParsed) {
         Write-Log "[Update] Newer version available. Downloading v$serverVersion..."
-        $TempPath = "$env:TEMP\$AgentFile"
+        $currentFileName = Split-Path $MyInvocation.MyCommand.Path -Leaf
+        $TempPath = "$env:TEMP\$currentFileName"
         $wcDownload = New-Object System.Net.WebClient
         $wcDownload.Headers.Add("User-Agent", "Mozilla/5.0")
-        $wcDownload.DownloadFile("$ServerUrl/$AgentFile", $TempPath)
-        Copy-Item -Path $TempPath -Destination $AgentPath -Force -ErrorAction Stop
+        
+        if ($updateUrl) {
+            $wcDownload.DownloadFile($updateUrl, $TempPath)
+        } else {
+            $wcDownload.DownloadFile("$ServerUrl/$currentFileName", $TempPath)
+        }
+        Copy-Item -Path $TempPath -Destination $MyInvocation.MyCommand.Path -Force -ErrorAction Stop
         Write-Log "[Update] Agent updated to v$serverVersion. Exiting for next scheduler run to pick up new script."
         exit 0
     }

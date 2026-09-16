@@ -8,9 +8,8 @@ NET SESSION >nul 2>&1
 if %errorLevel% == 0 (
     goto :RunInstall
 ) else (
-    echo Meminta hak akses Administrator...
-    powershell -Command "Start-Process '%~dpnx0' -Verb RunAs"
-    exit /b
+    echo [ERROR] Membutuhkan hak akses Administrator. Instalasi USB Agent dibatalkan.
+    exit /b 1
 )
 
 :RunInstall
@@ -38,7 +37,7 @@ powershell -Command "Get-WmiObject Win32_Process | Where-Object { $_.CommandLine
 powershell -Command "$Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-WindowStyle Hidden -ExecutionPolicy Bypass -File \"%PS_FILE%\"'; $Trigger = New-ScheduledTaskTrigger -AtStartup; $Principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest; $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -DontStopOnIdleEnd -ExecutionTimeLimit (New-TimeSpan -Days 9999); Register-ScheduledTask -TaskName 'CentaurUSBAgent' -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null"
 
 :: 5. Jalankan Langsung Sekarang
-powershell -Command "Start-Process powershell -ArgumentList '-WindowStyle Hidden -ExecutionPolicy Bypass -File \"%PS_FILE%\"' -Verb RunAs"
+powershell -Command "Start-Process powershell -ArgumentList '-WindowStyle Hidden -ExecutionPolicy Bypass -File \"%PS_FILE%\"'"
 
 echo.
 echo ====================================================
