@@ -1073,16 +1073,16 @@ export const exportCrmReport = async (req, res) => {
       }
 
       const allowedSortCols = [
-        'store_name', 'card_no', 'cust_name', 'phone_no', 'channel', 
-        'activated_app', 'tier', 'latest_point', 'total_txn', 'total_net_sales', 
+        'store_name', 'card_no', 'cust_name', 'phone_no', 'channel',
+        'activated_app', 'tier', 'latest_point', 'total_txn', 'total_net_sales',
         'first_txn_date', 'last_txn_date'
       ];
       let orderCol = 'a.total_txn';
       if (sortBy && allowedSortCols.includes(sortBy)) {
-         if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
-         else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
-         else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
-         else orderCol = `a.${sortBy}`;
+        if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
+        else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+        else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
+        else orderCol = `a.${sortBy}`;
       }
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
@@ -1179,25 +1179,25 @@ export const exportCrmReport = async (req, res) => {
       }
 
       const allowedSortCols = [
-        'card_no', 'phone_no', 'cust_name', 'email', 'card_id', 'tier', 
-        'gender', 'marital_status', 'registered_at', 'channel', 'religion', 
-        'nationality', 'activated_app', 'redeem_points', 'total_expense', 
+        'card_no', 'phone_no', 'cust_name', 'email', 'card_id', 'tier',
+        'gender', 'marital_status', 'registered_at', 'channel', 'religion',
+        'nationality', 'activated_app', 'redeem_points', 'total_expense',
         'last_txn_date', 'last_store_trx'
       ];
       let orderCol = 'a.last_txn_date';
       if (sortBy && allowedSortCols.includes(sortBy)) {
-         if (sortBy === 'email') orderCol = 'c.RLICM_EMAIL_ID';
-         else if (sortBy === 'card_id') orderCol = 'c.RLICM_CARD_NO';
-         else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
-         else if (sortBy === 'gender') orderCol = 'c.GENDER';
-         else if (sortBy === 'marital_status') orderCol = 'c.MARRIED_STATUS';
-         else if (sortBy === 'registered_at') orderCol = 'e.JOIN_DATE';
-         else if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
-         else if (sortBy === 'religion') orderCol = 'c.RELIGION';
-         else if (sortBy === 'nationality') orderCol = 'c.NATIONALITY';
-         else if (sortBy === 'cust_name') orderCol = 'c.RLICM_NAME';
-         else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
-         else orderCol = `a.${sortBy}`;
+        if (sortBy === 'email') orderCol = 'c.RLICM_EMAIL_ID';
+        else if (sortBy === 'card_id') orderCol = 'c.RLICM_CARD_NO';
+        else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
+        else if (sortBy === 'gender') orderCol = 'c.GENDER';
+        else if (sortBy === 'marital_status') orderCol = 'c.MARRIED_STATUS';
+        else if (sortBy === 'registered_at') orderCol = 'e.JOIN_DATE';
+        else if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
+        else if (sortBy === 'religion') orderCol = 'c.RELIGION';
+        else if (sortBy === 'nationality') orderCol = 'c.NATIONALITY';
+        else if (sortBy === 'cust_name') orderCol = 'c.RLICM_NAME';
+        else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+        else orderCol = `a.${sortBy}`;
       }
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
@@ -1281,11 +1281,11 @@ export const exportCrmReport = async (req, res) => {
       const allowedSortCols = ['STORE_NAME', 'MEMBER_ID', 'CUST_NAME', 'PHONE_NUMBER', 'JOIN_DATE', 'REGISTRATION_TYPE', 'STARTING_POINTS', 'IS_ACTIVE', 'activated_app', 'activated_at', 'card_tier_name', 'otp'];
       let orderCol = 'e.JOIN_DATE';
       if (sortBy && allowedSortCols.includes(sortBy)) {
-         if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
-         else if (sortBy === 'activated_at') orderCol = 'c.MOBILE_APP_ACTIVATED_AT';
-         else if (sortBy === 'card_tier_name') orderCol = 'c.CARD_TIER_NAME';
-         else if (sortBy === 'otp') orderCol = 'e.ACTIVATION_OTP';
-         else orderCol = `e.${sortBy}`;
+        if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+        else if (sortBy === 'activated_at') orderCol = 'c.MOBILE_APP_ACTIVATED_AT';
+        else if (sortBy === 'card_tier_name') orderCol = 'c.CARD_TIER_NAME';
+        else if (sortBy === 'otp') orderCol = 'e.ACTIVATION_OTP';
+        else orderCol = `e.${sortBy}`;
       }
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
@@ -1435,9 +1435,13 @@ export const exportCrmReport = async (req, res) => {
     else if (type === 'deleted-member') {
       title = "Deleted Member List";
       columns = [
+        { header: 'Card No', key: 'member_barcode', width: 30 },
         { header: 'Member Name', key: 'member_name', width: 30 },
-        { header: 'Latest Redeem Point', key: 'latest_redeem_point', width: 20, style: { numFmt: '#,##0' } },
+        { header: 'Points', key: 'latest_redeem_point', width: 20, style: { numFmt: '#,##0' } },
+        { header: 'Lucky Draw Points', key: 'last_lucky_draw_point', width: 20, style: { numFmt: '#,##0' } },
         { header: 'Latest Tier', key: 'latest_tier', width: 20 },
+        { header: 'Total Expense', key: 'latest_total_expense', width: 20 },
+        { header: 'Deleted At', key: 'deleted_at', width: 20 },
         { header: 'Note', key: 'note', width: 50 },
       ];
     }
@@ -1456,7 +1460,7 @@ export const exportCrmReport = async (req, res) => {
 
       const lowerSearch = (search || '').toLowerCase();
       if (lowerSearch) {
-        rows = allRows.filter(r => (r.member_name || '').toLowerCase().includes(lowerSearch));
+        rows = allRows.filter(r => ((r.member_name || '') + ' ' + (r.member_barcode || '')).toLowerCase().includes(lowerSearch));
       } else {
         rows = allRows;
       }
@@ -1891,16 +1895,16 @@ export const getApiCrmReportsType = async (req, res) => {
       }
 
       const allowedSortCols = [
-        'store_name', 'card_no', 'cust_name', 'phone_no', 'channel', 
-        'activated_app', 'tier', 'latest_point', 'total_txn', 'total_net_sales', 
+        'store_name', 'card_no', 'cust_name', 'phone_no', 'channel',
+        'activated_app', 'tier', 'latest_point', 'total_txn', 'total_net_sales',
         'first_txn_date', 'last_txn_date'
       ];
       let orderCol = 'a.total_txn';
       if (sortBy && allowedSortCols.includes(sortBy)) {
-         if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
-         else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
-         else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
-         else orderCol = `a.${sortBy}`;
+        if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
+        else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+        else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
+        else orderCol = `a.${sortBy}`;
       }
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
@@ -1987,25 +1991,25 @@ export const getApiCrmReportsType = async (req, res) => {
       }
 
       const allowedSortCols = [
-        'card_no', 'phone_no', 'cust_name', 'email', 'card_id', 'tier', 
-        'gender', 'marital_status', 'registered_at', 'channel', 'religion', 
-        'nationality', 'activated_app', 'redeem_points', 'total_expense', 
+        'card_no', 'phone_no', 'cust_name', 'email', 'card_id', 'tier',
+        'gender', 'marital_status', 'registered_at', 'channel', 'religion',
+        'nationality', 'activated_app', 'redeem_points', 'total_expense',
         'last_txn_date', 'last_store_trx'
       ];
       let orderCol = 'a.last_txn_date';
       if (sortBy && allowedSortCols.includes(sortBy)) {
-         if (sortBy === 'email') orderCol = 'c.RLICM_EMAIL_ID';
-         else if (sortBy === 'card_id') orderCol = 'c.RLICM_CARD_NO';
-         else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
-         else if (sortBy === 'gender') orderCol = 'c.GENDER';
-         else if (sortBy === 'marital_status') orderCol = 'c.MARRIED_STATUS';
-         else if (sortBy === 'registered_at') orderCol = 'e.JOIN_DATE';
-         else if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
-         else if (sortBy === 'religion') orderCol = 'c.RELIGION';
-         else if (sortBy === 'nationality') orderCol = 'c.NATIONALITY';
-         else if (sortBy === 'cust_name') orderCol = 'c.RLICM_NAME';
-         else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
-         else orderCol = `a.${sortBy}`;
+        if (sortBy === 'email') orderCol = 'c.RLICM_EMAIL_ID';
+        else if (sortBy === 'card_id') orderCol = 'c.RLICM_CARD_NO';
+        else if (sortBy === 'tier') orderCol = 'c.CARD_TIER_NAME';
+        else if (sortBy === 'gender') orderCol = 'c.GENDER';
+        else if (sortBy === 'marital_status') orderCol = 'c.MARRIED_STATUS';
+        else if (sortBy === 'registered_at') orderCol = 'e.JOIN_DATE';
+        else if (sortBy === 'channel') orderCol = 'e.REGISTRATION_TYPE';
+        else if (sortBy === 'religion') orderCol = 'c.RELIGION';
+        else if (sortBy === 'nationality') orderCol = 'c.NATIONALITY';
+        else if (sortBy === 'cust_name') orderCol = 'c.RLICM_NAME';
+        else if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+        else orderCol = `a.${sortBy}`;
       }
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
@@ -2082,11 +2086,11 @@ export const getApiCrmReportsType = async (req, res) => {
       const allowedSortCols = ['STORE_NAME', 'MEMBER_ID', 'CUST_NAME', 'PHONE_NUMBER', 'JOIN_DATE', 'REGISTRATION_TYPE', 'STARTING_POINTS', 'IS_ACTIVE', 'activated_app', 'activated_at', 'card_tier_name', 'otp'];
       let orderCol = 'e.JOIN_DATE';
       if (sortBy && allowedSortCols.includes(sortBy)) {
-         if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
-         else if (sortBy === 'activated_at') orderCol = 'c.MOBILE_APP_ACTIVATED_AT';
-         else if (sortBy === 'card_tier_name') orderCol = 'c.CARD_TIER_NAME';
-         else if (sortBy === 'otp') orderCol = 'e.ACTIVATION_OTP';
-         else orderCol = `e.${sortBy}`;
+        if (sortBy === 'activated_app') orderCol = 'c.MOBILE_APP_ACTIVATED';
+        else if (sortBy === 'activated_at') orderCol = 'c.MOBILE_APP_ACTIVATED_AT';
+        else if (sortBy === 'card_tier_name') orderCol = 'c.CARD_TIER_NAME';
+        else if (sortBy === 'otp') orderCol = 'e.ACTIVATION_OTP';
+        else orderCol = `e.${sortBy}`;
       }
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
@@ -2350,7 +2354,7 @@ export const getApiCrmReportsType = async (req, res) => {
         const lowerSearch = (search || '').toLowerCase();
         let filteredData = allRows;
         if (lowerSearch) {
-          filteredData = allRows.filter(r => (r.member_name || '').toLowerCase().includes(lowerSearch));
+          filteredData = allRows.filter(r => ((r.member_name || '') + ' ' + (r.member_barcode || '')).toLowerCase().includes(lowerSearch));
         }
 
         const total = filteredData.length;

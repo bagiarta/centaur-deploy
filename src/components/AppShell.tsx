@@ -43,10 +43,10 @@ export const navItems: NavigationItem[] = [
     children: [
       { id: "activities", to: "/activities", icon: ClipboardList, label: "User Task" },
       { id: "tickets", to: "/tickets", icon: Ticket, label: "Helpdesk Tickets" },
-      { id: "sm_dashboard", to: "/support-manager/dashboard", icon: LayoutDashboard, label: "PM Dashboard" },
-      { id: "sm_schedule", to: "/support-manager/schedule", icon: ClipboardList, label: "PM Schedule & Checklist" },
-      { id: "sm_actions", to: "/support-manager/action-items", icon: Wrench, label: "Action Items Tracking" },
-      { id: "sm_approvals", to: "/support-manager/approvals", icon: CheckCircle, label: "Store PM Approvals" },
+      { id: "pm_dashboard", to: "/support-manager/dashboard", icon: LayoutDashboard, label: "PM Dashboard" },
+      { id: "pm_schedule", to: "/support-manager/schedule", icon: ClipboardList, label: "PM Schedule & Checklist" },
+      { id: "pm_actions", to: "/support-manager/action-items", icon: Wrench, label: "Action Items Tracking" },
+      { id: "pm_approvals", to: "/support-manager/approvals", icon: CheckCircle, label: "Store PM Approvals" },
     ]
   },
   {
@@ -88,13 +88,13 @@ export const navItems: NavigationItem[] = [
     ]
   },
   {
-    id: "Tolls & Utilities",
+    id: "tools_utilities",
     label: "Tools & Utilities",
     icon: Wrench,
     group: "main",
     children: [
-      { id: "sm_device_health", to: "/support-manager/device-health", icon: HardDrive, label: "Device Health Monitor" },
-      { id: "sm_usb_controller", to: "/usb", icon: UsbIcon, label: "USB Controller" },
+      { id: "device_health", to: "/support-manager/device-health", icon: HardDrive, label: "Device Health Monitor" },
+      { id: "usb_controller", to: "/usb", icon: UsbIcon, label: "USB Controller" },
       { id: "cctv", to: "/cctv", icon: Video, label: "CCTV Monitoring" },
       { id: "network", to: "/network", icon: Globe, label: "Network Map" },
       { id: "groups", to: "/groups", icon: Users, label: "Device Groups" },
