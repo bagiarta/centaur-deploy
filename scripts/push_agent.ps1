@@ -1,3 +1,4 @@
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '')]
 param(
     [Parameter(Mandatory=$true)][string]$TargetIP,
     [Parameter(Mandatory=$true)][string]$Username,
@@ -24,7 +25,7 @@ $RemoteTempDir = "\\$TargetIP\C$\Windows\Temp"
 try {
     Write-Output "LOG:Connecting to SMB share at $TargetIP..."
     net use \\$TargetIP\IPC$ /delete /y 2>$null | Out-Null
-    net use \\$TargetIP\IPC$ $Password /user:$Username /persistent:no 2>&1 | Out-Null
+    net use \\$TargetIP\IPC$ "$Password" /user:"$Username" /persistent:no 2>&1 | Out-Null
     
     Write-Output "LOG:Transferring v2.6.0 packages (with self-update + command polling)..."
     $LocalInstaller = Resolve-Path $InstallerPath -ErrorAction Stop
