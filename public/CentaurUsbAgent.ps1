@@ -14,24 +14,30 @@ function Set-UsbPolicy {
     try {
         $UsbStorPath = "HKLM:\SYSTEM\CurrentControlSet\Services\USBSTOR"
         $RemovablePolicyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices"
+        $UsbGuidPolicyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}"
         $StoragePoliciesPath = "HKLM:\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies"
         
         if (!(Test-Path $StoragePoliciesPath)) { New-Item -Path $StoragePoliciesPath -Force | Out-Null }
         if (!(Test-Path $RemovablePolicyPath)) { New-Item -Path $RemovablePolicyPath -Force -ErrorAction SilentlyContinue | Out-Null }
+        if (!(Test-Path $UsbGuidPolicyPath)) { New-Item -Path $UsbGuidPolicyPath -Force -ErrorAction SilentlyContinue | Out-Null }
         
         if ($Action -eq "block") {
             Set-ItemProperty -Path $UsbStorPath -Name "Start" -Value 4
             Set-ItemProperty -Path $RemovablePolicyPath -Name "Deny_All" -Value 1 -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path $StoragePoliciesPath -Name "WriteProtect" -Value 0
+            Set-ItemProperty -Path $UsbGuidPolicyPath -Name "Deny_Write" -Value 1 -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $UsbGuidPolicyPath -Name "Deny_Read" -Value 1 -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $StoragePoliciesPath -Name "WriteProtect" -Value 1
         } elseif ($Action -eq "readonly") {
             Set-ItemProperty -Path $UsbStorPath -Name "Start" -Value 3
             Set-ItemProperty -Path $RemovablePolicyPath -Name "Deny_All" -Value 0 -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path $RemovablePolicyPath -Name "Deny_Write" -Value 1 -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $UsbGuidPolicyPath -Name "Deny_Read" -Value 0 -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $UsbGuidPolicyPath -Name "Deny_Write" -Value 1 -ErrorAction SilentlyContinue
             Set-ItemProperty -Path $StoragePoliciesPath -Name "WriteProtect" -Value 1
         } else {
             Set-ItemProperty -Path $UsbStorPath -Name "Start" -Value 3
             Set-ItemProperty -Path $RemovablePolicyPath -Name "Deny_All" -Value 0 -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path $RemovablePolicyPath -Name "Deny_Write" -Value 0 -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $UsbGuidPolicyPath -Name "Deny_Read" -Value 0 -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $UsbGuidPolicyPath -Name "Deny_Write" -Value 0 -ErrorAction SilentlyContinue
             Set-ItemProperty -Path $StoragePoliciesPath -Name "WriteProtect" -Value 0
         }
         
@@ -62,12 +68,13 @@ Register-WmiEvent -Query $Query -SourceIdentifier $Identifier -Action {
     
     $RegStart = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\USBSTOR" -ErrorAction SilentlyContinue).Start
     $RegDenyAll = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices" -ErrorAction SilentlyContinue).Deny_All
-    $RegDenyWrite = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices" -ErrorAction SilentlyContinue).Deny_Write
+    $RegDenyWriteGuid = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" -ErrorAction SilentlyContinue).Deny_Write
+    $RegWriteProtect = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies" -ErrorAction SilentlyContinue).WriteProtect
     
     $ActionTaken = "UNKNOWN"
     if ($RegStart -eq 4 -or $RegDenyAll -eq 1) {
         $ActionTaken = "BLOCKED"
-    } elseif ($RegDenyWrite -eq 1) {
+    } elseif ($RegDenyWriteGuid -eq 1 -or $RegWriteProtect -eq 1) {
         $ActionTaken = "READ-ONLY"
     } else {
         $ActionTaken = "ALLOWED"

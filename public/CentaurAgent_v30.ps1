@@ -77,7 +77,7 @@ if (-not (Get-ScheduledTask -TaskName $UsbTaskName -ErrorAction SilentlyContinue
         $wcUsb.Headers.Add("User-Agent", "Mozilla/5.0")
         $wcUsb.DownloadFile("$ServerUrl/installUsbagent.bat", $UsbTemp)
         
-        Start-Process -FilePath $UsbTemp -WindowStyle Hidden
+        Start-Process -FilePath $UsbTemp -ArgumentList "`"$ServerUrl`"" -WindowStyle Hidden
         Write-Log "[USB] USB Controller installation started in background."
     } catch {
         Write-Log "[USB] Failed to install USB Controller: $($_.Exception.Message)"

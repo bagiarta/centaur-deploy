@@ -25,7 +25,7 @@ $RemoteTempDir = "\\$TargetIP\C$\Windows\Temp"
 try {
     Write-Output "LOG:Connecting to SMB share at $TargetIP..."
     net use \\$TargetIP\IPC$ /delete /y 2>$null | Out-Null
-    net use \\$TargetIP\IPC$ "$Password" /user:"$Username" /persistent:no 2>&1 | Out-Null
+    net use \\$TargetIP\IPC$ $Password /user:$Username /persistent:no 2>&1 | Out-Null
     
     Write-Output "LOG:Transferring v2.6.0 packages (with self-update + command polling)..."
     $LocalInstaller = Resolve-Path $InstallerPath -ErrorAction Stop
@@ -45,29 +45,37 @@ try {
 # 3. REMOTE EXECUTION (WMI Based)
 try {
     Write-Output "LOG:Initiating Remote Deployment..."
-    $secpasswd = ConvertTo-SecureString $Password -AsPlainText -Force
-    $creds = New-Object System.Management.Automation.PSCredential ($Username, $secpasswd)
+    if ([string]::IsNullOrEmpty($Password)) {
+        $secpasswd = New-Object System.Security.SecureString
+    } else {
+        $secpasswd = ConvertTo-SecureString $Password -AsPlainText -Force
+    }
+    $wmiUsername = $Username
+    if ($wmiUsername -notmatch '\\') {
+        $wmiUsername = "$TargetIP\$Username"
+    }
+    $creds = New-Object System.Management.Automation.PSCredential ($wmiUsername, $secpasswd)
     
     # 3.1 Cleanup logic via WMI
     $killCmd = "taskkill /f /im agent.exe /t"
-    Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList $killCmd -ComputerName $TargetIP -Credential $creds | Out-Null
+    Invoke-WmiMethod -Authentication PacketPrivacy -Class Win32_Process -Name Create -ArgumentList $killCmd -ComputerName $TargetIP -Credential $creds | Out-Null
 
     # 3.2 Run the Installer for directory preparation
     Write-Output "LOG:Running directory cleanup and placement..."
     $installCmd = "powershell.exe -ExecutionPolicy Bypass -Command `"& C:\Windows\Temp\Manual-Agent-Installer-v30.ps1 -ServerUrl '$ServerUrl' -LocalOnly`""
-    Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList $installCmd -ComputerName $TargetIP -Credential $creds | Out-Null
+    Invoke-WmiMethod -Authentication PacketPrivacy -Class Win32_Process -Name Create -ArgumentList $installCmd -ComputerName $TargetIP -Credential $creds | Out-Null
 
     # 3.3 Create the 5-Minute Task (LOCAL call on client via WMI)
     Write-Output "LOG:Forcing Task Scheduler registration (5min interval)..."
     # Escaping for Program Files and special chars in TR
     $localTaskCmd = "schtasks /create /sc minute /mo 5 /tn `"$TaskName`" /tr `"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$AgentPath\`" -ServerUrl '$ServerUrl'`" /ru SYSTEM /rl HIGHEST /f"
     
-    $proc = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList $localTaskCmd -ComputerName $TargetIP -Credential $creds
+    $proc = Invoke-WmiMethod -Authentication PacketPrivacy -Class Win32_Process -Name Create -ArgumentList $localTaskCmd -ComputerName $TargetIP -Credential $creds
     
     if ($proc.ReturnValue -eq 0) {
         # Trigger immediate run
         $runCmd = "schtasks /run /tn `"$TaskName`""
-        Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList $runCmd -ComputerName $TargetIP -Credential $creds | Out-Null
+        Invoke-WmiMethod -Authentication PacketPrivacy -Class Win32_Process -Name Create -ArgumentList $runCmd -ComputerName $TargetIP -Credential $creds | Out-Null
         
         Write-Output "STATUS:SUCCESS|LOG:Agent v2.6.0 and Task Scheduler (5m) verified at $TargetIP"
     } else {

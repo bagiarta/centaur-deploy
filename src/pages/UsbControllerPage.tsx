@@ -20,6 +20,7 @@ interface UsbPolicy {
   action: string;
   created_by: string;
   updated_at: string;
+  last_usb_poll?: string;
 }
 
 interface UsbEvent {
@@ -203,7 +204,10 @@ export default function UsbControllerPage() {
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        toast.success('Policy action updated successfully');
+        toast.success(`Policy updated to ${newAction}`);
+        setPolicies(prev => prev.map(p => 
+          p.id === policy.id ? { ...p, action: newAction, updated_at: new Date().toISOString() } : p
+        ));
         fetchPolicies();
         fetchSummary();
       } else {
@@ -483,6 +487,8 @@ export default function UsbControllerPage() {
                         <th className="px-6 py-4 font-medium">Action</th>
                         <th className="px-6 py-4 font-medium">Created By</th>
                         <th className="px-6 py-4 font-medium">Last Updated</th>
+                        <th className="px-6 py-4 font-medium">Last Polling</th>
+                        <th className="px-6 py-4 font-medium">Sync Status</th>
                         <th className="px-6 py-4 text-right font-medium">Manage</th>
                       </tr>
                     </thead>
@@ -525,6 +531,20 @@ export default function UsbControllerPage() {
                           </td>
                           <td className="px-6 py-4 text-muted-foreground">{p.created_by}</td>
                           <td className="px-6 py-4 text-muted-foreground">{format(new Date(p.updated_at), 'MMM d, yyyy HH:mm')}</td>
+                          <td className="px-6 py-4 text-muted-foreground">
+                            {p.last_usb_poll ? format(new Date(p.last_usb_poll), 'MMM d, yyyy HH:mm') : '-'}
+                          </td>
+                          <td className="px-6 py-4">
+                            {p.target_type === 'device' ? (
+                              (!p.last_usb_poll || new Date(p.last_usb_poll) < new Date(p.updated_at)) ? (
+                                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">Pending Sync</Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-success/10 text-success border-success/20">Synced</Badge>
+                              )
+                            ) : (
+                              <Badge variant="outline" className="bg-muted text-muted-foreground">Multiple Devices</Badge>
+                            )}
+                          </td>
                           <td className="px-6 py-4 text-right">
                             <Button variant="ghost" size="icon" onClick={() => handleDeletePolicy(p.id)} className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                               <Trash2 className="h-4 w-4" />

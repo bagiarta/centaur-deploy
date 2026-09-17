@@ -296,6 +296,13 @@ export default function AgentInstallerPage() {
   };
 
   const retryTarget = async (jobId: string, ip: string) => {
+    let retryPassword = password;
+    if (!retryPassword) {
+      const p = prompt(`Please enter the Administrator password for ${ip} (or leave blank if none):`);
+      if (p === null) return; // User cancelled
+      retryPassword = p;
+    }
+
     try {
       // Optimistic update
       setTargets(prev => prev.map(t => 
@@ -311,7 +318,7 @@ export default function AgentInstallerPage() {
           job_id: jobId, 
           device_ip: ip,
           username: username, // From local state
-          password: password  // From local state
+          password: retryPassword
         })
       });
 

@@ -38,7 +38,10 @@ router.get('/policies', async (req, res) => {
         if (actionFilter) reqPool.input('actionFilter', sql.NVARCHAR, actionFilter);
 
         const result = await reqPool.query(`
-            SELECT p.*, d.ip 
+            SELECT p.id, p.target_type, p.target_id, p.action, p.created_by,
+                   CONVERT(varchar, p.updated_at, 120) AS updated_at,
+                   d.ip, 
+                   CONVERT(varchar, d.last_usb_poll, 120) AS last_usb_poll
             FROM UsbPolicies p
             LEFT JOIN Devices d ON p.target_type = 'device' AND p.target_id = d.hostname
             ${whereSql}
@@ -75,8 +78,7 @@ router.post('/policies', async (req, res) => {
             await pool.request()
                 .input('id', sql.NVARCHAR, id)
                 .input('action', sql.NVARCHAR, action)
-                .input('updated_at', sql.DATETIME, new Date())
-                .query(`UPDATE UsbPolicies SET action = @action, updated_at = @updated_at WHERE id = @id`);
+                .query(`UPDATE UsbPolicies SET action = @action, updated_at = GETDATE() WHERE id = @id`);
             res.json({ message: 'Policy updated successfully', id });
         } else {
             // Insert
@@ -109,10 +111,17 @@ router.get('/policies/evaluate', async (req, res) => {
     try {
         const pool = await poolPromise;
         
-        // Find device groups if device exists
+        // Find device groups if device exists and update last_usb_poll
         const deviceResult = await pool.request()
             .input('hostname', sql.NVARCHAR, hostname)
             .query('SELECT group_ids FROM Devices WHERE hostname = @hostname');
+            
+        // Update last_usb_poll
+        try {
+            await pool.request()
+                .input('hostname', sql.NVARCHAR, hostname)
+                .query('UPDATE Devices SET last_usb_poll = GETDATE() WHERE hostname = @hostname');
+        } catch(e) { console.error('Failed to update last_usb_poll', e); }
         
         let groupIds = [];
         if (deviceResult.recordset.length > 0 && deviceResult.recordset[0].group_ids) {

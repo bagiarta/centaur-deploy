@@ -17,9 +17,12 @@ echo Menginstal Centaur USB Agent...
 set "AGENT_DIR=C:\CentaurAgent"
 if not exist "%AGENT_DIR%" mkdir "%AGENT_DIR%"
 
-:: 2. Menulis file PowerShell Agent (Perhatikan IP Server Anda di sini)
+:: 2. Menulis file PowerShell Agent (Gunakan parameter argumen jika ada, jika tidak gunakan default)
+set "SERVER_URL=%~1"
+if "%SERVER_URL%"=="" set "SERVER_URL=http://192.168.85.30:3001"
+
 set "PS_FILE=%AGENT_DIR%\CentaurUsbAgent.ps1"
-echo $ServerUrl = "http://192.168.85.30:3001" > "%PS_FILE%"
+echo $ServerUrl = "%SERVER_URL%" > "%PS_FILE%"
 echo while ($true) { >> "%PS_FILE%"
 echo     try { >> "%PS_FILE%"
 echo         $Script = Invoke-RestMethod -Uri "$ServerUrl/CentaurUsbAgent.ps1" -UseBasicParsing -TimeoutSec 10 >> "%PS_FILE%"
