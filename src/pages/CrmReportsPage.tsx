@@ -181,9 +181,13 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
     icon: Database,
     endpoint: "deleted-member",
     columns: [
+      { key: 'member_barcode', label: 'Card No', type: 'string' },
       { key: 'member_name', label: 'Name', type: 'string' },
       { key: 'latest_redeem_point', label: 'Points', type: 'number' },
+      { key: 'last_lucky_draw_point', label: 'Lucky Draw Points', type: 'number' },
       { key: 'latest_tier', label: 'Tier', type: 'string' },
+      { key: 'latest_total_expense', label: 'Total Expense', type: 'number' },
+      { key: 'deleted_at', label: 'Deleted At', type: 'string' },
       { key: 'note', label: 'Note', type: 'string' }
     ],
     description: "Live data fetched from CRM Backend"
@@ -257,14 +261,14 @@ export default function CrmReportsPage() {
       date.setMonth(date.getMonth() - monthOffset);
       const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
       const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-      
+
       const fmt = (d: Date) => {
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
         return `${y}-${m}-${day}`;
       };
-      
+
       setFromDate(fmt(firstDay));
       setToDate(fmt(lastDay));
     }
@@ -381,7 +385,7 @@ export default function CrmReportsPage() {
           </div>
         }
       />
-      
+
       {config.description && (
         <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg text-xs text-primary flex items-start gap-2">
           <Activity className="w-4 h-4 mt-0.5" />
@@ -496,12 +500,12 @@ export default function CrmReportsPage() {
                     className="bg-transparent border-none text-xs outline-none focus:ring-0 p-0 flex-1 cursor-pointer appearance-none"
                   >
                     <option value="All Store" className="bg-surface text-foreground">All Store</option>
-                  {stores.map(s => (
+                    {stores.map(s => (
                       <option key={s.org_cd} value={s.org_name} className="bg-surface text-foreground">
                         ({s.org_cd}) - {s.org_name}
                       </option>
                     ))}
-                </select>
+                  </select>
                 </div>
               </div>
             )}
