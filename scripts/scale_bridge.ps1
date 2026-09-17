@@ -43,7 +43,7 @@ param(
 # ── 1. SEND MT-SICS COMMAND ──────────────────────────────────────────────────
 if ($Action -eq "Command") {
     $formattedCmd = "$SicsCommand`r`n"
-    Write-Host "Connecting to Mettler Toledo Scale at $ScaleIp:$ScalePort..."
+    Write-Host "Connecting to Mettler Toledo Scale at $($ScaleIp):$($ScalePort)..."
     
     try {
         $client = New-Object System.Net.Sockets.TcpClient
@@ -51,7 +51,7 @@ if ($Action -eq "Command") {
         $wait = $connect.AsyncWaitHandle.WaitOne(3000, $false)
         if (-not $wait) {
             $client.Close()
-            throw "Connection timeout to scale at $ScaleIp:$ScalePort"
+            throw "Connection timeout to scale at $($ScaleIp):$($ScalePort)"
         }
         $client.EndConnect($connect)
         
@@ -96,7 +96,7 @@ elseif ($Action -eq "Sync") {
     $localTempFile = "$env:TEMP\$SyncFileName"
 
     # Helper function to report status back to Centaur Server
-    function Report-JobStatus {
+    function Send-JobStatus {
         param([string]$status, [int]$progress, [string]$log)
         $body = @{ status = $status; progress = $progress; log = $log } | ConvertTo-Json
         try {
@@ -106,7 +106,7 @@ elseif ($Action -eq "Sync") {
         }
     }
 
-    Report-JobStatus -status "running" -progress 30 -log "Downloading PLU file from Centaur Server..."
+    Send-JobStatus -status "running" -progress 30 -log "Downloading PLU file from Centaur Server..."
 
     try {
         # Download PLU file from server
@@ -114,7 +114,7 @@ elseif ($Action -eq "Sync") {
         $wc = New-Object System.Net.WebClient
         $wc.DownloadFile($SyncFileUrl, $localTempFile)
 
-        Report-JobStatus -status "running" -progress 60 -log "PLU file downloaded. Uploading to scale via FTP..."
+        Send-JobStatus -status "running" -progress 60 -log "PLU file downloaded. Uploading to scale via FTP..."
 
         # Upload to Scale via FTP
         $ftpUrl = "ftp://$ScaleIp/import/$SyncFileName"
@@ -136,7 +136,7 @@ elseif ($Action -eq "Sync") {
         Remove-Item $localTempFile -Force -ErrorAction SilentlyContinue
 
         # Report Success
-        Report-JobStatus -status "success" -progress 100 -log "PLU data synchronized successfully."
+        Send-JobStatus -status "success" -progress 100 -log "PLU data synchronized successfully."
         Write-Output "STATUS:SUCCESS|LOG:PLU data uploaded successfully to scale at $ScaleIp"
     } catch {
         # Clean up local file
@@ -144,7 +144,7 @@ elseif ($Action -eq "Sync") {
 
         # Report Failure
         $errorMsg = $_.Exception.Message
-        Report-JobStatus -status "failed" -progress 0 -log "Sync failed: $errorMsg"
+        Send-JobStatus -status "failed" -progress 0 -log "Sync failed: $errorMsg"
         Write-Output "STATUS:FAILED|LOG:Sync failed: $errorMsg"
         exit 1
     }
