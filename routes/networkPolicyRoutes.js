@@ -16,7 +16,9 @@ router.get('/', async (req, res) => {
           ELSE 'All Devices'
         END as target_name,
         sg.name as site_group_name,
-        CONVERT(varchar, d.last_network_poll, 120) AS last_network_poll
+        CONVERT(varchar, d.last_network_poll, 120) AS last_network_poll,
+        CONVERT(varchar, p.updated_at, 120) AS updated_at_str,
+        CONVERT(varchar, p.created_at, 120) AS created_at_str
       FROM NetworkPolicies p
       LEFT JOIN DeviceGroups g ON p.target_id = g.id AND p.target_type = 'group'
       LEFT JOIN Devices d ON p.target_id = d.id AND p.target_type = 'device'
@@ -146,7 +148,10 @@ router.post('/site-group-items', async (req, res) => {
     await pool.request()
       .input('group_id', sql.Int, group_id)
       .input('domain', sql.NVarChar, domain)
-      .query('INSERT INTO SiteGroupItems (group_id, domain) VALUES (@group_id, @domain)');
+      .query(`
+        INSERT INTO SiteGroupItems (group_id, domain) VALUES (@group_id, @domain);
+        UPDATE NetworkPolicies SET updated_at = GETDATE() WHERE site_group_id = @group_id;
+      `);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -159,7 +164,10 @@ router.post('/site-group-items/delete', async (req, res) => {
   if (!id) return res.status(400).json({ success: false, error: 'ID is required' });
   try {
     const pool = await poolPromise;
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM SiteGroupItems WHERE id = @id');
+    await pool.request().input('id', sql.Int, id).query(`
+      UPDATE NetworkPolicies SET updated_at = GETDATE() WHERE site_group_id = (SELECT group_id FROM SiteGroupItems WHERE id = @id);
+      DELETE FROM SiteGroupItems WHERE id = @id;
+    `);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
