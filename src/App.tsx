@@ -34,6 +34,7 @@ import PMDashboardPage from "./pages/PMDashboardPage";
 import PMSchedulePage from "./pages/PMSchedulePage";
 import PMActionItemsPage from "./pages/PMActionItemsPage";
 import UsbControllerPage from "./pages/UsbControllerPage";
+import NetworkBlockerPage from "./pages/NetworkBlockerPage";
 
 import AssetDashboardPage from "./pages/assets/AssetDashboardPage";
 import AssetRegisterPage from "./pages/assets/AssetRegisterPage";
@@ -321,6 +322,13 @@ const App = () => (
               <ProtectedRoute>
                 <AppShell>
                   <UsbControllerPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/network-blocker" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <NetworkBlockerPage />
                 </AppShell>
               </ProtectedRoute>
             } />

@@ -95,6 +95,7 @@ export const navItems: NavigationItem[] = [
     children: [
       { id: "device_health", to: "/support-manager/device-health", icon: HardDrive, label: "Device Health Monitor" },
       { id: "usb_controller", to: "/usb", icon: UsbIcon, label: "USB Controller" },
+      { id: "network_blocker", to: "/network-blocker", icon: Shield, label: "Network Blocker" },
       { id: "cctv", to: "/cctv", icon: Video, label: "CCTV Monitoring" },
       { id: "network", to: "/network", icon: Globe, label: "Network Map" },
       { id: "groups", to: "/groups", icon: Users, label: "Device Groups" },

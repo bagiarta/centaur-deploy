@@ -545,6 +545,32 @@ export async function initDb() {
            product_name NVARCHAR(200),
            action_taken NVARCHAR(50),
            timestamp DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='NetworkPolicies' AND xtype='U')
+       CREATE TABLE NetworkPolicies (
+           id INT IDENTITY(1,1) PRIMARY KEY,
+           domain NVARCHAR(255) NULL,
+           target_type NVARCHAR(50) DEFAULT 'global',
+           target_id NVARCHAR(50),
+           created_by NVARCHAR(100),
+           created_at DATETIME DEFAULT GETDATE(),
+           updated_at DATETIME DEFAULT GETDATE(),
+           is_active BIT DEFAULT 1,
+           site_group_id INT NULL
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='SiteGroups' AND xtype='U')
+       CREATE TABLE SiteGroups (
+           id INT IDENTITY(1,1) PRIMARY KEY,
+           name NVARCHAR(100) NOT NULL,
+           description NVARCHAR(255),
+           created_at DATETIME DEFAULT GETDATE()
+       )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='SiteGroupItems' AND xtype='U')
+       CREATE TABLE SiteGroupItems (
+           id INT IDENTITY(1,1) PRIMARY KEY,
+           group_id INT NOT NULL,
+           domain NVARCHAR(255) NOT NULL,
+           FOREIGN KEY (group_id) REFERENCES SiteGroups(id) ON DELETE CASCADE
        )`
     ];
 
