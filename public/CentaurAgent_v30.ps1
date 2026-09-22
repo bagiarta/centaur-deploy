@@ -467,4 +467,77 @@ catch {
     Write-Log "[Deployments] Polling error: $($_.Exception.Message)"
 }
 
+# ─────────────────────────────────────────────────────────
+# PHASE 7: APPLY NETWORK BLOCKER POLICY
+# ─────────────────────────────────────────────────────────
+Write-Log "[Network] Fetching network policy from server..."
+try {
+    $policyUrl = "$ServerUrl/api/agent/network-policy?hostname=$([uri]::EscapeDataString($Hostname))"
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+    $json = $wc.DownloadString($policyUrl)
+    $policy = $json | ConvertFrom-Json
+    
+    if ($null -ne $policy.domains) {
+        $DomainsToBlock = $policy.domains
+        $RuleName = "CentaurAgent_Blacklist"
+        $HostsPath = "$env:windir\System32\drivers\etc\hosts"
+        
+        # Update Hosts File (Fallback for disabled firewall)
+        try {
+            $HostsContent = [System.IO.File]::ReadAllText($HostsPath)
+            # Remove existing block
+            $HostsContent = $HostsContent -replace '(?s)# BEGIN CENTAUR BLOCKER.*?# END CENTAUR BLOCKER\r?\n?', ''
+            
+            $BlockStr = ""
+            if ($DomainsToBlock.Count -gt 0) {
+                $BlockStr = "`r`n# BEGIN CENTAUR BLOCKER`r`n"
+                foreach ($domain in $DomainsToBlock) {
+                    $BlockStr += "127.0.0.1 $domain`r`n"
+                    $BlockStr += "127.0.0.1 www.$domain`r`n"
+                    $BlockStr += "::1 $domain`r`n"
+                    $BlockStr += "::1 www.$domain`r`n"
+                }
+                $BlockStr += "# END CENTAUR BLOCKER`r`n"
+            }
+            
+            $NewContent = $HostsContent.TrimEnd() + $BlockStr
+            [System.IO.File]::WriteAllText($HostsPath, $NewContent, [System.Text.Encoding]::ASCII)
+            Write-Log "[Network] Hosts file updated for domain blocking (ASCII Encoding)."
+            
+            # Restart DNS Client if running, or just flush
+            ipconfig /flushdns | Out-Null
+        } catch {
+            Write-Log "[Network] Error updating hosts file: $($_.Exception.Message)"
+        }
+
+        if ($DomainsToBlock.Count -eq 0) {
+            Remove-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue | Out-Null
+            Write-Log "[Network] Policy empty. Cleared all network blocking rules."
+        } else {
+            $blockedIPs = @()
+            foreach ($domain in $DomainsToBlock) {
+                try {
+                    $records = Resolve-DnsName -Name $domain -ErrorAction Stop | Where-Object { $_.Type -eq 'A' -or $_.Type -eq 'AAAA' }
+                    foreach ($record in $records) { $blockedIPs += $record.IPAddress }
+                } catch { }
+            }
+            $blockedIPs = $blockedIPs | Select-Object -Unique
+            
+            if ($blockedIPs.Count -gt 0) {
+                $existingRule = Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue
+                if ($existingRule) {
+                    Set-NetFirewallRule -DisplayName $RuleName -RemoteAddress $blockedIPs -Action Block -Direction Outbound -ErrorAction SilentlyContinue
+                } else {
+                    New-NetFirewallRule -DisplayName $RuleName -Direction Outbound -Action Block -RemoteAddress $blockedIPs -Profile Any -ErrorAction SilentlyContinue | Out-Null
+                }
+                Write-Log "[Network] Applied blocking rules for $($blockedIPs.Count) IPs."
+            }
+        }
+    }
+}
+catch {
+    Write-Log "[Network] Failed to fetch or apply network policy: $($_.Exception.Message)"
+}
+
 Write-Log "=== Agent run complete. Next run in ~5 minutes. ==="

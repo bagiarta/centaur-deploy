@@ -6179,4 +6179,59 @@ router.get('/api/installers/:id/download', async (req, res) => {
   }
 });
 
+// ─€─€ GET /api/agent/network-policy ─€─€
+router.get('/api/agent/network-policy', async (req, res) => {
+  const { hostname } = req.query;
+  try {
+    const pool = await poolPromise;
+    let deviceGroups = [];
+    let deviceId = null;
+
+    if (hostname) {
+      const devRes = await pool.request()
+        .input('hostname', sql.NVarChar, hostname)
+        .query('SELECT id, group_ids FROM Devices WHERE hostname = @hostname');
+      if (devRes.recordset.length > 0) {
+        deviceId = devRes.recordset[0].id;
+        try {
+          const gIds = JSON.parse(devRes.recordset[0].group_ids);
+          if (Array.isArray(gIds)) deviceGroups = gIds;
+        } catch(e) {}
+        
+        // Update last_network_poll
+        try {
+          await pool.request()
+            .input('hostname', sql.NVarChar, hostname)
+            .query('UPDATE Devices SET last_network_poll = GETDATE() WHERE hostname = @hostname');
+        } catch(e) { console.error('Failed to update last_network_poll', e); }
+      }
+    }
+
+    // Determine applicable policies
+    let targetConditions = `p.target_type = 'global'`;
+    if (deviceId) {
+      targetConditions += ` OR (p.target_type = 'device' AND p.target_id = '${deviceId}')`;
+    }
+    if (deviceGroups.length > 0) {
+      const groupIn = deviceGroups.map(g => `'${g}'`).join(',');
+      targetConditions += ` OR (p.target_type = 'group' AND p.target_id IN (${groupIn}))`;
+    }
+
+    let query = `
+      SELECT ISNULL(p.domain, sgi.domain) as domain
+      FROM NetworkPolicies p
+      LEFT JOIN SiteGroupItems sgi ON p.site_group_id = sgi.group_id
+      WHERE p.is_active = 1 AND (${targetConditions})
+    `;
+
+    const result = await pool.request().query(query);
+    // Filter out nulls and remove duplicates
+    const domains = [...new Set(result.recordset.map(r => r.domain).filter(d => d))];
+    res.json({ domains });
+  } catch (err) {
+    console.error('Error fetching agent network policy:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

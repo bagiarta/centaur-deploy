@@ -625,6 +625,18 @@ async function initDb() {
       )
     `);
 
+    // Ensure NetworkPolicies table exists
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='NetworkPolicies' AND xtype='U')
+      CREATE TABLE NetworkPolicies (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        domain NVARCHAR(200) NOT NULL,
+        target_type NVARCHAR(50) DEFAULT 'global',
+        target_id NVARCHAR(100),
+        created_at DATETIME DEFAULT GETDATE()
+      )
+    `);
+
     // Ensure start_date column exists in UserTasks
     const checkTasksCols = await pool.request().query(`
       SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
@@ -7542,7 +7554,102 @@ import('./routes/eslRoutes.js').then((routerModule) => {
   app.use('/api/esl', routerModule.default);
 }).catch(err => console.error('Failed to load ESL router in server.cjs:', err));
 
-// \u2500€\u2500€ STATIC FILES & SPA FALLBACK \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
+// \u2500€\u2500€ START SERVER \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
+// ─€─€ GET /api/network-policies ─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€
+app.get('/api/network-policies', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT p.*,
+        CASE
+          WHEN p.target_type = 'group' THEN g.name
+          WHEN p.target_type = 'device' THEN d.hostname
+          ELSE 'All Devices'
+        END as target_name
+      FROM NetworkPolicies p
+      LEFT JOIN DeviceGroups g ON p.target_id = g.id AND p.target_type = 'group'
+      LEFT JOIN Devices d ON p.target_id = d.id AND p.target_type = 'device'
+      ORDER BY p.created_at DESC
+    `);
+    res.json({ success: true, policies: result.recordset });
+  } catch (err) {
+    console.error('Error fetching network policies:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─€─€ POST /api/network-policies ─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€
+app.post('/api/network-policies', async (req, res) => {
+  const { action, domain, target_type, target_id, id } = req.body;
+  try {
+    const pool = await poolPromise;
+    if (action === 'add') {
+      if (!domain) return res.status(400).json({ success: false, error: 'Domain is required' });
+      await pool.request()
+        .input('domain', sql.NVarChar, domain)
+        .input('target_type', sql.NVarChar, target_type || 'global')
+        .input('target_id', sql.NVarChar, target_id || null)
+        .query('INSERT INTO NetworkPolicies (domain, target_type, target_id) VALUES (@domain, @target_type, @target_id)');
+      res.json({ success: true });
+    } else if (action === 'delete') {
+      if (!id) return res.status(400).json({ success: false, error: 'ID is required' });
+      await pool.request()
+        .input('id', sql.Int, id)
+        .query('DELETE FROM NetworkPolicies WHERE id = @id');
+      res.json({ success: true });
+    } else {
+      res.status(400).json({ success: false, error: 'Invalid action' });
+    }
+  } catch (err) {
+    console.error('Error modifying network policies:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─€─€ GET /api/agent/network-policy ─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€
+app.get('/api/agent/network-policy', async (req, res) => {
+  const { hostname } = req.query;
+  try {
+    const pool = await poolPromise;
+    let deviceGroups = [];
+    let deviceId = null;
+
+    if (hostname) {
+      const devRes = await pool.request()
+        .input('hostname', sql.NVarChar, hostname)
+        .query('SELECT id, group_ids FROM Devices WHERE hostname = @hostname');
+      if (devRes.recordset.length > 0) {
+        deviceId = devRes.recordset[0].id;
+        try {
+          const gIds = JSON.parse(devRes.recordset[0].group_ids);
+          if (Array.isArray(gIds)) deviceGroups = gIds;
+        } catch(e) {}
+      }
+    }
+
+    // Determine applicable policies
+    let query = `SELECT domain FROM NetworkPolicies WHERE target_type = 'global'`;
+    if (deviceId) {
+      query += ` OR (target_type = 'device' AND target_id = '${deviceId}')`;
+    }
+    if (deviceGroups.length > 0) {
+      const groupIn = deviceGroups.map(g => `'${g}'`).join(',');
+      query += ` OR (target_type = 'group' AND target_id IN (${groupIn}))`;
+    }
+
+    const result = await pool.request().query(query);
+    const domains = result.recordset.map(r => r.domain);
+    res.json({ domains });
+  } catch (err) {
+    console.error('Error fetching agent network policy:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+
+// ─€─€ STATIC FILES & SPA FALLBACK ─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€─€
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.get('/api/test-assets', (req, res) => res.json({ message: "Hello from server.cjs!" }));
 app.use('/api/assets', require('./server_assets.cjs')(sql, dbConfig));
@@ -7552,7 +7659,6 @@ app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-// \u2500€\u2500€ START SERVER \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 app.listen(port, '0.0.0.0', async () => {
   console.log(`ðŸš€ Server running on http://0.0.0.0:${port}`);
   await initDb();
