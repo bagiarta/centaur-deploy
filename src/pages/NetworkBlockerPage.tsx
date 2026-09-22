@@ -528,9 +528,13 @@ export default function NetworkBlockerPage() {
                     </tr>
                   ) : (
                     policies.map((p: any) => {
-                      const updatedDate = p.updated_at ? new Date(p.updated_at) : new Date(p.created_at || Date.now());
-                      const pollDate = p.last_network_poll ? new Date(p.last_network_poll) : null;
-                      const isPendingSync = p.target_type === 'device' && (!pollDate || pollDate < updatedDate);
+                      const updatedStr = p.updated_at_str || p.created_at_str;
+                      const pollStr = p.last_network_poll;
+                      
+                      const updatedDate = updatedStr ? new Date(updatedStr.replace(' ', 'T')) : new Date();
+                      const pollDate = pollStr ? new Date(pollStr.replace(' ', 'T')) : null;
+                      
+                      const isPendingSync = p.target_type === 'device' && (!pollStr || pollStr < updatedStr);
                       
                       return (
                         <tr key={p.id} className={`transition-colors ${p.is_active ? 'hover:bg-gray-50' : 'bg-gray-50 opacity-70'}`}>
