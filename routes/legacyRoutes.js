@@ -3115,7 +3115,7 @@ async function sendDailyOutstandingTicketsNotification(options = {}) {
     const ticketsRes = await pool.request().query(`
       SELECT id, title, status, outlet_name, assigned_to, hostname as manual_hostnames
       FROM TroubleTickets
-      WHERE status NOT IN ('Closed', 'Resolved')
+      WHERE status NOT IN ('Closed', 'Resolved', 'Canceled')
       ORDER BY 
         CASE 
           WHEN status = 'Open' THEN 1
@@ -3172,7 +3172,7 @@ async function sendDailyOutstandingTicketsNotification(options = {}) {
         progress = ticket.status === 'In Progress' ? 50 : 0;
       }
 
-      const statusEmoji = ticket.status === 'In Progress' ? 'ðŸš§' : 'ðŸ“‹';
+      const statusEmoji = ticket.status === 'In Progress' ? '🚧' : '📋';
       summary += `${statusEmoji} *[${ticket.id}]* ${ticket.title}\n`;
       summary += `   \u2022 Status: _${ticket.status}_\n`;
       summary += `   \u2022 Progress: *${progress}%*\n`;
@@ -5223,7 +5223,7 @@ async function sendDeviceStatusReport(options = {}) {
     const total = devices.length;
     const offline = devices.filter(d => d.status === 'offline');
 
-    let msg = `ðŸ“¡ *Network & Device Status Report*\n\n`;
+    let msg = `📡 *Network & Device Status Report*\n\n`;
     msg += `Total Devices: *${total}*\n`;
     msg += `Online: *${total - offline.length}*\n`;
     msg += `Offline: *${offline.length}*\n\n`;
@@ -5376,7 +5376,7 @@ export async function startBackgroundTasks() {
         `);
 
       if (result.rowsAffected[0] > 0) {
-        console.log(`ðŸ§¹ [Cleanup] Deleted ${result.rowsAffected[0]} old ActivityLog entries (kept latest 1000)`);
+        console.log(`🧹 [Cleanup] Deleted ${result.rowsAffected[0]} old ActivityLog entries (kept latest 1000)`);
       }
     } catch (err) {
       console.error('Log Cleanup Loop Error:', err);
