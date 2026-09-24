@@ -501,7 +501,9 @@ export default function DevicesPage() {
         || d.ip.includes(search)
         || (d.location && d.location.toLowerCase().includes(search.toLowerCase()));
       const matchStatus = statusFilter === "all" || d.status === statusFilter;
-      const matchGroup = groupFilter === "all" || (Array.isArray(d.group_ids) && d.group_ids.includes(groupFilter));
+      const matchGroup = groupFilter === "all" 
+        || (groupFilter === "ungrouped" && (!Array.isArray(d.group_ids) || d.group_ids.length === 0))
+        || (groupFilter !== "ungrouped" && Array.isArray(d.group_ids) && d.group_ids.includes(groupFilter));
       return matchSearch && matchStatus && matchGroup;
     })
     .sort((a, b) => {
@@ -785,6 +787,7 @@ export default function DevicesPage() {
             className="pl-8 pr-3 py-1.5 text-xs font-medium bg-surface border border-border rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
           >
             <option value="all" className="bg-surface text-foreground">All Groups</option>
+            <option value="ungrouped" className="bg-surface text-foreground">Ungrouped</option>
             {groups.map(g => (
               <option key={g.id} value={g.id} className="bg-surface text-foreground">{g.name}</option>
             ))}
