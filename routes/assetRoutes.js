@@ -67,11 +67,31 @@ router.get('/locations', async (req, res) => {
         WHERE ORG_STATUS='O'
       `);
       
+      // Get asset counts from local DB to accurately populate store asset_counts
+      const localPool = await poolPromise;
+      const assetCounts = await localPool.request().query(`
+        SELECT location_code, COUNT(*) as cnt 
+        FROM AM_Assets 
+        WHERE location_code IS NOT NULL
+        GROUP BY location_code
+      `);
+      const assetMap = {};
+      assetCounts.recordset.forEach(r => { assetMap[r.location_code] = r.cnt; });
+
+      const deviceCounts = await localPool.request().query(`
+        SELECT location, COUNT(*) as cnt 
+        FROM Devices 
+        WHERE location IS NOT NULL
+        GROUP BY location
+      `);
+      const deviceMap = {};
+      deviceCounts.recordset.forEach(r => { deviceMap[r.location] = r.cnt; });
+
       const stores = storeResult.recordset.map(store => ({
         ...store,
         type: 'STORE',
         status: 'ACTIVE',
-        asset_count: 0 // Optional: Could calculate this if needed
+        asset_count: (assetMap[store.location_code] || 0) + (deviceMap[store.location_name] || 0)
       }));
       
       data.push(...stores);
