@@ -6391,7 +6391,7 @@ app.get('/api/crm/reports/:type', async (req, res) => {
         params.search = `%${search}%`;
       }
 
-      const orderCol = sortBy || 'h.bill_DT';
+      const orderCol = sortBy ? (sortBy === 'tier' ? 'c.CARD_TIER_NAME' : (sortBy === 'activated_app' ? 'c.MOBILE_APP_ACTIVATED' : sortBy)) : 'h.bill_DT';
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       query = `
@@ -6409,11 +6409,14 @@ app.get('/api/crm/reports/:type', async (req, res) => {
             h.NET_VALUE AS bill_value,
             (ISNULL(q.RLITQ_OPENING_POINTS, 0) + FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points,
             CASE WHEN FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
-            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
+            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category,
+            c.CARD_TIER_NAME AS tier,
+            CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app
         FROM POS_SALES_HDR (NOLOCK) h
         INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
         LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
         LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
         ${where}
         ORDER BY ${orderCol} ${orderDir}
         OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
@@ -6428,6 +6431,8 @@ app.get('/api/crm/reports/:type', async (req, res) => {
         INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
         LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
         LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
         ${where}
       `;
     }
@@ -6456,6 +6461,8 @@ app.get('/api/crm/reports/:type', async (req, res) => {
             FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
             LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
             LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
             LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
             ${where}
             GROUP BY q.RLITQ_ORG_CD, d.ORG_NAME, q.RLITQ_CARD_NO, m.RLICM_NAME, m.RLICM_MOBILE_NO
@@ -6470,6 +6477,8 @@ app.get('/api/crm/reports/:type', async (req, res) => {
         LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
         LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
         LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
         ${where}
       `;
     }
@@ -6518,6 +6527,8 @@ app.get('/api/crm/reports/:type', async (req, res) => {
             SUM(ISNULL(h.NET_VALUE, 0)) AS total_net_sales
         FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
         LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
         LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
         LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
         ${where}
@@ -6662,7 +6673,7 @@ app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
         where += " AND (q.RLITQ_CARD_NO LIKE @search OR m.RLICM_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
-      const orderCol = sortBy || 'h.bill_DT';
+      const orderCol = sortBy ? (sortBy === 'tier' ? 'c.CARD_TIER_NAME' : (sortBy === 'activated_app' ? 'c.MOBILE_APP_ACTIVATED' : sortBy)) : 'h.bill_DT';
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       query = `
@@ -6673,11 +6684,15 @@ app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
             q.RLITQ_OPENING_POINTS AS prev_points, FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) AS point_earned,
             h.NET_VALUE AS bill_value, (ISNULL(q.RLITQ_OPENING_POINTS, 0) + FLOOR(ISNULL(h.NET_VALUE, 0) / 50000)) AS total_points,
             CASE WHEN FLOOR(ISNULL(h.NET_VALUE, 0) / 50000) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
-            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
+            CASE WHEN h.NET_VALUE >= 500000 THEN 'Premium' WHEN h.NET_VALUE >= 200000 THEN 'High' WHEN h.NET_VALUE >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category,
+            c.CARD_TIER_NAME AS tier,
+            CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app
         FROM POS_SALES_HDR (NOLOCK) h
         INNER JOIN RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q ON h.BILL_NO = q.RLITQ_BILL_NO AND h.ORG_CD = q.RLITQ_ORG_CD
         LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
         LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
         ${where}
         ORDER BY ${orderCol} ${orderDir}
       `;
@@ -6712,6 +6727,8 @@ app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
             FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
             LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
             LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
             LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.bill_no
             ${where}
             GROUP BY q.RLITQ_ORG_CD, d.ORG_NAME, q.RLITQ_CARD_NO, m.RLICM_NAME, m.RLICM_MOBILE_NO
@@ -6787,6 +6804,8 @@ app.get('/api/crm/reports/:type/export/:format', async (req, res) => {
             END AS spender_tier
         FROM RXL_LOYALTY_INTEG_TRANS_QUEUE (NOLOCK) q
         LEFT JOIN RXL_LOYALTY_INTEG_CARD_MST (NOLOCK) m ON q.RLITQ_CARD_NO = m.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON q.RLITQ_CARD_NO = c.RLICM_CARD_NO
         LEFT JOIN POS_SALES_HDR (NOLOCK) h ON q.RLITQ_BILL_NO = h.BILL_NO AND q.RLITQ_ORG_CD = h.ORG_CD
         LEFT JOIN DimStore d ON q.RLITQ_ORG_CD = d.ORG_CD
         ${where}
