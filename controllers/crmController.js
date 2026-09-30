@@ -945,42 +945,47 @@ export const exportCrmReport = async (req, res) => {
         { header: 'Total Pts', key: 'total_points', width: 10 },
         { header: 'Status', key: 'point_status', width: 10 },
         { header: 'Category', key: 'bill_category', width: 10 },
+        { header: 'Tier', key: 'tier', width: 10 },
+        { header: 'Activated App', key: 'activated_app', width: 15 },
       ];
 
-      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%'";
+      let where = "WHERE t.TRANS_DATE BETWEEN @fromDate AND @toDate AND t.BILL_NO NOT LIKE '%mig%'";
       if (store && store !== 'All Store') {
         const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
         if (scRes.recordset.length > 0) {
-          where += " AND STORE_CD = @store_cd";
+          where += " AND t.STORE_CD = @store_cd";
           params.store_cd = scRes.recordset[0].ORG_CD;
         } else {
           where += " AND 1=0";
         }
       }
       if (search) {
-        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
+        where += " AND (t.MEMBER_ID LIKE @search OR t.CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
-      const orderCol = sortBy || 'TRANS_DATE';
+      const orderCol = sortBy ? (sortBy === 'tier' ? 'c.CARD_TIER_NAME' : (sortBy === 'activated_app' ? 'c.MOBILE_APP_ACTIVATED' : `t.${sortBy}`)) : 't.TRANS_DATE';
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       query = `
         SELECT
-            STORE_CD AS org_cd,
-            STORE_NAME AS store_name,
-            TRANSACTION_PARTNER_ID AS bill_no,
-            CAST(TRANS_DATE AS DATE) AS txn_date,
-            CONVERT(VARCHAR(8), CREATED_AT, 108) AS txn_time,
-            MEMBER_ID AS card_no,
-            CUST_NAME AS cust_name,
-            PHONE_NUMBER AS phone_no,
-            (ISNULL(LATEST_POINT, 0) - ISNULL(POINTS_EARNED, 0)) AS prev_points,
-            ISNULL(POINTS_EARNED, 0) AS point_earned,
-            ISNULL(LATEST_POINT, 0) AS total_points,
-            CASE WHEN ISNULL(POINTS_EARNED, 0) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
-            ISNULL(BILL_VALUE, 0) AS bill_value,
-            CASE WHEN ISNULL(BILL_VALUE, 0) >= 500000 THEN 'Premium' WHEN ISNULL(BILL_VALUE, 0) >= 200000 THEN 'High' WHEN ISNULL(BILL_VALUE, 0) >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
-        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+            t.STORE_CD AS org_cd,
+            t.STORE_NAME AS store_name,
+            t.TRANSACTION_PARTNER_ID AS bill_no,
+            CAST(t.TRANS_DATE AS DATE) AS txn_date,
+            CONVERT(VARCHAR(8), t.CREATED_AT, 108) AS txn_time,
+            t.MEMBER_ID AS card_no,
+            t.CUST_NAME AS cust_name,
+            t.PHONE_NUMBER AS phone_no,
+            (ISNULL(t.LATEST_POINT, 0) - ISNULL(t.POINTS_EARNED, 0)) AS prev_points,
+            ISNULL(t.POINTS_EARNED, 0) AS point_earned,
+            ISNULL(t.LATEST_POINT, 0) AS total_points,
+            CASE WHEN ISNULL(t.POINTS_EARNED, 0) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
+            ISNULL(t.BILL_VALUE, 0) AS bill_value,
+            CASE WHEN ISNULL(t.BILL_VALUE, 0) >= 500000 THEN 'Premium' WHEN ISNULL(t.BILL_VALUE, 0) >= 200000 THEN 'High' WHEN ISNULL(t.BILL_VALUE, 0) >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category,
+            c.CARD_TIER_NAME AS tier,
+            CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK) t
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON t.MEMBER_ID = c.RLICM_CARD_NO
         ${where}
         ORDER BY ${orderCol} ${orderDir}
       `;
@@ -1788,41 +1793,44 @@ export const getApiCrmReportsType = async (req, res) => {
     let params = { fromDate, toDate };
 
     if (type === 'txn-analysis') {
-      let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%'";
+      let where = "WHERE t.TRANS_DATE BETWEEN @fromDate AND @toDate AND t.BILL_NO NOT LIKE '%mig%'";
       if (store && store !== 'All Store') {
         const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
         if (scRes.recordset.length > 0) {
-          where += " AND STORE_CD = @store_cd";
+          where += " AND t.STORE_CD = @store_cd";
           params.store_cd = scRes.recordset[0].ORG_CD;
         } else {
           where += " AND 1=0";
         }
       }
       if (search) {
-        where += " AND (MEMBER_ID LIKE @search OR CUST_NAME LIKE @search)";
+        where += " AND (t.MEMBER_ID LIKE @search OR t.CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
 
-      const orderCol = sortBy || 'TRANS_DATE';
+      const orderCol = sortBy ? (sortBy === 'tier' ? 'c.CARD_TIER_NAME' : (sortBy === 'activated_app' ? 'c.MOBILE_APP_ACTIVATED' : `t.${sortBy}`)) : 't.TRANS_DATE';
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       query = `
         SELECT
-            STORE_CD AS org_cd,
-            STORE_NAME AS store_name,
-            TRANSACTION_PARTNER_ID AS bill_no,
-            CAST(TRANS_DATE AS DATE) AS txn_date,
-            CONVERT(VARCHAR(8), CREATED_AT, 108) AS txn_time,
-            MEMBER_ID AS card_no,
-            CUST_NAME AS cust_name,
-            PHONE_NUMBER AS phone_no,
-            (ISNULL(LATEST_POINT, 0) - ISNULL(POINTS_EARNED, 0)) AS prev_points,
-            ISNULL(POINTS_EARNED, 0) AS point_earned,
-            ISNULL(LATEST_POINT, 0) AS total_points,
-            CASE WHEN ISNULL(POINTS_EARNED, 0) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
-            ISNULL(BILL_VALUE, 0) AS bill_value,
-            CASE WHEN ISNULL(BILL_VALUE, 0) >= 500000 THEN 'Premium' WHEN ISNULL(BILL_VALUE, 0) >= 200000 THEN 'High' WHEN ISNULL(BILL_VALUE, 0) >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category
-        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+            t.STORE_CD AS org_cd,
+            t.STORE_NAME AS store_name,
+            t.TRANSACTION_PARTNER_ID AS bill_no,
+            CAST(t.TRANS_DATE AS DATE) AS txn_date,
+            CONVERT(VARCHAR(8), t.CREATED_AT, 108) AS txn_time,
+            t.MEMBER_ID AS card_no,
+            t.CUST_NAME AS cust_name,
+            t.PHONE_NUMBER AS phone_no,
+            (ISNULL(t.LATEST_POINT, 0) - ISNULL(t.POINTS_EARNED, 0)) AS prev_points,
+            ISNULL(t.POINTS_EARNED, 0) AS point_earned,
+            ISNULL(t.LATEST_POINT, 0) AS total_points,
+            CASE WHEN ISNULL(t.POINTS_EARNED, 0) > 0 THEN 'Earned' ELSE 'No Points' END AS point_status,
+            ISNULL(t.BILL_VALUE, 0) AS bill_value,
+            CASE WHEN ISNULL(t.BILL_VALUE, 0) >= 500000 THEN 'Premium' WHEN ISNULL(t.BILL_VALUE, 0) >= 200000 THEN 'High' WHEN ISNULL(t.BILL_VALUE, 0) >= 50000 THEN 'Medium' ELSE 'Low' END AS bill_category,
+            c.CARD_TIER_NAME AS tier,
+            CASE WHEN c.MOBILE_APP_ACTIVATED = 1 THEN 'Yes' ELSE 'No' END AS activated_app
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK) t
+        LEFT JOIN RXL_LOYALID_CUSTOMER_MST (NOLOCK) c ON t.MEMBER_ID = c.RLICM_CARD_NO
         ${where}
         ORDER BY ${orderCol} ${orderDir}
         OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
@@ -1831,9 +1839,9 @@ export const getApiCrmReportsType = async (req, res) => {
       countQuery = `
         SELECT 
             COUNT(*) as total,
-            SUM(ISNULL(BILL_VALUE, 0)) AS total_bill_value,
-            SUM(ISNULL(POINTS_EARNED, 0)) AS total_points_earned
-        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
+            SUM(ISNULL(t.BILL_VALUE, 0)) AS total_bill_value,
+            SUM(ISNULL(t.POINTS_EARNED, 0)) AS total_points_earned
+        FROM RXL_LOYALID_TRANSACTIONS (NOLOCK) t
         ${where}
       `;
     }

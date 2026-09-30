@@ -40,6 +40,8 @@ const REPORT_CONFIGS: Record<string, ReportConfig> = {
       { key: 'point_status', label: 'Status', type: 'string' },
       { key: 'bill_value', label: 'Value', type: 'currency' },
       { key: 'bill_category', label: 'Category', type: 'string' },
+      { key: 'tier', label: 'Tier', type: 'string' },
+      { key: 'activated_app', label: 'Activated App', type: 'string' },
     ]
   },
   'frequent-shopper': {
