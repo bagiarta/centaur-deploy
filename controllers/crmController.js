@@ -539,10 +539,24 @@ export const getApiDevLoyaltyItemsales = async (req, res) => {
         m.itm_cd LIKE @search OR 
         m.item_name LIKE @search OR 
         m.card_no LIKE @search OR 
+        p.name LIKE @search OR
+        p.mobile_no LIKE @search OR
+        m.org_cd LIKE @search OR
+        m.uom LIKE @search OR
+        m.promo_item_flag LIKE @search OR
+        m.promo_detail LIKE @search OR
+        A2.anm_desc LIKE @search OR
+        A3.anm_desc LIKE @search OR
         A4.anm_desc LIKE @search OR
+        A5.anm_desc LIKE @search OR
+        A6.anm_desc LIKE @search OR
         A7.anm_desc LIKE @search OR
-        COALESCE(p1.name, p2.name) LIKE @search OR
-        COALESCE(p1.mobile_no, p2.mobile_no) LIKE @search
+        A8.anm_desc LIKE @search OR
+        A9.anm_desc LIKE @search OR
+        A10.anm_desc LIKE @search OR
+        A11.anm_desc LIKE @search OR
+        A13.anm_desc LIKE @search OR
+        A18.anm_desc LIKE @search
       )`;
       request.input('search', sql.NVarChar, `%${search}%`);
     }
@@ -559,10 +573,23 @@ export const getApiDevLoyaltyItemsales = async (req, res) => {
     const countRes = await request.query(`
       SELECT COUNT(1) AS total 
       FROM ITEM_SALES_MEMBER m
-      LEFT JOIN LOYAL_MEMBER_PROFILE p1 ON m.card_no = p1.member_id
-      LEFT JOIN LOYAL_MEMBER_PROFILE p2 ON m.card_no = p2.mobile_no
+      OUTER APPLY (
+        SELECT TOP 1 name, mobile_no 
+        FROM LOYAL_MEMBER_PROFILE p WITH (NOLOCK) 
+        WHERE p.member_id = m.card_no OR p.mobile_no = m.card_no
+      ) p
+      LEFT JOIN attribute_nesting_mst A2 ON m.division = A2.anm_attr_cd AND A2.anm_attr = 'ATTR2'
+      LEFT JOIN attribute_nesting_mst A3 ON m.groups = A3.anm_attr_cd AND A3.anm_attr = 'ATTR3'
       LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
+      LEFT JOIN attribute_nesting_mst A5 ON m.class = A5.anm_attr_cd AND A5.anm_attr = 'ATTR5'
+      LEFT JOIN attribute_nesting_mst A6 ON m.sub_class = A6.anm_attr_cd AND A6.anm_attr = 'ATTR6'
       LEFT JOIN attribute_nesting_mst A7 ON m.brand = A7.anm_attr_cd AND A7.anm_attr = 'ATTR7'
+      LEFT JOIN attribute_nesting_mst A8 ON m.principle = A8.anm_attr_cd AND A8.anm_attr = 'ATTR8'
+      LEFT JOIN attribute_nesting_mst A9 ON m.sources = A9.anm_attr_cd AND A9.anm_attr = 'ATTR9'
+      LEFT JOIN attribute_nesting_mst A10 ON m.size_measure = A10.anm_attr_cd AND A10.anm_attr = 'ATTR10'
+      LEFT JOIN attribute_nesting_mst A11 ON m.plano_name = A11.anm_attr_cd AND A11.anm_attr = 'ATTR11'
+      LEFT JOIN attribute_nesting_mst A13 ON m.returnable = A13.anm_attr_cd AND A13.anm_attr = 'ATTR13'
+      LEFT JOIN attribute_nesting_mst A18 ON m.item_type = A18.anm_attr_cd AND A18.anm_attr = 'ATTR18'
       ${whereClause}
     `);
     const total = countRes.recordset[0].total;
@@ -572,7 +599,7 @@ export const getApiDevLoyaltyItemsales = async (req, res) => {
     const salesRes = await request.query(`
       SELECT 
           m.id, m.org_cd, m.itm_cd, m.item_name, m.qty, m.uom, m.promo_item_flag, m.promo_detail, m.disc_amt, m.bill_dt, m.card_no,
-          COALESCE(p1.name, p2.name) as member_name,
+          p.name as member_name,
           A2.anm_desc AS division,
           A3.anm_desc AS groups,
           A4.anm_desc AS department,
@@ -586,8 +613,11 @@ export const getApiDevLoyaltyItemsales = async (req, res) => {
           A13.anm_desc AS returnable,
           A18.anm_desc AS item_type
       FROM ITEM_SALES_MEMBER m
-      LEFT JOIN LOYAL_MEMBER_PROFILE p1 ON m.card_no = p1.member_id
-      LEFT JOIN LOYAL_MEMBER_PROFILE p2 ON m.card_no = p2.mobile_no
+      OUTER APPLY (
+        SELECT TOP 1 name, mobile_no 
+        FROM LOYAL_MEMBER_PROFILE p WITH (NOLOCK) 
+        WHERE p.member_id = m.card_no OR p.mobile_no = m.card_no
+      ) p
       LEFT JOIN attribute_nesting_mst A2 ON m.division = A2.anm_attr_cd AND A2.anm_attr = 'ATTR2'
       LEFT JOIN attribute_nesting_mst A3 ON m.groups = A3.anm_attr_cd AND A3.anm_attr = 'ATTR3'
       LEFT JOIN attribute_nesting_mst A4 ON m.department = A4.anm_attr_cd AND A4.anm_attr = 'ATTR4'
