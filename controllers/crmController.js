@@ -1061,7 +1061,6 @@ export const exportCrmReport = async (req, res) => {
         { header: 'Trx 5 Bill', key: 'trx_5_no', width: 20 },
         { header: 'Trx 5 Date', key: 'trx_5_date', width: 15 },
       ];
-
       let where = "WHERE TRANS_DATE BETWEEN @fromDate AND @toDate AND BILL_NO NOT LIKE '%mig%' AND TRANSACTION_PARTNER_ID IS NOT NULL";
       if (store && store !== 'All Store') {
         const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
@@ -1102,7 +1101,7 @@ export const exportCrmReport = async (req, res) => {
                 LATEST_POINT,
                 TRANSACTION_PARTNER_ID,
                 TRANS_DATE,
-                ROW_NUMBER() OVER (PARTITION BY MEMBER_ID ORDER BY TRANS_DATE ASC) as rn
+                ROW_NUMBER() OVER (PARTITION BY MEMBER_ID ORDER BY TRANS_DATE ASC, TRANSACTION_PARTNER_ID ASC) as rn
             FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
             ${where}
         ),
@@ -1129,7 +1128,6 @@ export const exportCrmReport = async (req, res) => {
                 MAX(CASE WHEN rn = 5 THEN CAST(TRANS_DATE AS DATE) END) AS trx_5_date
             FROM RankedTxn
             GROUP BY MEMBER_ID
-            HAVING COUNT(DISTINCT TRANSACTION_PARTNER_ID) > 1
         )
         SELECT 
             a.store_name,
@@ -1927,7 +1925,7 @@ export const getApiCrmReportsType = async (req, res) => {
                 LATEST_POINT,
                 TRANSACTION_PARTNER_ID,
                 TRANS_DATE,
-                ROW_NUMBER() OVER (PARTITION BY MEMBER_ID ORDER BY TRANS_DATE ASC) as rn
+                ROW_NUMBER() OVER (PARTITION BY MEMBER_ID ORDER BY TRANS_DATE ASC, TRANSACTION_PARTNER_ID ASC) as rn
             FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
             ${where}
         ),
@@ -1954,7 +1952,6 @@ export const getApiCrmReportsType = async (req, res) => {
                 MAX(CASE WHEN rn = 5 THEN CAST(TRANS_DATE AS DATE) END) AS trx_5_date
             FROM RankedTxn
             GROUP BY MEMBER_ID
-            HAVING COUNT(DISTINCT TRANSACTION_PARTNER_ID) > 1
         )
         SELECT 
             a.store_name,
@@ -1987,7 +1984,6 @@ export const getApiCrmReportsType = async (req, res) => {
           FROM RXL_LOYALID_TRANSACTIONS (NOLOCK)
           ${where}
           GROUP BY MEMBER_ID
-          HAVING COUNT(DISTINCT TRANSACTION_PARTNER_ID) > 1
         ) z
       `;
     }
