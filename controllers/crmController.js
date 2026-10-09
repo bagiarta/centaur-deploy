@@ -979,7 +979,7 @@ export const exportCrmReport = async (req, res) => {
         { header: 'Activated App', key: 'activated_app', width: 15 },
       ];
 
-      let where = "WHERE t.TRANS_DATE BETWEEN @fromDate AND @toDate AND t.BILL_NO NOT LIKE '%mig%'";
+      let where = "WHERE CAST(t.TRANS_DATE AS DATE) BETWEEN @fromDate AND @toDate AND t.BILL_NO NOT LIKE '%mig%'";
       if (store && store !== 'All Store') {
         const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
         if (scRes.recordset.length > 0) {
@@ -993,7 +993,7 @@ export const exportCrmReport = async (req, res) => {
         where += " AND (t.MEMBER_ID LIKE @search OR t.CUST_NAME LIKE @search)";
         params.search = `%${search}%`;
       }
-      const orderCol = sortBy ? (sortBy === 'tier' ? 'c.CARD_TIER_NAME' : (sortBy === 'activated_app' ? 'c.MOBILE_APP_ACTIVATED' : `t.${sortBy}`)) : 't.TRANS_DATE';
+      const orderCol = sortBy ? (sortBy === 'tier' ? 'c.CARD_TIER_NAME' : (sortBy === 'activated_app' ? 'c.MOBILE_APP_ACTIVATED' : (sortBy === 'txn_date' ? 't.TRANS_DATE' : `t.${sortBy}`))) : 't.TRANS_DATE';
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       query = `
@@ -1821,7 +1821,7 @@ export const getApiCrmReportsType = async (req, res) => {
     let params = { fromDate, toDate };
 
     if (type === 'txn-analysis') {
-      let where = "WHERE t.TRANS_DATE BETWEEN @fromDate AND @toDate AND t.BILL_NO NOT LIKE '%mig%'";
+      let where = "WHERE CAST(t.TRANS_DATE AS DATE) BETWEEN @fromDate AND @toDate AND t.BILL_NO NOT LIKE '%mig%'";
       if (store && store !== 'All Store') {
         const scRes = await crmPool.request().input('sn', sql.NVarChar, store).query('SELECT TOP 1 ORG_CD FROM DimStore WHERE ORG_NAME=@sn');
         if (scRes.recordset.length > 0) {
@@ -1836,7 +1836,7 @@ export const getApiCrmReportsType = async (req, res) => {
         params.search = `%${search}%`;
       }
 
-      const orderCol = sortBy ? (sortBy === 'tier' ? 'c.CARD_TIER_NAME' : (sortBy === 'activated_app' ? 'c.MOBILE_APP_ACTIVATED' : `t.${sortBy}`)) : 't.TRANS_DATE';
+      const orderCol = sortBy ? (sortBy === 'tier' ? 'c.CARD_TIER_NAME' : (sortBy === 'activated_app' ? 'c.MOBILE_APP_ACTIVATED' : (sortBy === 'txn_date' ? 't.TRANS_DATE' : `t.${sortBy}`))) : 't.TRANS_DATE';
       const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       query = `
@@ -1868,7 +1868,8 @@ export const getApiCrmReportsType = async (req, res) => {
         SELECT 
             COUNT(*) as total,
             SUM(ISNULL(t.BILL_VALUE, 0)) AS total_bill_value,
-            SUM(ISNULL(t.POINTS_EARNED, 0)) AS total_points_earned
+            SUM(ISNULL(t.POINTS_EARNED, 0)) AS total_points_earned,
+            COUNT(DISTINCT t.MEMBER_ID) AS total_customers
         FROM RXL_LOYALID_TRANSACTIONS (NOLOCK) t
         ${where}
       `;

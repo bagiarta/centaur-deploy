@@ -117,7 +117,7 @@ export default function OverviewPage() {
         sortDir: 'desc'
       });
       
-      const res = await fetch(`/api/crm/reports/txn-analysis?${params.toString()}`);
+      const res = await fetch(`/api/crm/reports/txn-analysis?${params.toString()}&_t=${Date.now()}`);
       console.log('Wise Transaction URL:', `/api/crm/reports/txn-analysis?${params.toString()}`);
       
       if (res.ok) {
@@ -143,7 +143,7 @@ export default function OverviewPage() {
         // Gunakan data summary dari backend
         const summaryData = {
           totalTransactions: summary.total || 0,
-          totalCustomers: uniqueCustomers || 0,
+          totalCustomers: summary.total_customers || uniqueCustomers || 0,
           totalPoints: summary.total_points_earned || 0,
           totalBillValue: summary.total_bill_value || 0,
           period: `${fromDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })} - ${toDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}`,
