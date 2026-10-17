@@ -2,6 +2,7 @@ import sql from 'mssql';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import { poolPromise } from '../config/db.js';
+import { requestH2hJson } from '../config/h2h.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { runSync: runHoServerDimItemSync } = require('../scripts/sync_hoserver_dim_item.cjs');
@@ -57,7 +58,7 @@ async function getCrmPool() {
   }
 }
 
-async function getHoServerPool() {
+export async function getHoServerPool() {
   const pool = await poolPromise;
 
   // Dynamic lookup for HOSERVER
@@ -203,15 +204,14 @@ async function getH2hToken() {
     })
   };
 
-  const response = await fetch(`${h2hConfig.baseUrl}/oauth/token`, fetchOptions);
+  const response = await requestH2hJson(`${h2hConfig.baseUrl}/oauth/token`, fetchOptions);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('H2H Token Error:', response.status, errorText);
+  if (response.status < 200 || response.status >= 300) {
+    console.error('H2H Token Error:', response.status, response.data);
     throw new Error(`H2H Token Error: ${response.status}`);
   }
 
-  const data = await response.json();
+  const data = response.data;
   if (!data.access_token) {
     throw new Error('H2H Token Error: access_token not found in response');
   }
@@ -235,22 +235,22 @@ export const getApiCrmCustomerPhone = async (req, res) => {
     const token = await getH2hToken();
 
     const apiUrl = `${h2hConfig.baseUrl}/api/v1/tenant/customer/${phone}?client_code=${h2hConfig.clientCode}`;
-    const response = await fetch(apiUrl, {
+    const response = await requestH2hJson(apiUrl, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json'
       }
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+    if (response.status < 200 || response.status >= 300) {
+      const errorData = response.data || {};
       return res.status(response.status).json({
         error: errorData.message || `H2H API Error: ${response.status}`,
         details: errorData
       });
     }
 
-    const data = await response.json();
+    const data = response.data;
     res.json(data);
   } catch (err) {
     console.error('CRM Lookup Error:', err.message);
