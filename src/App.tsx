@@ -26,6 +26,7 @@ import CrmReportsPage from "./pages/CrmReportsPage";
 import CrmAbcAnalysisPage from "./pages/CrmAbcAnalysisPage";
 import CrmSyncPage from "./pages/CrmSyncPage";
 import CrmDevLoyaltyPage from "./pages/CrmDevLoyaltyPage";
+import CrmTicketsPage from "./pages/CrmTicketsPage";
 import ActivitiesPage from "./pages/ActivitiesPage";
 import ScaleManagerPage from "./pages/ScaleManagerPage";
 import EslManagerPage from "./pages/EslManagerPage";
@@ -35,6 +36,7 @@ import PMSchedulePage from "./pages/PMSchedulePage";
 import PMActionItemsPage from "./pages/PMActionItemsPage";
 import UsbControllerPage from "./pages/UsbControllerPage";
 import NetworkBlockerPage from "./pages/NetworkBlockerPage";
+import ProductionFlagPage from "./pages/ProductionFlagPage";
 
 import AssetDashboardPage from "./pages/assets/AssetDashboardPage";
 import AssetRegisterPage from "./pages/assets/AssetRegisterPage";
@@ -238,6 +240,7 @@ const App = () => (
             {/* CRM Center */}
             <Route path="/crm/dashboard" element={<ProtectedRoute><AppShell><CrmDashboardPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/lookup" element={<ProtectedRoute><AppShell><CrmLookupPage /></AppShell></ProtectedRoute>} />
+            <Route path="/crm/tickets" element={<ProtectedRoute><AppShell><CrmTicketsPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/sync" element={<ProtectedRoute><AppShell><CrmSyncPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/abc-analysis" element={<ProtectedRoute><AppShell><CrmAbcAnalysisPage /></AppShell></ProtectedRoute>} />
             <Route path="/crm/reports/:type" element={<ProtectedRoute><AppShell><CrmReportsPage /></AppShell></ProtectedRoute>} />
@@ -315,6 +318,13 @@ const App = () => (
               <ProtectedRoute>
                 <AppShell>
                   <DeviceHealthPage />
+                </AppShell>
+              </ProtectedRoute>
+            } />
+            <Route path="/support-utilities/production-flag" element={
+              <ProtectedRoute>
+                <AppShell>
+                  <ProductionFlagPage />
                 </AppShell>
               </ProtectedRoute>
             } />

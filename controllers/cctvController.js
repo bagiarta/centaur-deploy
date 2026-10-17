@@ -562,16 +562,16 @@ export const updateCCTVDevice = async (req, res) => {
     await request.query(`UPDATE CCTVDevices SET ${updates.join(', ')} WHERE id = @id`);
     
     // Sync with AM_Assets if name or location changed
-    if (req.body.device_name !== undefined || req.body.location_id !== undefined) {
+    if (req.body.name !== undefined || req.body.location_id !== undefined) {
       const getAssetReq = await pool.request()
         .input('id', sql.NVarChar, id)
-        .query('SELECT asset_code, device_name, location_id FROM CCTVDevices WHERE id = @id');
+        .query('SELECT asset_code, name, location_id FROM CCTVDevices WHERE id = @id');
       
       const cctv = getAssetReq.recordset[0];
       if (cctv && cctv.asset_code) {
         await pool.request()
           .input('asset_code', sql.NVarChar, cctv.asset_code)
-          .input('asset_name', sql.NVarChar, cctv.device_name || 'CCTV Device')
+          .input('asset_name', sql.NVarChar, cctv.name || 'CCTV Device')
           .input('location_code', sql.NVarChar, cctv.location_id ? cctv.location_id.toString() : 'HQ')
           .query(`
             UPDATE AM_Assets

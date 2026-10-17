@@ -1,0 +1,197 @@
+﻿
+RANCANGAN WORKFLOW
+SISTEM TIKET DENGAN LEVEL APPROVAL
+Pengajuan Adjustment Data Point Customer dan Perubahan Data Customer
+Versi 1.0  |  Tanggal: 10 Oktober 2026
+1. Tujuan Dokumen
+Dokumen ini menjelaskan rancangan proses pengajuan, pemeriksaan, persetujuan berjenjang, eksekusi, dan pencatatan perubahan data customer maupun data point melalui sistem tiket. Tujuannya adalah memastikan setiap perubahan memiliki alasan yang jelas, otorisasi yang tepat, bukti pendukung, serta jejak audit yang dapat ditelusuri.
+2. Ruang Lingkup
+Adjustment point customer: koreksi point, penambahan/pengurangan point, koreksi transaksi point, atau penyesuaian saldo sesuai kebijakan.
+Perubahan data customer: nama, nomor telepon, email, alamat, kategori/segmentasi, status, atau atribut customer lain yang diizinkan.
+Workflow tiket dari pengajuan hingga tiket ditutup, termasuk pengembalian untuk dilengkapi, penolakan, eskalasi, dan notifikasi.
+3. Diagram Alur Workflow
+Gambar 1. Gambaran umum workflow tiket dan approval.
+4. Peran dan Tanggung Jawab
+Peran
+Tanggung jawab utama
+Requester / Customer Service
+Membuat tiket, memilih jenis permintaan, memasukkan data yang benar, menjelaskan alasan, dan melampirkan bukti pendukung.
+Admin Tiket / Helpdesk
+Memeriksa kelengkapan, validasi awal, kategori tiket, duplikasi, dan mengarahkan tiket ke approver yang sesuai. Tidak mengubah data bisnis tanpa otorisasi.
+Level 1 — Team Leader
+Memeriksa kewajaran permintaan, kesesuaian bukti, dan dampak operasional; memberi persetujuan awal atau mengembalikan tiket.
+Level 2 — Department Head
+Memastikan permintaan sesuai kebijakan, prosedur, dan dampak bisnis; memberikan persetujuan lanjutan.
+Level 3 — Management / Authorized Approver
+Persetujuan akhir untuk kasus berisiko tinggi, bernilai besar, pengecualian kebijakan, atau perubahan sensitif sesuai matriks approval.
+Tim Operasional / Data Admin
+Menjalankan perubahan hanya setelah approval lengkap, memverifikasi hasil, dan mengisi catatan eksekusi.
+Sistem
+Mengatur alur status, otorisasi, notifikasi, timestamp, riwayat approval, dan audit log.
+5. Alur Proses Utama
+1. Pengajuan tiket — 
+Requester memilih jenis tiket, mengisi data customer, data sebelum/sesudah (jika relevan), alasan, nilai adjustment, serta mengunggah bukti pendukung.
+2. Validasi Helpdesk — 
+Helpdesk mengecek kelengkapan, format data, identitas customer, bukti, dan potensi tiket duplikat. Tiket tidak lengkap dikembalikan ke requester.
+3. Penentuan jalur approval — 
+Sistem menentukan approver berdasarkan jenis perubahan, nilai/rentang point, sensitivitas data, dan apakah permintaan merupakan pengecualian kebijakan.
+4. Approval Level 1 — 
+Team Leader meninjau kebutuhan, bukti, dan dampak. Hasil: setujui, tolak, atau kembalikan untuk revisi.
+5. Approval Level 2 — 
+Department Head meninjau kesesuaian kebijakan dan dampak bisnis. Untuk permintaan yang memenuhi kriteria risiko tinggi, lanjut ke Level 3.
+6. Approval Level 3 (jika diperlukan) — 
+Management/approver berwenang memberi persetujuan akhir untuk kasus khusus yang ditentukan dalam matriks approval.
+7. Eksekusi perubahan — 
+Tim Operasional melakukan perubahan berdasarkan data yang telah disetujui. Eksekutor tidak boleh mengubah nilai/field dari permintaan yang disetujui tanpa meminta approval ulang.
+8. Verifikasi hasil — 
+Periksa hasil aktual terhadap permintaan dan catat nilai sebelum/sesudah, waktu eksekusi, serta referensi transaksi atau log.
+9. Notifikasi dan penutupan — 
+Requester menerima hasil. Tiket ditutup setelah eksekusi dan verifikasi berhasil; tiket gagal diproses tetap terbuka atau masuk status exception untuk ditindaklanjuti.
+6. Matriks Approval yang Disarankan
+Matriks di bawah merupakan baseline rancangan, bukan kebijakan final. Ambang nilai point, kategori sensitif, dan pemilik approval perlu ditetapkan oleh bisnis, Loyalty, Customer Service, dan IT/Security.
+Jenis / Risiko
+Level 1
+Level 2
+Level 3
+Catatan
+Perubahan data non-sensitif (mis. koreksi typo nama/alamat)
+Wajib
+Sesuai kebijakan; disarankan untuk perubahan tertentu
+Tidak wajib, kecuali kasus khusus
+Tetapkan daftar field yang boleh diproses di jalur sederhana.
+Perubahan data sensitif (mis. nomor HP, email utama, identitas penghubung akun)
+Wajib
+Wajib
+Jika risiko tinggi/pengecualian
+Lakukan verifikasi identitas dan simpan bukti; jangan tampilkan data sensitif penuh pada notifikasi.
+Adjustment point bernilai rendah dan sesuai kebijakan
+Wajib
+Berdasarkan ambang yang disetujui
+Tidak wajib jika tidak melewati ambang
+Ambang nilai dan frekuensi harus dikonfigurasi, bukan ditanam permanen di kode.
+Adjustment point bernilai tinggi, koreksi manual, atau di luar kebijakan
+Wajib
+Wajib
+Wajib
+Sertakan alasan, referensi transaksi, nilai point sebelum/sesudah, dan bukti.
+Kasus anomali, konflik data, atau permintaan khusus
+Wajib
+Wajib
+Wajib / pemilik kebijakan
+Boleh ditahan untuk investigasi; jangan dieksekusi sebelum klarifikasi selesai.
+7. Status Tiket
+Status
+Makna / aturan
+Draft
+Tiket belum dikirim dan masih dapat diedit requester.
+Submitted
+Tiket sudah dikirim untuk pemeriksaan Helpdesk.
+Need Information
+Dikembalikan untuk melengkapi atau memperbaiki data; alasan pengembalian wajib diisi.
+Under Review
+Sedang diperiksa Helpdesk atau approver.
+Pending Approval L1 / L2 / L3
+Menunggu keputusan pada level yang disebutkan.
+Rejected
+Ditolak; alasan wajib dicatat dan requester diberi notifikasi.
+Approved
+Seluruh approval yang diwajibkan telah selesai; menunggu eksekusi.
+In Progress
+Perubahan sedang dilakukan oleh tim operasional.
+Pending Verification
+Eksekusi selesai dan menunggu verifikasi hasil.
+Completed / Closed
+Perubahan berhasil, hasil diverifikasi, dan tiket ditutup.
+Failed / Exception
+Eksekusi gagal atau ada ketidaksesuaian; perlu investigasi dan tindakan lanjutan.
+Cancelled
+Dibatalkan oleh requester/otoritas sesuai aturan; alasan dan riwayat tetap disimpan.
+8. Data Wajib pada Form Tiket
+Kelompok
+Field yang disarankan
+Informasi tiket
+Ticket ID otomatis, tanggal pengajuan, requester, unit/cabang, jenis permintaan, prioritas, dan kontak requester.
+Identitas customer
+Customer ID/member ID sebagai identifier utama; data identitas tambahan hanya yang diperlukan untuk verifikasi.
+Detail perubahan
+Field yang diubah, nilai sebelum, nilai yang diminta, alasan bisnis, serta tanggal efektif bila relevan.
+Adjustment point
+Point saat ini, point yang diminta untuk ditambah/dikurangi, point akhir yang diharapkan, referensi transaksi, dan alasan koreksi.
+Bukti pendukung
+Dokumen atau referensi transaksi yang relevan. Batasi lampiran pada informasi yang diperlukan.
+Approval
+Nama/ID approver, keputusan, komentar, timestamp, level approval, dan alasan penolakan/pengembalian.
+Eksekusi
+Nama/ID pelaksana, waktu eksekusi, hasil, nilai aktual sebelum/sesudah, referensi log, dan bukti verifikasi.
+9. Aturan Kontrol dan Keamanan
+Segregation of duties: requester, approver, dan pelaksana sebaiknya merupakan pihak berbeda. Minimal, requester tidak boleh menyetujui tiketnya sendiri.
+Approval terikat pada detail yang disetujui. Jika nilai point atau data tujuan berubah setelah approval, tiket harus kembali ke tahap approval yang sesuai.
+Setiap keputusan approval harus memiliki identitas pengguna, timestamp, keputusan, dan komentar bila ditolak atau dikembalikan.
+Semua perubahan data wajib memiliki audit log yang menyimpan nilai sebelum/sesudah, ticket ID, pelaksana, waktu, dan sumber perubahan.
+Akses berdasarkan role dan least privilege; batasi tampilan data pribadi pada kebutuhan kerja. Masking data sensitif pada notifikasi dan tampilan yang tidak memerlukannya.
+Gunakan validasi server-side, kontrol akses pada setiap aksi, session/security controls, serta proteksi terhadap perubahan langsung di luar workflow.
+Sediakan mekanisme retry yang aman dan cegah eksekusi ganda untuk tiket yang sama (idempotency atau pemeriksaan status sebelum update).
+Tetapkan kebijakan retensi tiket, lampiran, dan audit log; pastikan hanya personel berwenang yang dapat melihat atau mengunduh bukti.
+10. Notifikasi dan SLA Awal
+SLA berikut adalah usulan awal untuk dibahas dengan pemilik proses. SLA dihitung pada jam kerja dan dapat berbeda menurut prioritas.
+Aktivitas
+SLA awal yang diusulkan
+Notifikasi
+Pemeriksaan Helpdesk
+Maks. 4 jam kerja
+Requester jika data kurang; approver jika lolos validasi.
+Keputusan tiap approver
+Maks. 1 hari kerja per level
+Approver menerima tugas; requester mendapat pembaruan status.
+Eksekusi setelah approval lengkap
+Maks. 1 hari kerja untuk kasus standar
+Tim operasional menerima antrean; requester diberi status proses.
+Verifikasi dan penutupan
+Pada hari eksekusi atau maks. 1 hari kerja
+Requester menerima ringkasan hasil.
+Melewati SLA
+Eskalasi otomatis ke atasan/owner proses
+Reminder dan eskalasi dicatat pada riwayat tiket.
+11. Contoh Skenario
+A. Adjustment point customer
+Customer Service mengajukan koreksi +500 point dengan melampirkan referensi transaksi dan alasan. Helpdesk memeriksa kelengkapan, Team Leader menyetujui, lalu sistem mengevaluasi ambang adjustment. Jika melewati ambang atau termasuk pengecualian, tiket meminta approval Department Head dan Management. Setelah seluruh approval wajib lengkap, tim operasional melakukan update, memeriksa saldo point aktual, mencatat hasil, dan menutup tiket.
+B. Perubahan nomor telepon customer
+Requester mengajukan perubahan nomor telepon dengan bukti verifikasi identitas sesuai prosedur perusahaan. Helpdesk memvalidasi customer ID dan bukti. Team Leader dan Department Head menyetujui sesuai kebijakan; kasus berisiko tinggi dieskalasi ke Level 3. Tim operasional mengubah nomor, memverifikasi hasil, dan mengirim notifikasi yang tidak mengekspos nomor penuh.
+12. Kondisi Penolakan dan Pengembalian
+Kondisi
+Tindakan sistem
+Data atau bukti tidak lengkap
+Set status Need Information, wajibkan komentar, dan kembalikan ke requester.
+Permintaan tidak sesuai kebijakan
+Set Rejected, catat alasan, dan kirim notifikasi.
+Approver meminta revisi
+Kembalikan ke requester atau tahap yang ditentukan; approval terdahulu yang terdampak harus diulang.
+Data customer tidak cocok / terindikasi fraud
+Tahan tiket, tandai Exception, dan eskalasi ke pemilik proses/keamanan sesuai prosedur.
+Eksekusi gagal
+Catat error dan status Failed/Exception; jangan menandai Completed sampai hasil diverifikasi.
+13. Laporan dan Dashboard
+Jumlah tiket berdasarkan jenis, status, cabang/unit, requester, dan periode.
+Waktu rata-rata pemeriksaan, approval, eksekusi, dan penyelesaian; jumlah tiket yang melewati SLA.
+Jumlah adjustment point berdasarkan nilai, alasan, approver, dan frekuensi customer.
+Daftar tiket yang ditolak, dikembalikan, gagal dieksekusi, atau berulang pada customer yang sama.
+Audit trail lengkap untuk kebutuhan audit internal dan investigasi.
+14. Kriteria Penerimaan Sistem
+Tiket tidak dapat dieksekusi sebelum semua approval wajib selesai.
+Sistem menentukan jalur approval berdasarkan konfigurasi jenis permintaan dan risiko.
+Requester tidak dapat menyetujui tiket sendiri dan perubahan keputusan tidak dapat dilakukan tanpa jejak audit.
+Tiket yang dikembalikan atau ditolak selalu memiliki alasan dan notifikasi.
+Nilai/data yang dieksekusi sama dengan versi yang disetujui; perubahan setelah approval memicu approval ulang.
+Setiap eksekusi menyimpan nilai sebelum/sesudah, pelaksana, timestamp, hasil, dan ticket ID.
+Tiket hanya dapat ditutup setelah eksekusi berhasil dan verifikasi dilakukan.
+Dashboard menampilkan status dan SLA secara akurat sesuai hak akses pengguna.
+15. Keputusan yang Perlu Ditetapkan Sebelum Development
+Ambang nominal/rentang point untuk menentukan Level 1, Level 2, dan Level 3.
+Daftar field customer yang dikategorikan non-sensitif dan sensitif.
+Role/pejabat resmi untuk setiap level serta approver pengganti saat cuti.
+SLA final, jam kerja, kalender hari libur, dan aturan eskalasi.
+Bukti wajib per jenis permintaan dan standar verifikasi identitas.
+Sistem sumber yang akan diubah, API/prosedur update, mekanisme rollback, dan penanganan kegagalan.
+Retensi data, kebijakan akses, dan pihak yang boleh melihat audit log.
+Akhir dokumen
+

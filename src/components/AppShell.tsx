@@ -7,7 +7,7 @@ import {
   UserCog, ShieldCheck, LogOut, Bot, MessageCircle, BookMarked, Globe, Menu, X, Search,
   UserPlus, TrendingUp, ChevronDown, KeyRound, Loader2, Save, RefreshCw, Wrench,
   Video, Trophy, HardDrive, LayoutTemplate, Briefcase, MapPin, Building,
-  UserCheck, ArrowRightLeft, CalendarClock, PhoneCall, LayoutDashboardIcon, ShoppingCart, ShoppingBag, ChartNoAxesCombined, UsbIcon,
+  UserCheck, ArrowRightLeft, CalendarClock, PhoneCall, LayoutDashboardIcon, ShoppingCart, ShoppingBag, ChartNoAxesCombined, UsbIcon, Factory,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -73,6 +73,7 @@ export const navItems: NavigationItem[] = [
     children: [
       { id: "crm_dashboard", to: "/crm/dashboard", icon: LayoutDashboardIcon, label: "CRM Dashboard" },
       { id: "crm_lookup", to: "/crm/lookup", icon: Search, label: "Customer Lookup" },
+      { id: "crm_tickets", to: "/crm/tickets", icon: Ticket, label: "Tickets & Approvals" },
       { id: "crm_sync", to: "/crm/sync", icon: RefreshCw, label: "Manual Re-Sync CRM Items" },
       { id: "crm_abc_analysis", to: "/crm/abc-analysis", icon: ChartNoAxesCombined, label: "ABC Analysis Report" },
       { id: "crm_report_txn", to: "/crm/reports/txn-analysis", icon: Activity, label: "Transaction Analysis" },
@@ -85,6 +86,15 @@ export const navItems: NavigationItem[] = [
       { id: "crm_report_repeat", to: "/crm/reports/repeat-purchase", icon: ShoppingBag, label: "Customer Repeat Purchase" },
       { id: "crm_report_customer_list", to: "/crm/reports/customer-list", icon: Users, label: "Customer List" },
       { id: "crm_dev_loyalty", to: "/crm/dev-loyalty", icon: Trophy, label: "[DEV] Loyalty & Achievements" },
+    ]
+  },
+  {
+    id: "support_utilities",
+    label: "BASE Utilities",
+    icon: Factory,
+    group: "main",
+    children: [
+      { id: "production_flag", to: "/support-utilities/production-flag", icon: Factory, label: "Item Production Flag" },
     ]
   },
   {
