@@ -116,15 +116,22 @@ export default function CrmTicketsPage() {
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [selectedTicketData, setSelectedTicketData] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [executeLoading, setExecuteLoading] = useState(false);
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [stores, setStores] = useState<any[]>([]);
   const { user } = useAuth();
-  const [currentUserRole, setCurrentUserRole] = useState('REQUESTER'); // Roles: REQUESTER, L1_APPROVER, L2_APPROVER, L3_APPROVER, OPS_ADMIN
-  const [currentUserNIP, setCurrentUserNIP] = useState(user?.username || 'NIP12345'); // Pre-fill with SSO NIP
+  const currentUserRole = user?.role_name || '';
+  const currentUserPosition = user?.position || '';
+  const currentUserNIP = user?.username || '';
+  const normalizedRole = currentUserRole.toLowerCase();
+  const normalizedPosition = currentUserPosition.toLowerCase();
+  const normalizedDivision = (user?.division || '').toLowerCase();
+  const canApproveManager = user?.is_admin === true || normalizedPosition.includes('manager') || normalizedRole.includes('manager') || (normalizedRole === 'operation' && normalizedDivision === 'area manager');
+  const canApproveMarketing = normalizedPosition.includes('marketing') || normalizedPosition.includes('director') || normalizedPosition.includes('head') || normalizedPosition.includes('vice president') || normalizedPosition === 'vp' || normalizedRole.includes('marketing') || normalizedDivision.includes('marketing') || normalizedRole.includes('director') || user?.is_admin === true;
+  const canExecute = user?.is_admin === true || normalizedPosition.includes('sysadmin') || normalizedPosition.includes('system administrator') || normalizedPosition.includes('it operational') || normalizedRole.includes('it operational');
 
   useEffect(() => {
     if (user?.username) {
-      setCurrentUserNIP(user.username);
       setFormData(prev => ({
         ...prev,
         requester_name: user.full_name || user.username || 'Requester Name'
@@ -149,7 +156,17 @@ export default function CrmTicketsPage() {
   const [pointsToTransfer, setPointsToTransfer] = useState<number | ''>('');
   const [billingLookupLoading, setBillingLookupLoading] = useState(false);
   const [billingLookupError, setBillingLookupError] = useState('');
-  const [billingData, setBillingData] = useState<{ billing: string; net_value: number; points: number; org_cd?: string; store_name?: string } | null>(null);
+  const [billingData, setBillingData] = useState<{
+    billing: string;
+    net_value: number;
+    points: number;
+    org_cd?: string;
+    store_name?: string;
+    member_transaction_found?: boolean;
+    transmition_type?: string | null;
+    automatic_remark?: string | null;
+    can_submit?: boolean;
+  } | null>(null);
 
   const [formData, setFormData] = useState({
     customer_id: '',
@@ -325,6 +342,15 @@ export default function CrmTicketsPage() {
       if (!res.ok) {
         setBillingData(null);
         setBillingLookupError(data.error || 'Billing tidak ditemukan');
+        if (data.code === 'BILL_ALREADY_SYNC') {
+          alert(data.error || 'Bill sudah sync dan tidak dapat diajukan kembali sebagai ticket.');
+          setFormData(prev => {
+            if (prev.request_type !== 'POINT_ADJUSTMENT' || prev.details[0]?.transaction_ref !== billing) return prev;
+            const nd = [...prev.details];
+            nd[0] = { ...nd[0], new_value: '0' };
+            return { ...prev, details: nd };
+          });
+        }
         return;
       }
 
@@ -332,7 +358,11 @@ export default function CrmTicketsPage() {
       setFormData(prev => {
         if (prev.request_type !== 'POINT_ADJUSTMENT' || prev.details[0]?.transaction_ref !== billing) return prev;
         const nd = [...prev.details];
-        nd[0] = { ...nd[0], new_value: String(data.points) };
+        nd[0] = {
+          ...nd[0],
+          new_value: String(data.points),
+          reason: data.automatic_remark || nd[0].reason
+        };
         return { ...prev, unit_branch: data.store_name || data.org_cd || prev.unit_branch, details: nd };
       });
     } catch (err) {
@@ -529,6 +559,13 @@ export default function CrmTicketsPage() {
         fetchTickets();
       } else {
         const errorData = await res.json().catch(() => ({}));
+        if (errorData.code === 'DATA_VALUE_ALREADY_USED' && Array.isArray(errorData.conflicts)) {
+          const conflictText = errorData.conflicts.map((customer: any, index: number) =>
+            `${index + 1}. Nama: ${customer.customer_name}\n   Card No: ${customer.card_no}\n   Mobile No: ${customer.mobile_no}`
+          ).join('\n\n');
+          alert(`${errorData.error}\n\nCustomer yang sudah menggunakan data tersebut:\n${conflictText}`);
+          return;
+        }
         alert(errorData.error || 'Failed to submit ticket');
       }
     } catch (err) {
@@ -592,22 +629,9 @@ export default function CrmTicketsPage() {
         <div className="flex items-center gap-4">
           <div className="bg-surface border border-border rounded-lg px-3 py-1 flex items-center gap-2">
             <UserIcon className="w-4 h-4 text-foreground-muted" />
-            <select className="bg-transparent text-xs font-bold focus:outline-none" value={currentUserRole} onChange={e => setCurrentUserRole(e.target.value)}>
-              <option value="REQUESTER">Requester</option>
-              <option value="L1_APPROVER">L1 Approver (SPV)</option>
-              <option value="L2_APPROVER">L2 Approver (Mgr)</option>
-              <option value="L3_APPROVER">L3 Approver (Dir)</option>
-              <option value="OPS_ADMIN">Ops Admin (Executor)</option>
-            </select>
+            <span className="text-xs font-bold">{currentUserPosition || currentUserRole || 'User'}</span>
             <span className="text-border mx-1">|</span>
-            <input 
-              type="text" 
-              className="bg-transparent text-xs font-mono focus:outline-none w-20 placeholder-foreground-muted" 
-              value={currentUserNIP} 
-              onChange={e => setCurrentUserNIP(e.target.value)} 
-              title="Simulated SSO NIP"
-              placeholder="NIP"
-            />
+            <span className="text-xs font-mono text-foreground-muted">{currentUserNIP || '-'}</span>
           </div>
           <button
             onClick={() => {
@@ -914,7 +938,12 @@ export default function CrmTicketsPage() {
                       }} />
                     {billingLookupLoading && <p className="text-[10px] text-primary mt-1">Mencari billing...</p>}
                     {billingLookupError && <p className="text-[10px] text-danger mt-1">{billingLookupError}</p>}
-                    {billingData && <p className="text-[10px] text-success mt-1">Billing ditemukan.</p>}
+                    {billingData && !billingData.member_transaction_found && (
+                      <p className="text-[10px] text-warning mt-1">Data bill belum tercatat sebagai transaksi member. Remark otomatis sudah diisi.</p>
+                    )}
+                    {billingData?.member_transaction_found && billingData.transmition_type === '0' && (
+                      <p className="text-[10px] text-warning mt-1">Data member ditemukan tetapi belum sync. Remark otomatis sudah diisi.</p>
+                    )}
                   </div>
                   <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="p-3 rounded-lg bg-surface border border-warning/20">
@@ -1249,7 +1278,16 @@ export default function CrmTicketsPage() {
 
               <div className="flex justify-end gap-2 pt-4 border-t border-border mt-4">
                 <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 text-sm font-bold text-foreground-muted hover:text-foreground">Cancel</button>
-                <button type="submit" disabled={!formData.customer_id} className="px-6 py-2 text-sm font-bold bg-primary text-white rounded-lg shadow-sm hover:bg-primary/90 disabled:opacity-50">Submit Ticket</button>
+                <button
+                  type="submit"
+                  disabled={
+                    !formData.customer_id ||
+                    (formData.request_type === 'POINT_ADJUSTMENT' && (!billingData || billingData.can_submit === false))
+                  }
+                  className="px-6 py-2 text-sm font-bold bg-primary text-white rounded-lg shadow-sm hover:bg-primary/90 disabled:opacity-50"
+                >
+                  Submit Ticket
+                </button>
               </div>
             </form>
           </div>
@@ -1475,7 +1513,7 @@ export default function CrmTicketsPage() {
                         <div key={idx} className="flex items-center gap-3 p-3 bg-surface border border-border rounded-lg text-xs">
                           {app.status === 'APPROVE' ? <CheckCircle2 className="w-4 h-4 text-success" /> : <XCircle className="w-4 h-4 text-danger" />}
                           <div className="flex-1">
-                            <span className="font-bold">{app.approver_name}</span> ({app.approver_role}) 
+                            <span className="font-bold">{app.approver_name || app.approver_id}</span>
                             <span className="mx-2 text-foreground-muted">•</span>
                             <span className={app.status === 'APPROVE' ? 'text-success font-bold' : 'text-danger font-bold'}>{app.status}</span>
                             {app.comments && <p className="text-foreground-muted mt-1 italic">"{app.comments}"</p>}
@@ -1489,19 +1527,23 @@ export default function CrmTicketsPage() {
 
                 <div className="flex flex-wrap gap-2 justify-end pt-4 border-t border-border mt-4">
                   {/* Action Buttons with RBAC */}
-                  {((selectedTicketData.ticket.status === 'Pending Approval L1' && currentUserRole === 'L1_APPROVER') ||
-                    (selectedTicketData.ticket.status === 'Pending Approval L2' && currentUserRole === 'L2_APPROVER') ||
-                    (selectedTicketData.ticket.status === 'Pending Approval L3' && currentUserRole === 'L3_APPROVER')) && (
+                  {((selectedTicketData.ticket.status === 'Pending Approval L1' && canApproveManager) ||
+                    (selectedTicketData.ticket.status === 'Pending Approval L2' && canApproveManager) ||
+                    (selectedTicketData.ticket.status === 'Pending Approval L3' && canApproveMarketing)) && (
                     <>
                       <button className="px-4 py-2 text-xs font-bold bg-danger text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
                         onClick={async () => {
                           const comments = prompt("Enter rejection reason:");
                           if (comments === null) return;
-                          await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
+                          const approveResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'REJECT', comments })
                           });
+                          if (!approveResponse.ok) {
+                            const errorData = await approveResponse.json().catch(() => ({}));
+                            alert(errorData.error || 'Approval gagal diproses.');
+                          }
                           openTicketDetail(selectedTicketId);
                           fetchTickets();
                         }}
@@ -1522,11 +1564,15 @@ export default function CrmTicketsPage() {
                       <button className="px-4 py-2 text-xs font-bold bg-success text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
                         onClick={async () => {
                           const comments = prompt("Approval Comments:") || 'Approved';
-                          await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
+                          const approveResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'APPROVE', comments })
                           });
+                          if (!approveResponse.ok) {
+                            const errorData = await approveResponse.json().catch(() => ({}));
+                            alert(errorData.error || 'Approval gagal diproses.');
+                          }
                           openTicketDetail(selectedTicketId);
                           fetchTickets();
                         }}
@@ -1534,7 +1580,8 @@ export default function CrmTicketsPage() {
                     </>
                   )}
                   {/* Action Button for Resubmit */}
-                  {selectedTicketData.ticket.status === 'Need Information' && currentUserRole === 'REQUESTER' && (
+                  {selectedTicketData.ticket.status === 'Need Information' &&
+                    (user?.is_admin || user?.username === selectedTicketData.ticket.requester_id) && (
                     <button className="px-4 py-2 text-xs font-bold bg-success text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
                       onClick={() => {
                         // Pre-fill form
@@ -1558,7 +1605,7 @@ export default function CrmTicketsPage() {
                     >Edit & Resubmit Ticket</button>
                   )}
                   {/* Action Button for Execution */}
-                  {selectedTicketData.ticket.status === 'Approved' && currentUserRole === 'OPS_ADMIN' && (
+                  {selectedTicketData.ticket.status === 'Approved' && canExecute && (
                     <button className="px-4 py-2 text-xs font-bold bg-primary text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
                       onClick={async () => {
                         const isMerge = selectedTicketData.ticket.request_type === 'MERGE_POINTS';
@@ -1567,6 +1614,8 @@ export default function CrmTicketsPage() {
                           : "Enter execution notes:";
                         const notes = prompt(confirmMsg, isMerge ? 'Poin digabungkan & kartu lama dinonaktifkan' : '');
                         if (notes === null) return;
+                        setExecuteLoading(true);
+                        try {
                         const executeResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/execute`, {
                           method: 'POST',
                           headers: {'Content-Type': 'application/json'},
@@ -1575,6 +1624,14 @@ export default function CrmTicketsPage() {
                         const executeData = await executeResponse.json().catch(() => ({}));
                         if (!executeResponse.ok) {
                           const validation = executeData.validation;
+                          if (validation?.type === 'BILL_NOT_PROCESSED') {
+                            alert(validation.found
+                              ? `Bill No ${validation.bill_no || '-'} memiliki processed_flag ${validation.processed_flag ?? '-'}; nilai yang diizinkan hanya 1 atau -1.`
+                              : `Bill No ${validation.bill_no || '-'} belum tercatat sebagai transaksi member.`);
+                            openTicketDetail(selectedTicketId);
+                            fetchTickets();
+                            return;
+                          }
                           const validationMessage = validation
                             ? validation.type === 'MERGE_POINTS_SOURCE_BALANCE'
                               ? `\n\nPoint sumber: ${validation.source_points}\nPoint ditransfer: ${validation.transferred_points}`
@@ -1590,11 +1647,18 @@ export default function CrmTicketsPage() {
                           fetchTickets();
                           return;
                         }
+                        alert('Execute berhasil diproses.');
                         openTicketDetail(selectedTicketId);
                         fetchTickets();
+                        } finally {
+                          setExecuteLoading(false);
+                        }
                       }}
+                      disabled={executeLoading}
                     >
-                      {selectedTicketData.ticket.request_type === 'MERGE_POINTS' ? (
+                      {executeLoading ? (
+                        'Validating & Executing...'
+                      ) : selectedTicketData.ticket.request_type === 'MERGE_POINTS' ? (
                         <>
                           <ArrowRightLeft className="w-3.5 h-3.5" />
                           Execute Merge & Deactivate Old Card
@@ -1602,6 +1666,26 @@ export default function CrmTicketsPage() {
                       ) : (
                         'Execute Data Change'
                       )}
+                    </button>
+                  )}
+                  {user?.is_admin && selectedTicketData.ticket.status !== 'Completed / Closed' && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Hapus ticket ${selectedTicketId}? Data approval, detail, dan audit ticket akan ikut dihapus.`)) return;
+                        const response = await fetch(`/api/crm/tickets/${selectedTicketId}`, { method: 'DELETE' });
+                        const data = await response.json().catch(() => ({}));
+                        if (!response.ok) {
+                          alert(data.error || 'Ticket gagal dihapus.');
+                          return;
+                        }
+                        alert('Ticket berhasil dihapus.');
+                        setSelectedTicketId(null);
+                        setSelectedTicketData(null);
+                        fetchTickets();
+                      }}
+                      className="px-4 py-2 text-xs font-bold bg-danger text-white hover:opacity-90 rounded-lg"
+                    >
+                      Delete Ticket
                     </button>
                   )}
                   <button onClick={() => setSelectedTicketId(null)} className="px-4 py-2 text-xs font-bold border border-border text-foreground hover:bg-surface-raised rounded-lg ml-2">Close</button>
@@ -1617,7 +1701,10 @@ export default function CrmTicketsPage() {
                             <span className="font-bold text-primary">{log.action}</span>
                             <span className="text-foreground-muted">{new Date(log.created_at).toLocaleString()}</span>
                           </div>
-                          <div className="mt-1 text-foreground-muted whitespace-pre-wrap">{log.details}</div>
+                          <div className="mt-1 text-foreground-muted whitespace-pre-wrap">
+                            {log.actor_name && <span className="font-semibold text-foreground">{log.actor_name}: </span>}
+                            {log.details}
+                          </div>
                         </div>
                       ))}
                     </div>

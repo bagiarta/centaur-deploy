@@ -191,16 +191,26 @@ app.use(async (req, res, next) => {
 
     try {
       const pool = await poolPromise;
+      // The session id is the unique credential. Older SSO logins may store
+      // a username in the browser while UserSessions stores the local user id;
+      // rejecting that harmless identity-format difference causes feature
+      // pages (notably Settings) to appear as if they logged the user out.
       const sessionResult = await pool.request()
         .input('sid', sql.VarChar, sessionId)
-        .input('user_id', sql.VarChar, userId)
-        .query('SELECT is_active FROM UserSessions WHERE id = @sid AND user_id = @user_id');
+        .query('SELECT is_active, user_id FROM UserSessions WHERE id = @sid');
 
       const session = sessionResult.recordset[0];
       if (!session || !session.is_active) {
         console.warn(`[AUTH] Session ${sessionId} is inactive or invalid for user ${userId}.`);
         return res.status(401).json({ error: 'Unauthorized: Session expired or revoked' });
       }
+      if (userId && session.user_id !== userId) {
+        console.warn(`[AUTH] Session ${sessionId} is active; browser identity ${userId} differs from stored user ${session.user_id}.`);
+      }
+      // Make the canonical local identity available to downstream routes.
+      // This prevents older browser profiles (username vs local id) from
+      // failing admin/user lookups after session validation succeeds.
+      req.authenticatedUserId = session.user_id;
     } catch (err) {
       console.error('[AUTH] Session validation error:', err);
       return res.status(500).json({ error: 'Internal server error during session validation' });

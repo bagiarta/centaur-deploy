@@ -1270,6 +1270,7 @@ router.post('/api/auth/sso-login', async (req, res) => {
 
     const ssoProfile = await userinfoRes.json();
     const username = ssoProfile.preferred_username || ssoProfile.email;
+    const ssoPosition = ssoProfile.position || ssoProfile.job_title || ssoProfile.title || null;
     if (!username) {
       return res.status(400).json({ error: 'SSO profile did not contain username or email' });
     }
@@ -1279,7 +1280,7 @@ router.post('/api/auth/sso-login', async (req, res) => {
     let userResult = await pool.request()
       .input('username', sql.NVarChar, username)
       .query(`
-        SELECT u.id, u.username, u.full_name, u.role_id,
+        SELECT u.id, u.username, u.full_name, u.role_id, u.division, u.location, u.position,
                r.name as role_name, r.menu_permissions, r.is_admin
         FROM Users u
         JOIN Roles r ON u.role_id = r.id
@@ -1304,22 +1305,30 @@ router.post('/api/auth/sso-login', async (req, res) => {
         .input('password_hash', sql.NVarChar, 'SSO_AUTHENTICATED')
         .input('full_name', sql.NVarChar, fullName)
         .input('role_id', sql.NVarChar, roleId)
+        .input('position', sql.NVarChar, ssoPosition)
         .query(`
-          INSERT INTO Users (id, username, password_hash, full_name, role_id)
-          VALUES (@id, @username, @password_hash, @full_name, @role_id)
+          INSERT INTO Users (id, username, password_hash, full_name, role_id, position)
+          VALUES (@id, @username, @password_hash, @full_name, @role_id, @position)
         `);
 
       // Fetch newly created user profile
       userResult = await pool.request()
         .input('username', sql.NVarChar, username)
         .query(`
-          SELECT u.id, u.username, u.full_name, u.role_id,
+          SELECT u.id, u.username, u.full_name, u.role_id, u.division, u.location, u.position,
                  r.name as role_name, r.menu_permissions, r.is_admin
           FROM Users u
           JOIN Roles r ON u.role_id = r.id
           WHERE u.username = @username
         `);
       user = userResult.recordset[0];
+    } else if (ssoPosition) {
+      // Keep SSO position current; it is the source of CRM workflow level.
+      await pool.request()
+        .input('id', sql.NVarChar, user.id)
+        .input('position', sql.NVarChar, ssoPosition)
+        .query('UPDATE Users SET position = @position WHERE id = @id');
+      user.position = ssoPosition;
     }
 
     // Save OIDC session
@@ -1458,7 +1467,9 @@ router.post('/api/auth/change-password', async (req, res) => {
 // \u2500€\u2500€ USER MANAGEMENT \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
 async function getRequestUser(req, pool) {
   const headerUserId = req.headers['x-user-id'];
-  const userId = (typeof headerUserId === 'string' && headerUserId) || req.body?.userId || req.query?.userId;
+  const userId = req.authenticatedUserId ||
+    (typeof headerUserId === 'string' && headerUserId) ||
+    req.body?.userId || req.query?.userId;
   if (!userId) return null;
 
   const result = await pool.request()
@@ -1538,7 +1549,7 @@ router.get('/api/users', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
-      SELECT u.id, u.username, u.full_name, u.role_id, u.created_at, r.name as role_name, u.division, u.location 
+      SELECT u.id, u.username, u.full_name, u.role_id, u.created_at, r.name as role_name, u.division, u.location, u.position 
       FROM Users u
       JOIN Roles r ON u.role_id = r.id
     `);
@@ -1552,19 +1563,19 @@ router.get('/api/users', async (req, res) => {
 
 router.put('/api/users/:id', async (req, res) => {
   const { id } = req.params;
-  const { username, full_name, role_id, division, location } = req.body;
+  const { username, full_name, role_id, division, location, position } = req.body;
   try {
     const pool = await poolPromise;
 
     // Fetch old user details for comparison logging
     const oldUserRes = await pool.request()
       .input('id', sql.NVarChar, id)
-      .query('SELECT username, division, location FROM Users WHERE id = @id');
+      .query('SELECT username, division, location, position FROM Users WHERE id = @id');
     const oldUser = oldUserRes.recordset[0];
 
     let query = `
       UPDATE Users 
-      SET username = @username, full_name = @full_name, role_id = @role_id, division = @division, location = @location
+      SET username = @username, full_name = @full_name, role_id = @role_id, division = @division, location = @location, position = @position
     `;
     query += ` WHERE id = @id`;
 
@@ -1574,7 +1585,8 @@ router.put('/api/users/:id', async (req, res) => {
       .input('full_name', sql.NVarChar, full_name)
       .input('role_id', sql.NVarChar, role_id)
       .input('division', sql.NVarChar, division || 'IT')
-      .input('location', sql.NVarChar, location || null);
+      .input('location', sql.NVarChar, location || null)
+      .input('position', sql.NVarChar, position || null);
 
     await request.query(query);
 

@@ -577,7 +577,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                           {isExpanded && !collapsed && (
                             <ul className="ml-4 pl-3 border-l border-sidebar-border/50 space-y-0.5 mt-0.5 animate-in slide-in-from-top-1 duration-200">
                               {item.children?.map(child => {
-                                if (child.id && !hasPermission(child.id)) return null;
+                                // CRM ticket requests are available to every authenticated level;
+                                // approval and execution are enforced by the backend workflow.
+                                if (child.id && child.id !== 'crm_tickets' && !hasPermission(child.id)) return null;
                                 const childActive = child.exact ? location.pathname === child.to : (location.pathname === child.to || location.pathname.startsWith(child.to + "/"));
                                 return (
                                   <li key={child.to}>
@@ -830,7 +832,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                 </div>
                                 <ul className="ml-6 border-l border-sidebar-border/30 space-y-1">
                                   {item.children?.map(child => {
-                                    if (child.id && !hasPermission(child.id)) return null;
+                                    // CRM ticket requests are available to every authenticated level;
+                                    // approval and execution are enforced by the backend workflow.
+                                    if (child.id && child.id !== 'crm_tickets' && !hasPermission(child.id)) return null;
                                     const childActive = location.pathname.startsWith(child.to);
                                     return (
                                       <li key={child.to}>

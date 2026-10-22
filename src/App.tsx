@@ -67,10 +67,13 @@ window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
         init.headers = init.headers || {};
         if (init.headers instanceof Headers) {
           init.headers.set('x-session-id', user.sessionId);
+          if (user.id) init.headers.set('x-user-id', user.id);
         } else if (Array.isArray(init.headers)) {
           init.headers.push(['x-session-id', user.sessionId]);
+          if (user.id) init.headers.push(['x-user-id', user.id]);
         } else {
           (init.headers as Record<string, string>)['x-session-id'] = user.sessionId;
+          if (user.id) (init.headers as Record<string, string>)['x-user-id'] = user.id;
         }
       }
     } catch (e) {
@@ -81,10 +84,27 @@ window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
   const response = await originalFetch(input, init);
 
   if (response.status === 401) {
-    console.warn('[FETCH_OVERRIDE] Received 401 Unauthorized, logging out user.');
-    localStorage.removeItem("pepi_user");
-    if (!window.location.pathname.endsWith('/login') && !window.location.pathname.endsWith('/sso-callback')) {
-      window.location.href = '/login';
+    // A 401 from an individual feature endpoint is not always an expired SSO
+    // session (it may be a missing feature identity or permission mismatch).
+    // Only clear the local session when the session middleware explicitly says
+    // that the session is missing, expired, or revoked.
+    let errorMessage = '';
+    try {
+      const errorBody = await response.clone().json();
+      errorMessage = String(errorBody?.error || '');
+    } catch {
+      // Non-JSON 401 responses are not treated as session expiration.
+    }
+
+    const isSessionFailure = /Unauthorized: Session (required|expired or revoked)/i.test(errorMessage);
+    if (isSessionFailure) {
+      console.warn('[FETCH_OVERRIDE] Session validation failed, clearing local session:', errorMessage);
+      localStorage.removeItem("pepi_user");
+      if (!window.location.pathname.endsWith('/login') && !window.location.pathname.endsWith('/sso-callback')) {
+        window.location.href = '/login';
+      }
+    } else {
+      console.warn('[FETCH_OVERRIDE] Feature request returned 401 without session expiration:', errorMessage || response.url);
     }
   }
 

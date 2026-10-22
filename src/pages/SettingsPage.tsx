@@ -495,7 +495,9 @@ export default function SettingsPage() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to load assistant keywords.");
+        const error = new Error("Failed to load assistant keywords.") as Error & { status?: number };
+        error.status = response.status;
+        throw error;
       }
 
       const data = await response.json();
@@ -512,7 +514,12 @@ export default function SettingsPage() {
           : []
       );
     } catch (error: any) {
-      toast.error(error.message || "Failed to load assistant keywords.");
+      // Assistant administration is optional on Settings. A regular user or
+      // an older SSO profile may legitimately receive 401/403 here; do not
+      // show a page-level error for that case.
+      if (error?.status !== 401 && error?.status !== 403) {
+        toast.error(error.message || "Failed to load assistant keywords.");
+      }
     } finally {
       setKeywordsLoading(false);
     }
@@ -799,10 +806,10 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (userKey && user?.is_admin) {
+    if (activeTab === "assistant" && userKey && user?.is_admin) {
       void fetchAssistantKeywords();
     }
-  }, [userKey, user?.is_admin]);
+  }, [activeTab, userKey, user?.is_admin]);
 
   useEffect(() => {
     if (!selectedKeywordId) return;

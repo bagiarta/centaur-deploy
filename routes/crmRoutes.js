@@ -56,6 +56,7 @@ router.get('/api/crm/tickets', crmTicketController.getTickets);
 router.get('/api/crm/tickets/:id', crmTicketController.getTicketById);
 router.post('/api/crm/tickets/:id/approve', crmTicketController.approveTicket);
 router.post('/api/crm/tickets/:id/resubmit', crmTicketController.resubmitTicket);
+router.delete('/api/crm/tickets/:id', crmTicketController.deleteTicket);
 router.post('/api/crm/tickets/:id/execute', crmTicketController.executeTicket);
 router.post('/api/crm/tickets/upload', ticketUpload.single('attachment'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
