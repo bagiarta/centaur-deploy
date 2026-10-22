@@ -159,6 +159,7 @@ export async function initDb() {
              role_id NVARCHAR(50),
              division NVARCHAR(100) DEFAULT 'IT',
              location NVARCHAR(150) NULL,
+             position NVARCHAR(200) NULL,
              created_at DATETIME DEFAULT GETDATE()
          )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='NotificationSettings' AND xtype='U')
@@ -588,10 +589,10 @@ export async function initDb() {
       )
     `);
 
-    // Ensure Users division and location columns exist
+    // Ensure Users SSO organization columns exist
     const checkUsersCols = await pool.request().query(`
       SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_NAME = 'Users' AND COLUMN_NAME IN ('division', 'location')
+      WHERE TABLE_NAME = 'Users' AND COLUMN_NAME IN ('division', 'location', 'position')
     `);
 
     if (!checkUsersCols.recordset.find(c => c.COLUMN_NAME === 'division')) {
@@ -599,6 +600,9 @@ export async function initDb() {
     }
     if (!checkUsersCols.recordset.find(c => c.COLUMN_NAME === 'location')) {
       await pool.request().query("ALTER TABLE Users ADD location NVARCHAR(150) NULL");
+    }
+    if (!checkUsersCols.recordset.find(c => c.COLUMN_NAME === 'position')) {
+      await pool.request().query("ALTER TABLE Users ADD position NVARCHAR(200) NULL");
     }
 
     // Ensure Trial_PMSchedules created_by column exists
@@ -951,6 +955,12 @@ async function seedData(pool) {
       ('AGENT_UPDATE_URL', 'http://localhost:3001/public/CentaurAgent_v2.0.0.msi')
     `);
   }
+
+  // CRM workflow: optional explicit IT Director recipients for execution reports.
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM SystemConfigs WHERE [key] = 'CRM_IT_DIRECTOR_USER_IDS')
+      INSERT INTO SystemConfigs ([key], [value]) VALUES ('CRM_IT_DIRECTOR_USER_IDS', '')
+  `);
   // Purge any orphaned logs/targets before starting
   console.log('Purging orphaned data...');
   try {

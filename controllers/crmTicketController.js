@@ -1,6 +1,7 @@
 import sql from 'mssql';
 import { poolPromise, initDb } from '../config/db.js';
 import { getH2hToken, h2hConfig, requestH2hJson } from '../config/h2h.js';
+import { sendWebPush } from './pushController.js';
 
 const H2H_POINT_KEYS = new Set([
     'current_points', 'latest_point', 'point', 'points', 'point_balance',
@@ -135,6 +136,135 @@ async function getTicketPool() {
   return await poolPromise;
 }
 
+function normalizedUserRole(user) {
+    return String(user?.role_name || '').trim().toLowerCase();
+}
+
+function normalizedUserDivision(user) {
+    return String(user?.division || '').trim().toLowerCase();
+}
+
+function normalizedUserPosition(user) {
+    return String(user?.position || '').trim().toLowerCase();
+}
+
+function isManagerUser(user) {
+    const role = normalizedUserRole(user);
+    const division = normalizedUserDivision(user);
+    const position = normalizedUserPosition(user);
+    return position.includes('manager') || position.includes('area manager') ||
+        role.includes('manager') ||
+        (role === 'operation' && division === 'area manager');
+}
+
+function isMarketingApprover(user) {
+    return normalizedUserPosition(user).includes('marketing') ||
+        normalizedUserRole(user).includes('marketing') ||
+        normalizedUserDivision(user).includes('marketing');
+}
+
+function isHigherApprover(user) {
+    const role = normalizedUserRole(user);
+    const position = normalizedUserPosition(user);
+    return position.includes('director') || position.includes('head') ||
+        position.includes('vice president') || position === 'vp' ||
+        role.includes('director') || Boolean(user?.is_admin);
+}
+
+function isSysadminOperational(user) {
+    const position = normalizedUserPosition(user);
+    const role = normalizedUserRole(user);
+    return Boolean(user?.is_admin) ||
+        position.includes('sysadmin') || position.includes('system administrator') ||
+        position.includes('it operational') || role.includes('it operational');
+}
+
+async function getActorUser(pool, req) {
+    const identity = String(req.authenticatedUserId || req.headers['x-user-id'] || '').trim();
+    if (!identity) {
+        const error = new Error('Session user wajib tersedia untuk proses workflow CRM.');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    const result = await pool.request()
+        .input('identity', sql.NVarChar, identity)
+        .query(`
+            SELECT TOP 1
+                u.id, u.username, u.full_name, u.division, u.location, u.position,
+                r.name AS role_name, r.is_admin
+            FROM Users u
+            LEFT JOIN Roles r ON r.id = u.role_id
+            WHERE u.id = @identity OR u.username = @identity
+        `);
+
+    if (result.recordset.length === 0) {
+        const error = new Error(`User workflow ${identity} tidak ditemukan.`);
+        error.statusCode = 403;
+        throw error;
+    }
+
+    return result.recordset[0];
+}
+
+async function getItDirectorRecipients(pool) {
+    const recipients = new Map();
+
+    const roleResult = await pool.request().query(`
+        SELECT u.id, u.username, u.full_name
+        FROM Users u
+        LEFT JOIN Roles r ON r.id = u.role_id
+        WHERE LOWER(ISNULL(u.division, '')) = 'it'
+          AND (LOWER(ISNULL(u.position, '')) LIKE '%director%'
+               OR LOWER(ISNULL(r.name, '')) LIKE '%director%')
+    `);
+    for (const user of roleResult.recordset) recipients.set(user.id, user);
+
+    // Optional explicit mapping for installations where the directory role is not named "Director".
+    try {
+        const configResult = await pool.request()
+            .input('key', sql.NVarChar, 'CRM_IT_DIRECTOR_USER_IDS')
+            .query('SELECT [value] FROM SystemConfigs WHERE [key] = @key');
+        const configuredIds = String(configResult.recordset[0]?.value || '')
+            .split(',')
+            .map(value => value.trim())
+            .filter(Boolean);
+        for (const identity of configuredIds) {
+            const userResult = await pool.request()
+                .input('identity', sql.NVarChar, identity)
+                .query(`
+                    SELECT TOP 1 id, username, full_name
+                    FROM Users
+                    WHERE id = @identity OR username = @identity
+                `);
+            for (const user of userResult.recordset) recipients.set(user.id, user);
+        }
+    } catch (error) {
+        console.warn('[CRM WORKFLOW] IT Director config lookup skipped:', error.message);
+    }
+
+    return [...recipients.values()];
+}
+
+function initialTicketWorkflow(requester) {
+    // L2 = Manager approval, L3 = Marketing Manager or higher approval.
+    // A manager's own level is recorded as an automatic approval and the
+    // ticket goes directly to Marketing Manager / higher.
+    if (isManagerUser(requester)) {
+        return {
+            level: 3,
+            status: 'Pending Approval L3',
+            managerAutoApproved: true
+        };
+    }
+
+    return {
+        level: 2,
+        status: 'Pending Approval L2',
+        managerAutoApproved: false
+    };
+}
+
 // Pool for Customer Lookup in DBWH_8555 (with fallback to DBWH_8529)
 let lookupPool = null;
 async function getCustomerLookupPool() {
@@ -154,6 +284,104 @@ async function getCustomerLookupPool() {
     console.warn("Could not connect to DBWH_8555 for customer lookup, falling back to local pool:", err.message);
     return await getTicketPool();
   }
+}
+
+const BILL_NOT_SYNC_REMARK = 'Data not sync please check rxlOfflineService Version Server.';
+const BILL_NOT_MEMBER_REMARK = 'Data bill belum tercatat sebagai transaksi member.';
+const DATA_UPDATE_COLUMN_MAP = {
+    card_no: 'RLICM_CARD_NO',
+    mobile_no: 'RLICM_MOBILE_NO',
+};
+
+async function findExistingDataUpdateCustomers(detail, currentCustomerId) {
+    const field = String(detail?.field_name || '').trim();
+    const value = String(detail?.new_value || '').trim();
+    const column = DATA_UPDATE_COLUMN_MAP[field];
+    if (!column || !value) return [];
+
+    const customerPool = await getCustomerLookupPool();
+    const result = await customerPool.request()
+        .input('value', sql.VarChar, value)
+        .input('current_customer_id', sql.VarChar, String(currentCustomerId || ''))
+        .query(`
+            SELECT TOP 10
+                RLICM_NAME AS customer_name,
+                RLICM_CARD_NO AS card_no,
+                RLICM_MOBILE_NO AS mobile_no
+            FROM RXL_LOYALID_CUSTOMER_MST WITH (NOLOCK)
+            WHERE LTRIM(RTRIM(ISNULL(${column}, ''))) = LTRIM(RTRIM(@value))
+              AND ISNULL(RLICM_CARD_NO, '') <> @current_customer_id
+              AND ISNULL(RLICM_MOBILE_NO, '') <> @current_customer_id
+            ORDER BY RLICM_NAME, RLICM_CARD_NO
+        `);
+    return result.recordset;
+}
+
+async function getMemberBillTransmissionStatus(billing) {
+    const pool = await getCustomerLookupPool();
+    const result = await pool.request()
+        .input('billing', sql.VarChar, billing)
+        .query(`
+            SELECT TOP 1
+                RLITQ_BILL_NO AS billing,
+                TRANSMITION_TYPE AS transmition_type
+            FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK)
+            WHERE RLITQ_BILL_NO = @billing
+              AND RLITQ_INTEG_CODE = '110'
+            ORDER BY CASE WHEN TRANSMITION_TYPE = '1' THEN 0 ELSE 1 END
+        `);
+
+    if (result.recordset.length === 0) {
+        return { found: false, transmition_type: null, automatic_remark: BILL_NOT_MEMBER_REMARK };
+    }
+
+    const row = result.recordset[0];
+    const transmitionType = String(row.transmition_type ?? '').trim();
+    if (transmitionType === '1') {
+        return {
+            found: true,
+            transmition_type: transmitionType,
+            automatic_remark: null,
+            can_submit: false
+        };
+    }
+
+    return {
+        found: true,
+        transmition_type: transmitionType,
+        automatic_remark: BILL_NOT_SYNC_REMARK,
+        can_submit: true
+    };
+}
+
+function appendAutomaticRemark(reason, automaticRemark) {
+    if (!automaticRemark) return reason || '';
+    const currentReason = String(reason || '').trim();
+    if (!currentReason) return automaticRemark;
+    if (currentReason.includes(automaticRemark)) return currentReason;
+    return `${currentReason} | ${automaticRemark}`;
+}
+
+async function preparePointAdjustmentDetails(details) {
+    if (!Array.isArray(details)) return details;
+
+    return Promise.all(details.map(async (detail) => {
+        const billing = String(detail?.transaction_ref || '').trim();
+        if (!billing) return detail;
+
+        const transmission = await getMemberBillTransmissionStatus(billing);
+        if (transmission.transmition_type === '1') {
+            const error = new Error(`Bill ${billing} sudah sync dan tidak bisa diajukan kembali sebagai ticket.`);
+            error.statusCode = 409;
+            error.code = 'BILL_ALREADY_SYNC';
+            throw error;
+        }
+
+        return {
+            ...detail,
+            reason: appendAutomaticRemark(detail.reason, transmission.automatic_remark)
+        };
+    }));
 }
 
 async function getHoServerPool() {
@@ -230,10 +458,19 @@ export const createTicket = async (req, res) => {
     
     try {
         const pool = await getTicketPool();
+        const requester = await getActorUser(pool, req);
+        const workflow = initialTicketWorkflow(requester);
+        const effectiveRequesterId = requester.username;
+        const effectiveRequesterName = requester.full_name || requester.username;
+        let normalizedDetails = details;
+
+        if (request_type === 'POINT_ADJUSTMENT') {
+            normalizedDetails = await preparePointAdjustmentDetails(details);
+        }
         
         // Validate Billing Number (transaction_ref) uniqueness
-        if (request_type === 'POINT_ADJUSTMENT' && details && details.length > 0) {
-            for (let detail of details) {
+        if (request_type === 'POINT_ADJUSTMENT' && normalizedDetails && normalizedDetails.length > 0) {
+            for (let detail of normalizedDetails) {
                 if (detail.transaction_ref) {
                     const checkRef = await pool.request()
                         .input('transaction_ref', sql.VarChar, detail.transaction_ref)
@@ -242,6 +479,25 @@ export const createTicket = async (req, res) => {
                         return res.status(400).json({ error: `Nomor billing ${detail.transaction_ref} sudah pernah diajukan dalam tiket lain.` });
                     }
                 }
+            }
+        }
+
+        // Prevent duplicate customer identity data before creating a DATA_UPDATE ticket.
+        if (request_type === 'DATA_UPDATE' && normalizedDetails && normalizedDetails.length > 0) {
+            const detail = normalizedDetails[0];
+            const conflicts = await findExistingDataUpdateCustomers(detail, customer_id);
+            if (conflicts.length > 0) {
+                return res.status(409).json({
+                    code: 'DATA_VALUE_ALREADY_USED',
+                    error: `Nilai ${detail.field_name} sudah digunakan oleh customer lain.`,
+                    field: detail.field_name,
+                    requested_value: detail.new_value,
+                    conflicts: conflicts.map(customer => ({
+                        customer_name: customer.customer_name || '-',
+                        card_no: customer.card_no || '-',
+                        mobile_no: customer.mobile_no || '-'
+                    }))
+                });
             }
         }
 
@@ -296,23 +552,40 @@ export const createTicket = async (req, res) => {
             const reqTicket = new sql.Request(transaction);
             await reqTicket
                 .input('ticket_id', sql.VarChar, ticket_id)
-                .input('requester_id', sql.VarChar, requester_id)
-                .input('requester_name', sql.VarChar, requester_name)
+                .input('requester_id', sql.VarChar, effectiveRequesterId)
+                .input('requester_name', sql.VarChar, effectiveRequesterName)
                 .input('unit_branch', sql.VarChar, unit_branch)
                 .input('request_type', sql.VarChar, request_type)
                 .input('priority', sql.VarChar, priority || 'NORMAL')
                 .input('customer_id', sql.VarChar, customer_id)
                 .input('customer_name', sql.VarChar, customer_name || null)
                 .input('mobile_no', sql.VarChar, mobile_no || null)
-                .input('status', sql.VarChar, 'Pending Approval L1')
+                .input('status', sql.VarChar, workflow.status)
+                .input('approval_level', sql.Int, workflow.level)
                 .query(`
                     INSERT INTO CRM_TICKETS 
                     (ticket_id, requester_id, requester_name, unit_branch, request_type, priority, customer_id, customer_name, mobile_no, status, current_approval_level)
-                    VALUES (@ticket_id, @requester_id, @requester_name, @unit_branch, @request_type, @priority, @customer_id, @customer_name, @mobile_no, @status, 1)
+                    VALUES (@ticket_id, @requester_id, @requester_name, @unit_branch, @request_type, @priority, @customer_id, @customer_name, @mobile_no, @status, @approval_level)
                 `);
 
+            if (workflow.managerAutoApproved) {
+                const reqAutoApproval = new sql.Request(transaction);
+                await reqAutoApproval
+                    .input('ticket_id', sql.VarChar, ticket_id)
+                    .input('approver_id', sql.VarChar, effectiveRequesterId)
+                    .input('approver_name', sql.VarChar, effectiveRequesterName)
+                    .input('approver_role', sql.VarChar, requester.role_name || 'Manager')
+                    .input('status', sql.VarChar, 'AUTO_APPROVED')
+                    .input('comments', sql.NVarChar, 'Manager level requester: manager approval dianggap sudah terpenuhi.')
+                    .query(`
+                        INSERT INTO CRM_TICKET_APPROVALS
+                        (ticket_id, approver_id, approver_name, approver_role, status, comments)
+                        VALUES (@ticket_id, @approver_id, @approver_name, @approver_role, @status, @comments)
+                    `);
+            }
+
             // 2. Insert Details
-            for (let detail of details) {
+            for (let detail of normalizedDetails) {
                 const reqDetail = new sql.Request(transaction);
                 await reqDetail
                     .input('ticket_id', sql.VarChar, ticket_id)
@@ -334,8 +607,8 @@ export const createTicket = async (req, res) => {
             await reqLog
                 .input('ticket_id', sql.VarChar, ticket_id)
                 .input('action', sql.VarChar, 'CREATED')
-                .input('actor_id', sql.VarChar, requester_id)
-                .input('actor_name', sql.VarChar, requester_name)
+                .input('actor_id', sql.VarChar, effectiveRequesterId)
+                .input('actor_name', sql.VarChar, effectiveRequesterName)
                 .input('details', sql.NVarChar, mergeH2hAtCreate
                     ? `Ticket created and submitted. H2H snapshot saat create: source points=${mergeH2hAtCreate.source.current_points}, expense=${mergeH2hAtCreate.source.total_expense}, lucky_draw=${mergeH2hAtCreate.source.lucky_draw_points}; target points=${mergeH2hAtCreate.target.current_points}, expense=${mergeH2hAtCreate.target.total_expense}, lucky_draw=${mergeH2hAtCreate.target.lucky_draw_points}; checked_at=${mergeH2hAtCreate.checked_at}`
                     : 'Ticket created and submitted.')
@@ -353,7 +626,7 @@ export const createTicket = async (req, res) => {
         }
     } catch (err) {
         console.error("Create ticket error:", err);
-        res.status(500).json({ error: err.message });
+        res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
     }
 };
 
@@ -446,7 +719,7 @@ export const getTicketById = async (req, res) => {
 
 export const approveTicket = async (req, res) => {
     const { id } = req.params;
-    const { approver_id, approver_name, approver_role, action, comments } = req.body;
+    const { approver_id, action, comments } = req.body;
     // action: 'APPROVE', 'REJECT', 'RETURN'
     
     try {
@@ -460,6 +733,25 @@ export const approveTicket = async (req, res) => {
         }
         
         let ticket = ticketRes.recordset[0];
+        const actor = await getActorUser(pool, req);
+        const actorIsRequester = String(actor.username).toLowerCase() === String(ticket.requester_id || '').toLowerCase();
+        if (actorIsRequester && !actor.is_admin) {
+            return res.status(403).json({ error: 'Requester tidak dapat melakukan approval atas ticket sendiri.' });
+        }
+
+        const canApproveCurrentLevel = Boolean(actor.is_admin) || (ticket.current_approval_level === 2
+            ? isManagerUser(actor)
+            : ticket.current_approval_level === 3
+                ? (isMarketingApprover(actor) || isHigherApprover(actor))
+                : ticket.current_approval_level === 1
+                    ? isManagerUser(actor)
+                    : false);
+        if (!canApproveCurrentLevel) {
+            return res.status(403).json({
+                error: `User ${actor.username} (${actor.role_name || 'Unknown Role'}) tidak berwenang untuk approval level ${ticket.current_approval_level}.`
+            });
+        }
+
         let newStatus = ticket.status;
         let newLevel = ticket.current_approval_level;
 
@@ -476,9 +768,11 @@ export const approveTicket = async (req, res) => {
                 newLevel = 3;
                 newStatus = 'Pending Approval L3';
             } else if (newLevel === 3) {
-                newLevel = 4;
+                newLevel = 3;
                 newStatus = 'Approved';
             }
+        } else {
+            return res.status(400).json({ error: 'Approval action tidak valid.' });
         }
         
         const transaction = new sql.Transaction(pool);
@@ -499,9 +793,9 @@ export const approveTicket = async (req, res) => {
             const reqApp = new sql.Request(transaction);
             await reqApp
                 .input('ticket_id', sql.VarChar, id)
-                .input('approver_id', sql.VarChar, approver_id)
-                .input('approver_name', sql.VarChar, approver_name)
-                .input('approver_role', sql.VarChar, approver_role)
+                .input('approver_id', sql.VarChar, actor.username)
+                .input('approver_name', sql.VarChar, actor.full_name || actor.username)
+                .input('approver_role', sql.VarChar, actor.role_name || actor.division || 'Unknown')
                 .input('status', sql.VarChar, action)
                 .input('comments', sql.NVarChar, comments || '')
                 .query(`
@@ -514,9 +808,9 @@ export const approveTicket = async (req, res) => {
             await reqLog
                 .input('ticket_id', sql.VarChar, id)
                 .input('action', sql.VarChar, 'APPROVAL_' + action)
-                .input('actor_id', sql.VarChar, approver_id)
-                .input('actor_name', sql.VarChar, approver_name)
-                .input('details', sql.NVarChar, `Action ${action} by ${approver_role}. Comments: ${comments}. New Status: ${newStatus}`)
+                .input('actor_id', sql.VarChar, actor.username)
+                .input('actor_name', sql.VarChar, actor.full_name || actor.username)
+                .input('details', sql.NVarChar, `Action ${action}. Comments: ${comments}. New Status: ${newStatus}`)
                 .query(`
                     INSERT INTO CRM_TICKET_AUDIT_LOGS 
                     (ticket_id, action, actor_id, actor_name, details)
@@ -541,17 +835,29 @@ export const resubmitTicket = async (req, res) => {
     
     try {
         const pool = await getTicketPool();
+        let normalizedDetails = details;
+
+        if (request_type === 'POINT_ADJUSTMENT') {
+            normalizedDetails = await preparePointAdjustmentDetails(details);
+        }
 
         const currentTicket = await pool.request()
             .input('ticket_id', sql.VarChar, id)
-            .query('SELECT customer_id FROM CRM_TICKETS WHERE ticket_id = @ticket_id');
+            .query('SELECT customer_id, requester_id FROM CRM_TICKETS WHERE ticket_id = @ticket_id');
         if (currentTicket.recordset.length === 0) {
             return res.status(404).json({ error: 'Ticket not found' });
         }
+
+        const actor = await getActorUser(pool, req);
+        const isTicketRequester = String(actor.username).toLowerCase() === String(currentTicket.recordset[0].requester_id || '').toLowerCase();
+        if (!isTicketRequester && !isHigherApprover(actor)) {
+            return res.status(403).json({ error: 'Hanya requester atau administrator yang dapat melakukan resubmit ticket.' });
+        }
+        const workflow = initialTicketWorkflow(actor);
         
         // Validate Billing Number (transaction_ref) uniqueness, excluding current ticket
-        if (request_type === 'POINT_ADJUSTMENT' && details && details.length > 0) {
-            for (let detail of details) {
+        if (request_type === 'POINT_ADJUSTMENT' && normalizedDetails && normalizedDetails.length > 0) {
+            for (let detail of normalizedDetails) {
                 if (detail.transaction_ref) {
                     const checkRef = await pool.request()
                         .input('transaction_ref', sql.VarChar, detail.transaction_ref)
@@ -596,11 +902,28 @@ export const resubmitTicket = async (req, res) => {
             await reqUpdate
                 .input('ticket_id', sql.VarChar, id)
                 .input('request_type', sql.VarChar, request_type)
+                .input('status', sql.VarChar, workflow.status)
+                .input('approval_level', sql.Int, workflow.level)
                 .query(`
                     UPDATE CRM_TICKETS 
-                    SET status = 'Pending Approval L1', current_approval_level = 1, updated_at = GETDATE(), request_type = @request_type
+                    SET status = @status, current_approval_level = @approval_level, updated_at = GETDATE(), request_type = @request_type
                     WHERE ticket_id = @ticket_id
                 `);
+
+            if (workflow.managerAutoApproved) {
+                await new sql.Request(transaction)
+                    .input('ticket_id', sql.VarChar, id)
+                    .input('approver_id', sql.VarChar, actor.username)
+                    .input('approver_name', sql.VarChar, actor.full_name || actor.username)
+                    .input('approver_role', sql.VarChar, actor.role_name || 'Manager')
+                    .input('status', sql.VarChar, 'AUTO_APPROVED')
+                    .input('comments', sql.NVarChar, 'Manager level requester: manager approval dianggap sudah terpenuhi saat resubmit.')
+                    .query(`
+                        INSERT INTO CRM_TICKET_APPROVALS
+                        (ticket_id, approver_id, approver_name, approver_role, status, comments)
+                        VALUES (@ticket_id, @approver_id, @approver_name, @approver_role, @status, @comments)
+                    `);
+            }
 
             if (customer_name || mobile_no) {
                 await new sql.Request(transaction)
@@ -615,13 +938,13 @@ export const resubmitTicket = async (req, res) => {
                     `);
             }
             
-            if (details && details.length > 0) {
+            if (normalizedDetails && normalizedDetails.length > 0) {
                 // Delete old details
                 const reqDelDetails = new sql.Request(transaction);
                 await reqDelDetails.input('ticket_id', sql.VarChar, id).query("DELETE FROM CRM_TICKET_DETAILS WHERE ticket_id = @ticket_id");
 
                 // Insert new details
-                for (let detail of details) {
+                for (let detail of normalizedDetails) {
                     const reqDetail = new sql.Request(transaction);
                     await reqDetail
                         .input('ticket_id', sql.VarChar, id)
@@ -643,8 +966,8 @@ export const resubmitTicket = async (req, res) => {
             await reqLog
                 .input('ticket_id', sql.VarChar, id)
                 .input('action', sql.VarChar, 'RESUBMITTED')
-                .input('actor_id', sql.VarChar, requester_id)
-                .input('actor_name', sql.VarChar, requester_name)
+                .input('actor_id', sql.VarChar, actor.username)
+                .input('actor_name', sql.VarChar, actor.full_name || actor.username)
                 .input('details', sql.NVarChar, `Resubmitted. Notes: ${notes}`)
                 .query(`
                     INSERT INTO CRM_TICKET_AUDIT_LOGS 
@@ -653,14 +976,58 @@ export const resubmitTicket = async (req, res) => {
                 `);
 
             await transaction.commit();
-            res.json({ success: true, status: 'Pending Approval L1' });
+            res.json({ success: true, status: workflow.status });
         } catch (err) {
             await transaction.rollback();
             throw err;
         }
     } catch (err) {
         console.error("Resubmit ticket error:", err);
-        res.status(500).json({ error: err.message });
+        res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
+    }
+};
+
+export const deleteTicket = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const pool = await getTicketPool();
+        const actor = await getActorUser(pool, req);
+        if (!actor.is_admin) {
+            return res.status(403).json({ error: 'Hanya Administrator yang dapat menghapus ticket.' });
+        }
+
+        const ticketResult = await pool.request()
+            .input('ticket_id', sql.VarChar, id)
+            .query('SELECT ticket_id, status FROM CRM_TICKETS WHERE ticket_id = @ticket_id');
+        const ticket = ticketResult.recordset[0];
+        if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+        if (String(ticket.status || '').toLowerCase() === 'completed / closed') {
+            return res.status(409).json({ error: 'Ticket Completed / Closed tidak dapat dihapus.' });
+        }
+
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+        try {
+            for (const table of ['CRM_TICKET_APPROVALS', 'CRM_TICKET_DETAILS', 'CRM_TICKET_AUDIT_LOGS']) {
+                await new sql.Request(transaction)
+                    .input('ticket_id', sql.VarChar, id)
+                    .query(`DELETE FROM ${table} WHERE ticket_id = @ticket_id`);
+            }
+            await new sql.Request(transaction)
+                .input('ticket_id', sql.VarChar, id)
+                .query('DELETE FROM CRM_TICKETS WHERE ticket_id = @ticket_id');
+            await transaction.commit();
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+
+        res.json({ success: true, message: `Ticket ${id} berhasil dihapus.` });
+    } catch (err) {
+        console.error('Delete CRM ticket error:', err);
+        res.status(err.statusCode || 500).json({ error: err.message });
     }
 };
 
@@ -670,6 +1037,10 @@ export const executeTicket = async (req, res) => {
     
     try {
         const pool = await getTicketPool();
+        const executor = await getActorUser(pool, req);
+        if (!isSysadminOperational(executor)) {
+            return res.status(403).json({ error: 'Execute ticket hanya dapat dilakukan oleh user IT OPERATIONAL (Sysadmin Operational).' });
+        }
 
         // 1. Fetch ticket and details
         const ticketRes = await pool.request()
@@ -680,6 +1051,10 @@ export const executeTicket = async (req, res) => {
             return res.status(404).json({ error: "Ticket not found" });
         }
         const ticket = ticketRes.recordset[0];
+
+        if (ticket.status !== 'Approved') {
+            return res.status(409).json({ error: `Ticket belum siap dieksekusi. Status saat ini: ${ticket.status}.` });
+        }
 
         const detailsRes = await pool.request()
             .input('ticket_id', sql.VarChar, id)
@@ -794,69 +1169,91 @@ export const executeTicket = async (req, res) => {
             }
         } else if (ticket.request_type === 'POINT_ADJUSTMENT' && details.length > 0) {
             const detail = details[0];
-            const initialPoints = Number(detail.old_value);
-            const pts = Number(detail.new_value);
-            if (!Number.isFinite(initialPoints) || !Number.isFinite(pts)) {
-                await logValidationFailure(
-                    pool, id, executor_id, executor_name,
-                    `POINT_ADJUSTMENT validation rejected: invalid point values. initial=${detail.old_value}, adjustment=${detail.new_value}`
-                );
-                return res.status(400).json({ error: 'Nilai point awal atau adjustment tidak valid.' });
+            const adjustmentBillNo = String(detail.transaction_ref || '').trim();
+            if (!adjustmentBillNo) {
+                const message = 'Execute adjustment ditolak: bill_no belum tersedia pada ticket.';
+                await logValidationFailure(pool, id, executor_id, executor_name, message);
+                return res.status(409).json({
+                    error: message,
+                    code: 'BILL_NOT_PROCESSED',
+                    validation: { type: 'BILL_NOT_PROCESSED', bill_no: null }
+                });
             }
 
-            if (pts !== 0) {
-                const memberIdentifier = ticket.mobile_no || ticket.customer_id;
-                const expectedPoints = initialPoints + pts;
-                let h2hPoints;
-
-                try {
-                    // Re-check immediately before changing the local customer master.
-                    h2hPoints = await getH2hMemberPoints(memberIdentifier);
-                } catch (h2hError) {
-                    console.error("H2H point validation failed:", h2hError);
-                    await logValidationFailure(
-                        pool, id, executor_id, executor_name,
-                        `POINT_ADJUSTMENT H2H validation error. Member=${memberIdentifier}, initial=${initialPoints}, adjustment=${pts}, error=${h2hError.message}`
-                    );
-                    return res.status(502).json({
-                        error: 'Validasi point ke H2H gagal. Update tidak dilakukan.',
-                        details: h2hError.message
-                    });
-                }
-
-                if (h2hPoints < expectedPoints) {
-                    await logValidationFailure(
-                        pool, id, executor_id, executor_name,
-                        `POINT_ADJUSTMENT validation rejected. Member=${memberIdentifier}, initial=${initialPoints}, adjustment=${pts}, expected=${expectedPoints}, h2h_points=${h2hPoints}`
-                    );
+            try {
+                const billPool = await getCustomerLookupPool();
+                const billResult = await billPool.request()
+                    .input('billing', sql.VarChar, adjustmentBillNo)
+                    .query(`
+                        SELECT TOP 1 RLITQ_BILL_NO AS bill_no, PROCESSED_FLAG AS processed_flag
+                        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK)
+                        WHERE RLITQ_BILL_NO = @billing
+                          AND RLITQ_INTEG_CODE = '110'
+                        ORDER BY CASE WHEN ISNULL(PROCESSED_FLAG, 0) IN (1, -1) THEN 0 ELSE 1 END,
+                                 RLITQ_BILL_NO
+                    `);
+                const billRow = billResult.recordset[0];
+                const processedFlag = Number(billRow?.processed_flag);
+                if (!billRow || ![1, -1].includes(processedFlag)) {
+                    const message = billRow
+                        ? `Execute adjustment ditolak: bill_no ${adjustmentBillNo} memiliki processed_flag ${billRow.processed_flag}; nilai yang diizinkan hanya 1 atau -1.`
+                        : `Execute adjustment ditolak: bill_no ${adjustmentBillNo} tidak ditemukan pada transaksi member.`;
+                    await logValidationFailure(pool, id, executor_id, executor_name, message);
                     return res.status(409).json({
-                        error: 'Validasi point gagal. Point H2H belum mencapai target adjustment.',
+                        error: message,
+                        code: 'BILL_NOT_PROCESSED',
                         validation: {
-                            member: memberIdentifier,
-                            initial_points: initialPoints,
-                            adjustment: pts,
-                            expected_points: expectedPoints,
-                            h2h_points: h2hPoints
+                            type: 'BILL_NOT_PROCESSED',
+                            bill_no: adjustmentBillNo,
+                            found: Boolean(billRow),
+                            processed_flag: billRow?.processed_flag ?? null
                         }
                     });
                 }
+            } catch (billError) {
+                console.error('Adjustment bill validation failed:', billError);
+                await logValidationFailure(
+                    pool, id, executor_id, executor_name,
+                    `POINT_ADJUSTMENT bill validation error. bill_no=${adjustmentBillNo}, error=${billError.message}`
+                );
+                return res.status(502).json({
+                    error: 'Validasi bill_no ke DBWH_8555 gagal. Execute tidak dilakukan.',
+                    code: 'BILL_VALIDATION_ERROR'
+                });
+            }
 
-                try {
-                    const p55 = await getCustomerLookupPool();
-                    await p55.request()
-                        .input('card', sql.VarChar, ticket.customer_id)
-                        .input('pts', sql.Int, pts)
-                        .query(`
-                            UPDATE RXL_LOYALID_CUSTOMER_MST
-                            SET LATEST_POINT = LATEST_POINT + @pts,
-                                UPDATED_AT = GETDATE()
-                            WHERE RLICM_CARD_NO = @card OR RLICM_MOBILE_NO = @card
-                        `);
-                    executionNotes = `Point Adjustment Berhasil: ${pts > 0 ? '+' : ''}${pts} poin pada ${ticket.customer_id}. Validasi H2H: ${h2hPoints} poin (minimum ${expectedPoints}; valid jika >= minimum). Notes: ${result_notes || '-'}`;
-                } catch (e55) {
-                    console.error("Failed to execute Point Adjustment in DBWH_8555:", e55);
-                    throw e55;
-                }
+            const memberIdentifier = ticket.mobile_no || ticket.customer_id;
+            let h2hPoints;
+            try {
+                // H2H is the source of truth for the resulting point balance.
+                h2hPoints = await getH2hMemberPoints(memberIdentifier);
+            } catch (h2hError) {
+                console.error("H2H point lookup failed:", h2hError);
+                await logValidationFailure(
+                    pool, id, executor_id, executor_name,
+                    `POINT_ADJUSTMENT H2H point lookup error. Member=${memberIdentifier}, error=${h2hError.message}`
+                );
+                return res.status(502).json({
+                    error: 'Pengambilan jumlah point dari H2H gagal. Update tidak dilakukan.',
+                    details: h2hError.message
+                });
+            }
+
+            try {
+                const p55 = await getCustomerLookupPool();
+                await p55.request()
+                    .input('card', sql.VarChar, ticket.customer_id)
+                    .input('h2hPoints', sql.Int, h2hPoints)
+                    .query(`
+                        UPDATE RXL_LOYALID_CUSTOMER_MST
+                        SET LATEST_POINT = @h2hPoints,
+                            UPDATED_AT = GETDATE()
+                        WHERE RLICM_CARD_NO = @card OR RLICM_MOBILE_NO = @card
+                    `);
+                executionNotes = `Point Adjustment Berhasil: LATEST_POINT pada ${ticket.customer_id} disesuaikan ke point H2H (${h2hPoints}). Notes: ${result_notes || '-'}`;
+            } catch (e55) {
+                console.error("Failed to execute Point Adjustment in DBWH_8555:", e55);
+                throw e55;
             }
         } else if (ticket.request_type === 'DATA_UPDATE' && details.length > 0) {
             const detail = details[0];
@@ -948,8 +1345,8 @@ export const executeTicket = async (req, res) => {
             await reqLog
                 .input('ticket_id', sql.VarChar, id)
                 .input('action', sql.VarChar, 'EXECUTED')
-                .input('actor_id', sql.VarChar, executor_id)
-                .input('actor_name', sql.VarChar, executor_name)
+                .input('actor_id', sql.VarChar, executor.username)
+                .input('actor_name', sql.VarChar, executor.full_name || executor.username)
                 .input('details', sql.NVarChar, executionNotes)
                 .query(`
                     INSERT INTO CRM_TICKET_AUDIT_LOGS 
@@ -958,7 +1355,37 @@ export const executeTicket = async (req, res) => {
                 `);
 
             await transaction.commit();
-            res.json({ success: true, status: 'Completed / Closed', message: executionNotes });
+
+            const itDirectors = await getItDirectorRecipients(pool);
+            const recipientLabels = itDirectors.map(user => user.username || user.full_name || user.id);
+            const reportDetails = `Execution report: ${executionNotes}. CC IT Director: ${recipientLabels.join(', ') || '(belum dikonfigurasi)'}`;
+
+            await pool.request()
+                .input('ticket_id', sql.VarChar, id)
+                .input('action', sql.VarChar, 'EXECUTION_REPORT_CC')
+                .input('actor_id', sql.VarChar, executor.username)
+                .input('actor_name', sql.VarChar, executor.full_name || executor.username)
+                .input('details', sql.NVarChar, reportDetails)
+                .query(`
+                    INSERT INTO CRM_TICKET_AUDIT_LOGS
+                    (ticket_id, action, actor_id, actor_name, details)
+                    VALUES (@ticket_id, @action, @actor_id, @actor_name, @details)
+                `);
+
+            await Promise.all(itDirectors.map(user => sendWebPush(user.id, {
+                title: `CRM Ticket Executed: ${id}`,
+                body: reportDetails,
+                url: `/crm/tickets?ticket=${encodeURIComponent(id)}`,
+                type: 'crm_ticket_execution_report',
+                ticket_id: id
+            })));
+
+            res.json({
+                success: true,
+                status: 'Completed / Closed',
+                message: executionNotes,
+                cc_recipients: recipientLabels
+            });
         } catch (err) {
             await transaction.rollback();
             throw err;
@@ -1049,6 +1476,19 @@ export const lookupBilling = async (req, res) => {
                 WHERE h.BILL_NO = @billing
             `);
 
+        const memberTransaction = await getMemberBillTransmissionStatus(billing);
+
+        if (memberTransaction.transmition_type === '1') {
+            return res.status(409).json({
+                code: 'BILL_ALREADY_SYNC',
+                error: `Bill ${billing} sudah sync dan tidak bisa diajukan kembali sebagai ticket.`,
+                billing,
+                member_transaction_found: true,
+                transmition_type: memberTransaction.transmition_type,
+                can_submit: false
+            });
+        }
+
         if (result.recordset.length === 0) {
             return res.status(404).json({ error: `Billing ${billing} tidak ditemukan di database pepito_ho.` });
         }
@@ -1062,7 +1502,11 @@ export const lookupBilling = async (req, res) => {
             net_value: netValue,
             points: Math.floor(netValue / 50000),
             org_cd: orgCd,
-            store_name: billingRow.store_name || null
+            store_name: billingRow.store_name || null,
+            member_transaction_found: memberTransaction.found,
+            transmition_type: memberTransaction.transmition_type,
+            automatic_remark: memberTransaction.automatic_remark,
+            can_submit: true
         });
     } catch (err) {
         console.error('Billing lookup error:', err.message);

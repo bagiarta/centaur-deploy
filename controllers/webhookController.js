@@ -212,7 +212,7 @@ export const ssoUserSync = async (req, res) => {
   console.log(`[DEBUG] Received SSO User Sync Webhook at ${new Date().toISOString()}`);
   console.log(`[DEBUG] Body:`, JSON.stringify(req.body));
   
-  const { username, first_name, last_name, email, roles } = req.body;
+  const { username, first_name, last_name, email, roles, position } = req.body;
   if (!username) {
     return res.status(400).json({ error: 'username is required' });
   }
@@ -252,7 +252,8 @@ export const ssoUserSync = async (req, res) => {
       await pool.request()
         .input('username', sql.NVarChar, username)
         .input('role_id', sql.NVarChar, matchedRoleId)
-        .query('UPDATE Users SET role_id = @role_id WHERE username = @username');
+        .input('position', sql.NVarChar, position || null)
+        .query('UPDATE Users SET role_id = @role_id, position = COALESCE(@position, position) WHERE username = @username');
       console.log(`[DEBUG] SSO User Sync: Updated existing user ${username} to role ${matchedRoleName}`);
     } else {
       // Create new user
@@ -263,10 +264,11 @@ export const ssoUserSync = async (req, res) => {
         .input('username', sql.NVarChar, username)
         .input('full_name', sql.NVarChar, fullName)
         .input('role_id', sql.NVarChar, matchedRoleId)
+        .input('position', sql.NVarChar, position || null)
         .input('password_hash', sql.NVarChar, 'SSO_AUTHENTICATED')
         .query(`
-          INSERT INTO Users (id, username, full_name, role_id, password_hash, created_at, division)
-          VALUES (@id, @username, @full_name, @role_id, @password_hash, GETDATE(), 'SSO_SYNC')
+          INSERT INTO Users (id, username, full_name, role_id, password_hash, created_at, division, position)
+          VALUES (@id, @username, @full_name, @role_id, @password_hash, GETDATE(), 'SSO_SYNC', @position)
         `);
       console.log(`[DEBUG] SSO User Sync: Created new user ${username} with role ${matchedRoleName}`);
     }
