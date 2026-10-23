@@ -31,6 +31,7 @@ import usbRoutes from './routes/usbRoutes.js';
 import networkPolicyRoutes from './routes/networkPolicyRoutes.js';
 import { sendWebPush } from './controllers/pushController.js';
 import { startCCTVPollingJob } from './utils/cctvPollingService.js';
+import { startCrmPendingSyncJob } from './controllers/crmTicketController.js';
 
 dotenv.config();
 
@@ -163,6 +164,7 @@ const templateUpload = multer({ storage: templateStorage });
 initDb().then(() => {
   startBackgroundTasks();
   startCCTVPollingJob();
+  startCrmPendingSyncJob();
 });
 
 // Session Validation Middleware

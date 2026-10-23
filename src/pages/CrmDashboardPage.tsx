@@ -12,6 +12,7 @@ const BAR_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4
 
 export default function CrmDashboardPage() {
   const [data, setData] = useState<any[]>([]);
+  const [memberSummary, setMemberSummary] = useState<any>(null);
   const [txnData, setTxnData] = useState<any[]>([]);
   const [competitionData, setCompetitionData] = useState<any[]>([]);
   const [stores, setStores] = useState<{cd: string, name: string}[]>([]);
@@ -89,6 +90,7 @@ export default function CrmDashboardPage() {
           join_date: new Date(d.join_date).toLocaleDateString('en-GB')
         }));
         setData(formattedData);
+        setMemberSummary(enrollJson.summary || null);
       } else {
         setError(enrollJson.error || "Failed to fetch enrollment data");
       }
@@ -231,7 +233,7 @@ export default function CrmDashboardPage() {
             </div>
           </div>
           <div className="text-2xl font-bold text-foreground">
-            {latestData ? latestData.cumulative_members.toLocaleString() : "-"}
+            {memberSummary ? Number(memberSummary.total_members || 0).toLocaleString() : "-"}
           </div>
         </div>
 
@@ -243,7 +245,7 @@ export default function CrmDashboardPage() {
             </div>
           </div>
           <div className="text-2xl font-bold text-foreground">
-            {latestData ? latestData.active_members.toLocaleString() : "-"}
+            {memberSummary ? Number(memberSummary.active_members || 0).toLocaleString() : "-"}
           </div>
         </div>
 
@@ -255,7 +257,7 @@ export default function CrmDashboardPage() {
             </div>
           </div>
           <div className="text-2xl font-bold text-foreground">
-            {latestData ? latestData.inactive_members.toLocaleString() : "-"}
+            {memberSummary ? Number(memberSummary.inactive_members || 0).toLocaleString() : "-"}
           </div>
         </div>
 
