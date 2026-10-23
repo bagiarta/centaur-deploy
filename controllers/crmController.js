@@ -2450,28 +2450,51 @@ export const getApiCrmReportsType = async (req, res) => {
 export async function getApiCrmDashboard(req, res) {
   try {
     const query = `
+      WITH DailyEnrollment AS (
+        SELECT
+          CAST(JOIN_DATE AS DATE) AS join_date,
+          COUNT(DISTINCT MEMBER_ID) AS new_members,
+          COUNT(DISTINCT CASE WHEN IS_ACTIVE = 1 THEN MEMBER_ID END) AS active_members,
+          COUNT(DISTINCT CASE WHEN IS_ACTIVE = 0 THEN MEMBER_ID END) AS inactive_members
+        FROM RXL_LOYALID_ENROLLMENT (NOLOCK)
+        WHERE JOIN_DATE IS NOT NULL
+        GROUP BY CAST(JOIN_DATE AS DATE)
+      )
       SELECT
-        JOIN_DATE AS join_date,
-        COUNT(MEMBER_ID) AS new_members,
-        SUM(COUNT(MEMBER_ID)) OVER (
-          ORDER BY JOIN_DATE
+        join_date,
+        new_members,
+        SUM(new_members) OVER (
+          ORDER BY join_date
           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) AS cumulative_members,
-        SUM(CASE WHEN IS_ACTIVE = 1 THEN 1 ELSE 0 END) AS active_members,
-        SUM(CASE WHEN IS_ACTIVE = 0 THEN 1 ELSE 0 END) AS inactive_members
+        active_members,
+        inactive_members
+      FROM DailyEnrollment
+      ORDER BY join_date
+    `;
+
+    const summaryQuery = `
+      SELECT
+        COUNT(DISTINCT MEMBER_ID) AS total_members,
+        COUNT(DISTINCT CASE WHEN IS_ACTIVE = 1 THEN MEMBER_ID END) AS active_members,
+        COUNT(DISTINCT CASE WHEN IS_ACTIVE = 0 THEN MEMBER_ID END) AS inactive_members
       FROM RXL_LOYALID_ENROLLMENT (NOLOCK)
       WHERE JOIN_DATE IS NOT NULL
-      GROUP BY JOIN_DATE
-      ORDER BY JOIN_DATE
     `;
 
     const crmPool = await getCrmPool();
     const request = crmPool.request();
     const result = await request.query(query);
+    const summaryResult = await crmPool.request().query(summaryQuery);
 
     return res.json({
       success: true,
-      data: result.recordset
+      data: result.recordset,
+      summary: summaryResult.recordset[0] || {
+        total_members: 0,
+        active_members: 0,
+        inactive_members: 0
+      }
     });
   } catch (err) {
     console.error('CRM Dashboard Error:', err.message);
@@ -2508,7 +2531,8 @@ export async function getApiCrmDashboardTransactions(req, res) {
       dateFilter += " AND TRANS_DATE >= @startDate";
     }
     if (endDate) {
-      dateFilter += " AND TRANS_DATE <= @endDate";
+      // Include the complete end date when TRANS_DATE is a datetime.
+      dateFilter += " AND TRANS_DATE < DATEADD(DAY, 1, CAST(@endDate AS DATE))";
     }
 
     const query = `

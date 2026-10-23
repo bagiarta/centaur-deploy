@@ -143,6 +143,26 @@ export async function initDb() {
            db_password NVARCHAR(100),
            updated_at DATETIME DEFAULT GETDATE()
        )`,
+      `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='CRM_TICKET_QUEUE_TEMP' AND xtype='U')
+       CREATE TABLE CRM_TICKET_QUEUE_TEMP (
+           ticket_id VARCHAR(50) NOT NULL PRIMARY KEY,
+           rl_itq_integ_code VARCHAR(3) NOT NULL DEFAULT '110',
+           rl_itq_txn_type VARCHAR(3) NOT NULL DEFAULT '45',
+           rl_itq_org_cd VARCHAR(3) NOT NULL,
+           rl_itq_bill_no VARCHAR(13) NOT NULL,
+           processed_flag INT NULL DEFAULT 0,
+           txn_timestamp DATETIME NULL DEFAULT GETDATE(),
+           transmition_type VARCHAR(1) NULL DEFAULT 'O',
+           rl_itq_card_no VARCHAR(20) NOT NULL,
+           rl_itq_opening_points NUMERIC(18,2) NULL,
+           extra_info_1 VARCHAR(500) NULL DEFAULT '',
+           exchange_rate DECIMAL(18,6) NULL DEFAULT 1,
+           sync_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+           sync_error VARCHAR(1000) NULL,
+           synced_at DATETIME NULL,
+           created_at DATETIME NOT NULL DEFAULT GETDATE(),
+           updated_at DATETIME NOT NULL DEFAULT GETDATE()
+       )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Roles' AND xtype='U')
          CREATE TABLE Roles (
              id NVARCHAR(50) PRIMARY KEY,

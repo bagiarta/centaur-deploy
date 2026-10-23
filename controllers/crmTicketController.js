@@ -324,33 +324,61 @@ async function getMemberBillTransmissionStatus(billing) {
         .query(`
             SELECT TOP 1
                 RLITQ_BILL_NO AS billing,
-                TRANSMITION_TYPE AS transmition_type
+                TRANSMITION_TYPE AS transmition_type,
+                PROCESSED_FLAG AS processed_flag,
+                EXTRA_INFO_1 AS extra_info_1
             FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK)
             WHERE RLITQ_BILL_NO = @billing
               AND RLITQ_INTEG_CODE = '110'
-            ORDER BY CASE WHEN TRANSMITION_TYPE = '1' THEN 0 ELSE 1 END
+            ORDER BY CASE
+                WHEN ISNULL(PROCESSED_FLAG, 0) = 1 AND UPPER(LTRIM(RTRIM(ISNULL(EXTRA_INFO_1, '')))) = 'OK' THEN 0
+                WHEN ISNULL(PROCESSED_FLAG, 0) = -1 AND UPPER(LTRIM(RTRIM(ISNULL(EXTRA_INFO_1, '')))) LIKE '%DUPLICATE%' THEN 0
+                WHEN ISNULL(PROCESSED_FLAG, 0) = 0 AND LTRIM(RTRIM(ISNULL(EXTRA_INFO_1, ''))) = '' THEN 1
+                ELSE 2
+            END
         `);
 
     if (result.recordset.length === 0) {
-        return { found: false, transmition_type: null, automatic_remark: BILL_NOT_MEMBER_REMARK };
+        return {
+            found: false,
+            transmition_type: null,
+            processed_flag: null,
+            extra_info_1: null,
+            automatic_remark: BILL_NOT_MEMBER_REMARK,
+            can_submit: true,
+            is_already_synced: false
+        };
     }
 
     const row = result.recordset[0];
     const transmitionType = String(row.transmition_type ?? '').trim();
-    if (transmitionType === '1') {
+    const processedFlag = Number(row.processed_flag);
+    const extraInfo = String(row.extra_info_1 ?? '').trim();
+    const isNotSync = processedFlag === 0 && extraInfo === '';
+    const isAlreadySynced =
+        (processedFlag === 1 && extraInfo.toUpperCase() === 'OK') ||
+        (processedFlag === -1 && extraInfo.toUpperCase().includes('DUPLICATE'));
+
+    if (isAlreadySynced) {
         return {
             found: true,
             transmition_type: transmitionType,
+            processed_flag: processedFlag,
+            extra_info_1: extraInfo,
             automatic_remark: null,
-            can_submit: false
+            can_submit: false,
+            is_already_synced: true
         };
     }
 
     return {
         found: true,
         transmition_type: transmitionType,
-        automatic_remark: BILL_NOT_SYNC_REMARK,
-        can_submit: true
+        processed_flag: processedFlag,
+        extra_info_1: extraInfo,
+        automatic_remark: isNotSync ? BILL_NOT_SYNC_REMARK : null,
+        can_submit: true,
+        is_already_synced: false
     };
 }
 
@@ -370,8 +398,8 @@ async function preparePointAdjustmentDetails(details) {
         if (!billing) return detail;
 
         const transmission = await getMemberBillTransmissionStatus(billing);
-        if (transmission.transmition_type === '1') {
-            const error = new Error(`Bill ${billing} sudah sync dan tidak bisa diajukan kembali sebagai ticket.`);
+        if (transmission.is_already_synced) {
+            const error = new Error(`Bill ${billing} sudah terproses sebagai transaksi member, data sudah tersyncrone dan tidak bisa diajukan kembali sebagai ticket.`);
             error.statusCode = 409;
             error.code = 'BILL_ALREADY_SYNC';
             throw error;
@@ -409,6 +437,232 @@ async function getHoServerPool() {
     });
     await hoPool.connect();
     return hoPool;
+}
+
+async function getBillingQueueSeed(billing, fallbackCard, openingPoints) {
+    const hoPool = await getHoServerPool();
+    try {
+        const result = await hoPool.request()
+            .input('billing', sql.VarChar, billing)
+            .query(`
+                SELECT TOP 1 BILL_NO AS bill_no, ORG_CD AS org_cd
+                FROM POS_SALES_HDR WITH (NOLOCK)
+                WHERE BILL_NO = @billing
+            `);
+        const row = result.recordset[0];
+        if (!row) return null;
+        return {
+            bill_no: row.bill_no,
+            org_cd: String(row.org_cd || '').trim(),
+            // The queue card must follow the card/member submitted in the ticket.
+            // Do not replace it with POS_SALES_HDR's default customer/card value.
+            card_no: String(fallbackCard || '').trim(),
+            opening_points: Number.isFinite(Number(openingPoints)) ? Number(openingPoints) : 0
+        };
+    } finally {
+        await hoPool.close().catch(() => {});
+    }
+}
+
+async function stageMissingAdjustmentQueue(poolOrTransaction, ticketId, detail, fallbackCard) {
+    const billing = String(detail?.transaction_ref || '').trim();
+    if (!billing) return false;
+    const transmission = await getMemberBillTransmissionStatus(billing);
+    if (transmission.found) return false;
+
+    const oldValuePoints = Number(detail?.old_value);
+    const h2hPoints = Number.isFinite(oldValuePoints)
+        ? oldValuePoints
+        : await getH2hMemberPoints(fallbackCard);
+    const seed = await getBillingQueueSeed(billing, fallbackCard, h2hPoints);
+    if (!seed?.org_cd || !seed?.card_no) {
+        const error = new Error(`Bill ${billing} belum memiliki org_cd atau card_no yang valid dari POS_SALES_HDR.`);
+        error.statusCode = 409;
+        error.code = 'BILL_QUEUE_SEED_NOT_FOUND';
+        throw error;
+    }
+
+    await new sql.Request(poolOrTransaction)
+        .input('ticket_id', sql.VarChar, ticketId)
+        .input('org_cd', sql.VarChar, seed.org_cd)
+        .input('bill_no', sql.VarChar, seed.bill_no)
+        .input('card_no', sql.VarChar, seed.card_no)
+        .input('opening_points', sql.Decimal(18, 2), seed.opening_points)
+        .query(`
+            MERGE CRM_TICKET_QUEUE_TEMP AS target
+            USING (SELECT @ticket_id AS ticket_id) AS source
+            ON target.ticket_id = source.ticket_id
+            WHEN MATCHED THEN UPDATE SET
+                rl_itq_org_cd = @org_cd, rl_itq_bill_no = @bill_no,
+                rl_itq_card_no = @card_no, rl_itq_opening_points = @opening_points,
+                processed_flag = 0, extra_info_1 = '', sync_status = 'PENDING',
+                sync_error = NULL, synced_at = NULL, updated_at = GETDATE()
+            WHEN NOT MATCHED THEN INSERT
+                (ticket_id, rl_itq_org_cd, rl_itq_bill_no, rl_itq_card_no, rl_itq_opening_points)
+            VALUES (@ticket_id, @org_cd, @bill_no, @card_no, @opening_points);
+        `);
+    return true;
+}
+
+async function resolveOrgTargetPool(orgCd) {
+    const normalizedOrg = String(orgCd || '').trim().padStart(3, '0');
+    if (!/^\d{3}$/.test(normalizedOrg)) {
+        const error = new Error(`org_cd '${orgCd}' tidak valid untuk koneksi server tujuan.`);
+        error.statusCode = 409;
+        error.code = 'ORG_CONNECTION_NOT_CONFIGURED';
+        throw error;
+    }
+    const pool = await getTicketPool();
+    const result = await pool.request()
+        .input('hostname', sql.NVarChar, `STORESRVR${normalizedOrg}`)
+        .query(`
+            SELECT TOP 1 d.ip, c.db_user, c.db_password, c.db_name
+            FROM Devices d
+            JOIN DeviceDbConnections c ON c.device_id = d.id
+            WHERE UPPER(d.hostname) = @hostname
+        `);
+    const config = result.recordset[0];
+    if (!config?.ip || !config?.db_user || !config?.db_name) {
+        const error = new Error(`Koneksi database untuk org_cd ${normalizedOrg} belum dikonfigurasi. Isi DeviceDbConnections pada device STORESRVR${normalizedOrg}.`);
+        error.statusCode = 409;
+        error.code = 'ORG_CONNECTION_NOT_CONFIGURED';
+        throw error;
+    }
+    const targetPool = new sql.ConnectionPool({
+        user: config.db_user, password: config.db_password, server: config.ip,
+        database: config.db_name,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
+        connectionTimeout: 10000, requestTimeout: 30000
+    });
+    await targetPool.connect();
+    return targetPool;
+}
+
+async function pushStagedAdjustment(pool, ticketId) {
+    const staged = await pool.request()
+        .input('ticket_id', sql.VarChar, ticketId)
+        .query(`SELECT TOP 1 * FROM CRM_TICKET_QUEUE_TEMP WHERE ticket_id = @ticket_id AND sync_status <> 'SYNCED'`);
+    const row = staged.recordset[0];
+    if (!row) return null;
+
+    const targetPool = await resolveOrgTargetPool(row.rl_itq_org_cd);
+    try {
+        const exists = await targetPool.request()
+            .input('bill_no', sql.VarChar, row.rl_itq_bill_no)
+            .query(`SELECT TOP 1 1 AS found FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK) WHERE RLITQ_INTEG_CODE = '110' AND RLITQ_BILL_NO = @bill_no`);
+        if (exists.recordset.length === 0) {
+            await targetPool.request()
+                .input('integ_code', sql.VarChar, row.rl_itq_integ_code)
+                .input('txn_type', sql.VarChar, row.rl_itq_txn_type)
+                .input('org_cd', sql.VarChar, row.rl_itq_org_cd)
+                .input('bill_no', sql.VarChar, row.rl_itq_bill_no)
+                .input('processed_flag', sql.Int, 0)
+                .input('card_no', sql.VarChar, row.rl_itq_card_no)
+                .input('opening_points', sql.Decimal(18, 2), row.rl_itq_opening_points || 0)
+                .query(`
+                    INSERT INTO RXL_LOYALTY_INTEG_TRANS_QUEUE
+                    (RLITQ_INTEG_CODE, RLITQ_TXN_TYPE, RLITQ_ORG_CD, RLITQ_BILL_NO,
+                     PROCESSED_FLAG, TXN_TIMESTAMP, TRANSMITION_TYPE, RLITQ_CARD_NO,
+                     RLITQ_OPENING_POINTS, EXTRA_INFO_1, EXCHANGE_RATE)
+                    VALUES (@integ_code, @txn_type, @org_cd, @bill_no, @processed_flag,
+                            GETDATE(), 'O', @card_no, @opening_points, '', 1)
+                `);
+        }
+    } finally {
+        await targetPool.close().catch(() => {});
+    }
+
+    await pool.request()
+        .input('ticket_id', sql.VarChar, ticketId)
+        .query(`UPDATE CRM_TICKET_QUEUE_TEMP SET sync_status = 'PENDING', processed_flag = 0, sync_error = NULL, synced_at = NULL, updated_at = GETDATE() WHERE ticket_id = @ticket_id`);
+    return row;
+}
+
+let crmPendingSyncJobStarted = false;
+let crmPendingSyncJobRunning = false;
+
+export function startCrmPendingSyncJob() {
+    if (crmPendingSyncJobStarted) return;
+    crmPendingSyncJobStarted = true;
+    setInterval(() => {
+        syncPendingAdjustmentTickets().catch(error => {
+            console.error('[CRM SYNC] Pending adjustment sync job failed:', error.message);
+        });
+    }, 5 * 60 * 1000);
+    console.log('[CRM SYNC] Pending adjustment checker scheduled every 5 minutes.');
+}
+
+export async function syncPendingAdjustmentTickets() {
+    if (crmPendingSyncJobRunning) return { skipped: true };
+    crmPendingSyncJobRunning = true;
+    try {
+        const pool = await getTicketPool();
+        const pending = await pool.request().query(`
+            SELECT t.ticket_id, q.*
+            FROM CRM_TICKETS t
+            JOIN CRM_TICKET_QUEUE_TEMP q ON q.ticket_id = t.ticket_id
+            WHERE t.status = 'Synchronization Pending'
+              AND q.sync_status = 'PENDING'
+        `);
+        let completed = 0;
+        for (const row of pending.recordset) {
+            let targetPool;
+            try {
+                targetPool = await resolveOrgTargetPool(row.rl_itq_org_cd);
+                const result = await targetPool.request()
+                    .input('bill_no', sql.VarChar, row.rl_itq_bill_no)
+                    .query(`
+                        SELECT TOP 1 PROCESSED_FLAG AS processed_flag, EXTRA_INFO_1 AS extra_info_1
+                        FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK)
+                        WHERE RLITQ_INTEG_CODE = '110' AND RLITQ_BILL_NO = @bill_no
+                        ORDER BY TXN_TIMESTAMP DESC
+                    `);
+                const queueRow = result.recordset[0];
+                const flag = Number(queueRow?.processed_flag);
+                const extra = String(queueRow?.extra_info_1 || '').trim().toUpperCase();
+                const isSynced = (flag === 1 && extra === 'OK') ||
+                    (flag === -1 && extra.includes('DUPLICATE'));
+                if (!isSynced) continue;
+
+                const tx = new sql.Transaction(pool);
+                await tx.begin();
+                try {
+                    await new sql.Request(tx)
+                        .input('ticket_id', sql.VarChar, row.ticket_id)
+                        .input('flag', sql.Int, flag)
+                        .input('extra', sql.VarChar, queueRow.extra_info_1 || '')
+                        .query(`
+                            UPDATE CRM_TICKETS
+                            SET status = 'Completed / Sync / Closed', updated_at = GETDATE(), closed_at = GETDATE()
+                            WHERE ticket_id = @ticket_id AND status = 'Synchronization Pending';
+                            UPDATE CRM_TICKET_QUEUE_TEMP
+                            SET sync_status = 'SYNCED', processed_flag = @flag, extra_info_1 = @extra,
+                                sync_error = NULL, synced_at = GETDATE(), updated_at = GETDATE()
+                            WHERE ticket_id = @ticket_id;
+                            INSERT INTO CRM_TICKET_AUDIT_LOGS
+                                (ticket_id, action, actor_id, actor_name, details)
+                            VALUES (@ticket_id, 'SYNCHRONIZED', 'SYSTEM', 'CRM Sync Scheduler',
+                                CONCAT('Queue bill ', @ticket_id, ' sudah sinkron. processed_flag=', @flag, ', extra_info_1=', @extra));
+                        `);
+                    await tx.commit();
+                    completed += 1;
+                } catch (error) {
+                    await tx.rollback();
+                    throw error;
+                }
+            } catch (error) {
+                console.warn(`[CRM SYNC] Ticket ${row.ticket_id} belum dapat diperiksa:`, error.message);
+            } finally {
+                if (targetPool) await targetPool.close().catch(() => {});
+            }
+        }
+        if (pending.recordset.length > 0) {
+            console.log(`[CRM SYNC] Checked ${pending.recordset.length} pending ticket(s), completed ${completed}.`);
+        }
+        return { checked: pending.recordset.length, completed };
+    } finally {
+        crmPendingSyncJobRunning = false;
+    }
 }
 
 async function logValidationFailure(pool, ticketId, executorId, executorName, details) {
@@ -601,6 +855,10 @@ export const createTicket = async (req, res) => {
                         VALUES (@ticket_id, @field_name, @old_value, @new_value, @reason, @transaction_ref, @attachment_url)
                     `);
             }
+
+            if (request_type === 'POINT_ADJUSTMENT' && normalizedDetails?.[0]) {
+                await stageMissingAdjustmentQueue(transaction, ticket_id, normalizedDetails[0], customer_id);
+            }
             
             // 3. Audit Log
             const reqLog = new sql.Request(transaction);
@@ -789,6 +1047,13 @@ export const approveTicket = async (req, res) => {
                     SET status = @status, current_approval_level = @level, updated_at = GETDATE()
                     WHERE ticket_id = @ticket_id
                 `);
+
+            if (ticket.request_type === 'POINT_ADJUSTMENT') {
+                await new sql.Request(transaction)
+                    .input('ticket_id', sql.VarChar, id)
+                    .input('sync_status', sql.VarChar, action === 'REJECT' ? 'REJECTED' : action === 'RETURN' ? 'RETURNED' : 'PENDING')
+                    .query(`UPDATE CRM_TICKET_QUEUE_TEMP SET sync_status = @sync_status, updated_at = GETDATE() WHERE ticket_id = @ticket_id`);
+            }
                 
             const reqApp = new sql.Request(transaction);
             await reqApp
@@ -961,6 +1226,10 @@ export const resubmitTicket = async (req, res) => {
                         `);
                 }
             }
+
+            if (request_type === 'POINT_ADJUSTMENT' && normalizedDetails?.[0]) {
+                await stageMissingAdjustmentQueue(transaction, id, normalizedDetails[0], currentTicket.recordset[0].customer_id);
+            }
                 
             const reqLog = new sql.Request(transaction);
             await reqLog
@@ -1010,7 +1279,7 @@ export const deleteTicket = async (req, res) => {
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
         try {
-            for (const table of ['CRM_TICKET_APPROVALS', 'CRM_TICKET_DETAILS', 'CRM_TICKET_AUDIT_LOGS']) {
+            for (const table of ['CRM_TICKET_QUEUE_TEMP', 'CRM_TICKET_APPROVALS', 'CRM_TICKET_DETAILS', 'CRM_TICKET_AUDIT_LOGS']) {
                 await new sql.Request(transaction)
                     .input('ticket_id', sql.VarChar, id)
                     .query(`DELETE FROM ${table} WHERE ticket_id = @ticket_id`);
@@ -1062,6 +1331,7 @@ export const executeTicket = async (req, res) => {
         const details = detailsRes.recordset;
 
         let executionNotes = `Executed. Notes: ${result_notes || '-'}`;
+        let executionSyncPending = false;
 
         // 2. Perform live customer updates based on request_type
         if (ticket.request_type === 'MERGE_POINTS' && details.length > 0) {
@@ -1170,6 +1440,7 @@ export const executeTicket = async (req, res) => {
         } else if (ticket.request_type === 'POINT_ADJUSTMENT' && details.length > 0) {
             const detail = details[0];
             const adjustmentBillNo = String(detail.transaction_ref || '').trim();
+            let stagedAdjustment = null;
             if (!adjustmentBillNo) {
                 const message = 'Execute adjustment ditolak: bill_no belum tersedia pada ticket.';
                 await logValidationFailure(pool, id, executor_id, executor_name, message);
@@ -1181,6 +1452,10 @@ export const executeTicket = async (req, res) => {
             }
 
             try {
+                const stagedResult = await pool.request()
+                    .input('ticket_id', sql.VarChar, id)
+                    .query(`SELECT TOP 1 * FROM CRM_TICKET_QUEUE_TEMP WHERE ticket_id = @ticket_id AND sync_status <> 'SYNCED'`);
+                stagedAdjustment = stagedResult.recordset[0] || null;
                 const billPool = await getCustomerLookupPool();
                 const billResult = await billPool.request()
                     .input('billing', sql.VarChar, adjustmentBillNo)
@@ -1194,7 +1469,7 @@ export const executeTicket = async (req, res) => {
                     `);
                 const billRow = billResult.recordset[0];
                 const processedFlag = Number(billRow?.processed_flag);
-                if (!billRow || ![1, -1].includes(processedFlag)) {
+                if (!stagedAdjustment && (!billRow || ![1, -1].includes(processedFlag))) {
                     const message = billRow
                         ? `Execute adjustment ditolak: bill_no ${adjustmentBillNo} memiliki processed_flag ${billRow.processed_flag}; nilai yang diizinkan hanya 1 atau -1.`
                         : `Execute adjustment ditolak: bill_no ${adjustmentBillNo} tidak ditemukan pada transaksi member.`;
@@ -1254,6 +1529,30 @@ export const executeTicket = async (req, res) => {
             } catch (e55) {
                 console.error("Failed to execute Point Adjustment in DBWH_8555:", e55);
                 throw e55;
+            }
+
+            if (stagedAdjustment) {
+                try {
+                    // Always re-apply the card submitted on the ticket before sending
+                    // the temporary queue row; this also repairs older staged rows.
+                    await pool.request()
+                        .input('ticket_id', sql.VarChar, id)
+                        .input('card_no', sql.VarChar, ticket.customer_id)
+                        .query(`
+                            UPDATE CRM_TICKET_QUEUE_TEMP
+                            SET rl_itq_card_no = @card_no, updated_at = GETDATE()
+                            WHERE ticket_id = @ticket_id
+                        `);
+                    await pushStagedAdjustment(pool, id);
+                    executionSyncPending = true;
+                    executionNotes += ' Temporary queue berhasil dikirim ke server tujuan berdasarkan org_cd.';
+                } catch (queueError) {
+                    await logValidationFailure(pool, id, executor_id, executor_name, `POINT_ADJUSTMENT temporary queue push failed. bill_no=${adjustmentBillNo}, error=${queueError.message}`);
+                    return res.status(queueError.statusCode || 502).json({
+                        error: queueError.message,
+                        code: queueError.code || 'QUEUE_TARGET_INSERT_ERROR'
+                    });
+                }
             }
         } else if (ticket.request_type === 'DATA_UPDATE' && details.length > 0) {
             const detail = details[0];
@@ -1334,10 +1633,10 @@ export const executeTicket = async (req, res) => {
             const reqUpdate = new sql.Request(transaction);
             await reqUpdate
                 .input('ticket_id', sql.VarChar, id)
-                .input('status', sql.VarChar, 'Completed / Closed')
+                .input('status', sql.VarChar, executionSyncPending ? 'Synchronization Pending' : 'Completed / Closed')
                 .query(`
                     UPDATE CRM_TICKETS 
-                    SET status = @status, updated_at = GETDATE(), closed_at = GETDATE()
+                    SET status = @status, updated_at = GETDATE(), closed_at = CASE WHEN @status = 'Completed / Closed' THEN GETDATE() ELSE NULL END
                     WHERE ticket_id = @ticket_id
                 `);
                 
@@ -1382,7 +1681,7 @@ export const executeTicket = async (req, res) => {
 
             res.json({
                 success: true,
-                status: 'Completed / Closed',
+                status: executionSyncPending ? 'Synchronization Pending' : 'Completed / Closed',
                 message: executionNotes,
                 cc_recipients: recipientLabels
             });
@@ -1478,13 +1777,15 @@ export const lookupBilling = async (req, res) => {
 
         const memberTransaction = await getMemberBillTransmissionStatus(billing);
 
-        if (memberTransaction.transmition_type === '1') {
+        if (memberTransaction.is_already_synced) {
             return res.status(409).json({
                 code: 'BILL_ALREADY_SYNC',
-                error: `Bill ${billing} sudah sync dan tidak bisa diajukan kembali sebagai ticket.`,
+                error: `Bill ${billing} sudah terproses sebagai transaksi member, data sudah tersyncrone dan tidak bisa diajukan kembali sebagai ticket.`,
                 billing,
                 member_transaction_found: true,
                 transmition_type: memberTransaction.transmition_type,
+                processed_flag: memberTransaction.processed_flag,
+                extra_info_1: memberTransaction.extra_info_1,
                 can_submit: false
             });
         }
@@ -1505,8 +1806,10 @@ export const lookupBilling = async (req, res) => {
             store_name: billingRow.store_name || null,
             member_transaction_found: memberTransaction.found,
             transmition_type: memberTransaction.transmition_type,
+            processed_flag: memberTransaction.processed_flag,
+            extra_info_1: memberTransaction.extra_info_1,
             automatic_remark: memberTransaction.automatic_remark,
-            can_submit: true
+            can_submit: memberTransaction.can_submit
         });
     } catch (err) {
         console.error('Billing lookup error:', err.message);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { 
   Ticket, CheckCircle2, XCircle, AlertTriangle, Clock, 
   Search, Info, Plus, ChevronRight, User as UserIcon,
@@ -164,9 +164,13 @@ export default function CrmTicketsPage() {
     store_name?: string;
     member_transaction_found?: boolean;
     transmition_type?: string | null;
+    processed_flag?: number | null;
+    extra_info_1?: string | null;
     automatic_remark?: string | null;
     can_submit?: boolean;
   } | null>(null);
+  const lastBillingLookupRef = useRef<string | null>(null);
+  const billingLookupInFlightRef = useRef<string | null>(null);
 
   const [formData, setFormData] = useState({
     customer_id: '',
@@ -333,12 +337,15 @@ export default function CrmTicketsPage() {
   const handleBillingLookup = async (billingOverride?: string) => {
     const billing = (billingOverride ?? formData.details[0]?.transaction_ref ?? '').trim();
     if (!billing || formData.request_type !== 'POINT_ADJUSTMENT') return;
+    if (billingLookupInFlightRef.current === billing || lastBillingLookupRef.current === billing) return;
 
+    billingLookupInFlightRef.current = billing;
     setBillingLookupLoading(true);
     setBillingLookupError('');
     try {
       const res = await fetch(`/api/crm/tickets/billing-lookup?billing=${encodeURIComponent(billing)}`);
       const data = await res.json().catch(() => ({}));
+      lastBillingLookupRef.current = billing;
       if (!res.ok) {
         setBillingData(null);
         setBillingLookupError(data.error || 'Billing tidak ditemukan');
@@ -366,9 +373,11 @@ export default function CrmTicketsPage() {
         return { ...prev, unit_branch: data.store_name || data.org_cd || prev.unit_branch, details: nd };
       });
     } catch (err) {
+      lastBillingLookupRef.current = null;
       setBillingData(null);
       setBillingLookupError('Gagal mengambil net value billing');
     } finally {
+      if (billingLookupInFlightRef.current === billing) billingLookupInFlightRef.current = null;
       setBillingLookupLoading(false);
     }
   };
@@ -930,6 +939,7 @@ export default function CrmTicketsPage() {
                       value={formData.details[0].transaction_ref} onChange={e => {
                         const nd = [...formData.details];
                         nd[0] = { ...nd[0], transaction_ref: e.target.value, new_value: '0' };
+                        lastBillingLookupRef.current = null;
                         setBillingData(null);
                         setBillingLookupError('');
                         setFormData({...formData, unit_branch: '', details: nd});
@@ -941,7 +951,7 @@ export default function CrmTicketsPage() {
                     {billingData && !billingData.member_transaction_found && (
                       <p className="text-[10px] text-warning mt-1">Data bill belum tercatat sebagai transaksi member. Remark otomatis sudah diisi.</p>
                     )}
-                    {billingData?.member_transaction_found && billingData.transmition_type === '0' && (
+                    {billingData?.member_transaction_found && billingData.processed_flag === 0 && !billingData.extra_info_1 && (
                       <p className="text-[10px] text-warning mt-1">Data member ditemukan tetapi belum sync. Remark otomatis sudah diisi.</p>
                     )}
                   </div>
