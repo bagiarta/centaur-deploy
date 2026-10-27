@@ -289,9 +289,14 @@ async function getCustomerLookupPool() {
 const BILL_NOT_SYNC_REMARK = 'Data not sync please check rxlOfflineService Version Server.';
 const BILL_NOT_MEMBER_REMARK = 'Data bill belum tercatat sebagai transaksi member.';
 const DATA_UPDATE_COLUMN_MAP = {
-    card_no: 'RLICM_CARD_NO',
     mobile_no: 'RLICM_MOBILE_NO',
 };
+
+const IMMUTABLE_DATA_UPDATE_FIELDS = new Set(['card_no']);
+
+function isImmutableDataUpdateField(fieldName) {
+    return IMMUTABLE_DATA_UPDATE_FIELDS.has(String(fieldName || '').trim().toLowerCase());
+}
 
 async function findExistingDataUpdateCustomers(detail, currentCustomerId) {
     const field = String(detail?.field_name || '').trim();
@@ -584,6 +589,10 @@ let crmPendingSyncJobRunning = false;
 export function startCrmPendingSyncJob() {
     if (crmPendingSyncJobStarted) return;
     crmPendingSyncJobStarted = true;
+    // Check existing Synchronization Pending tickets immediately after startup.
+    syncPendingAdjustmentTickets().catch(error => {
+        console.error('[CRM SYNC] Initial pending adjustment sync failed:', error.message);
+    });
     setInterval(() => {
         syncPendingAdjustmentTickets().catch(error => {
             console.error('[CRM SYNC] Pending adjustment sync job failed:', error.message);
@@ -598,11 +607,11 @@ export async function syncPendingAdjustmentTickets() {
     try {
         const pool = await getTicketPool();
         const pending = await pool.request().query(`
-            SELECT t.ticket_id, q.*
+            SELECT t.ticket_id AS ticket_ref, q.*
             FROM CRM_TICKETS t
             JOIN CRM_TICKET_QUEUE_TEMP q ON q.ticket_id = t.ticket_id
             WHERE t.status = 'Synchronization Pending'
-              AND q.sync_status = 'PENDING'
+              AND ISNULL(q.sync_status, 'PENDING') <> 'SYNCED'
         `);
         let completed = 0;
         for (const row of pending.recordset) {
@@ -615,12 +624,18 @@ export async function syncPendingAdjustmentTickets() {
                         SELECT TOP 1 PROCESSED_FLAG AS processed_flag, EXTRA_INFO_1 AS extra_info_1
                         FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK)
                         WHERE RLITQ_INTEG_CODE = '110' AND RLITQ_BILL_NO = @bill_no
-                        ORDER BY TXN_TIMESTAMP DESC
+                        ORDER BY CASE
+                            WHEN ISNULL(PROCESSED_FLAG, 0) = 1
+                                 AND UPPER(LTRIM(RTRIM(ISNULL(EXTRA_INFO_1, '')))) LIKE '%OK%' THEN 0
+                            WHEN ISNULL(PROCESSED_FLAG, 0) = -1
+                                 AND UPPER(LTRIM(RTRIM(ISNULL(EXTRA_INFO_1, '')))) LIKE '%DUPLICATE%' THEN 0
+                            ELSE 1
+                        END, TXN_TIMESTAMP DESC
                     `);
                 const queueRow = result.recordset[0];
                 const flag = Number(queueRow?.processed_flag);
                 const extra = String(queueRow?.extra_info_1 || '').trim().toUpperCase();
-                const isSynced = (flag === 1 && extra === 'OK') ||
+                const isSynced = (flag === 1 && extra.includes('OK')) ||
                     (flag === -1 && extra.includes('DUPLICATE'));
                 if (!isSynced) continue;
 
@@ -628,7 +643,7 @@ export async function syncPendingAdjustmentTickets() {
                 await tx.begin();
                 try {
                     await new sql.Request(tx)
-                        .input('ticket_id', sql.VarChar, row.ticket_id)
+                        .input('ticket_id', sql.VarChar, row.ticket_ref)
                         .input('flag', sql.Int, flag)
                         .input('extra', sql.VarChar, queueRow.extra_info_1 || '')
                         .query(`
@@ -651,7 +666,7 @@ export async function syncPendingAdjustmentTickets() {
                     throw error;
                 }
             } catch (error) {
-                console.warn(`[CRM SYNC] Ticket ${row.ticket_id} belum dapat diperiksa:`, error.message);
+                console.warn(`[CRM SYNC] Ticket ${row.ticket_ref} belum dapat diperiksa:`, error.message);
             } finally {
                 if (targetPool) await targetPool.close().catch(() => {});
             }
@@ -739,6 +754,12 @@ export const createTicket = async (req, res) => {
         // Prevent duplicate customer identity data before creating a DATA_UPDATE ticket.
         if (request_type === 'DATA_UPDATE' && normalizedDetails && normalizedDetails.length > 0) {
             const detail = normalizedDetails[0];
+            if (isImmutableDataUpdateField(detail.field_name)) {
+                return res.status(400).json({
+                    code: 'IMMUTABLE_FIELD',
+                    error: 'card_no tidak dapat diubah.'
+                });
+            }
             const conflicts = await findExistingDataUpdateCustomers(detail, customer_id);
             if (conflicts.length > 0) {
                 return res.status(409).json({
@@ -1104,6 +1125,16 @@ export const resubmitTicket = async (req, res) => {
 
         if (request_type === 'POINT_ADJUSTMENT') {
             normalizedDetails = await preparePointAdjustmentDetails(details);
+        }
+
+        if (request_type === 'DATA_UPDATE' && normalizedDetails && normalizedDetails.length > 0) {
+            const detail = normalizedDetails[0];
+            if (isImmutableDataUpdateField(detail.field_name)) {
+                return res.status(400).json({
+                    code: 'IMMUTABLE_FIELD',
+                    error: 'card_no tidak dapat diubah.'
+                });
+            }
         }
 
         const currentTicket = await pool.request()
@@ -1557,7 +1588,18 @@ export const executeTicket = async (req, res) => {
         } else if (ticket.request_type === 'DATA_UPDATE' && details.length > 0) {
             const detail = details[0];
             if (detail.field_name && detail.new_value) {
-                const memberIdentifier = ticket.mobile_no || ticket.customer_id;
+                if (isImmutableDataUpdateField(detail.field_name)) {
+                    const message = 'Execute DATA_UPDATE ditolak: card_no tidak dapat diubah.';
+                    await logValidationFailure(pool, id, executor_id, executor_name, message);
+                    return res.status(400).json({
+                        code: 'IMMUTABLE_FIELD',
+                        error: message
+                    });
+                }
+
+                // customer_id is the immutable card number stored on the ticket.
+                // H2H customer lookup must be keyed by card_no, not mobile_no.
+                const memberIdentifier = ticket.customer_id;
                 let h2hData;
                 let h2hValue;
 
@@ -1614,7 +1656,7 @@ export const executeTicket = async (req, res) => {
                                 UPDATE RXL_LOYALID_CUSTOMER_MST
                                 SET ${col} = @val,
                                     UPDATED_AT = GETDATE()
-                                WHERE RLICM_CARD_NO = @card OR RLICM_MOBILE_NO = @card
+                                WHERE RLICM_CARD_NO = @card
                             `);
                         executionNotes = `Data Update Berhasil: ${detail.field_name} diubah menjadi '${detail.new_value}'. Validasi H2H: '${h2hValue}' sama dengan nilai yang diajukan. Notes: ${result_notes || '-'}`;
                     }
