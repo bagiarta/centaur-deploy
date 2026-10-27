@@ -129,6 +129,7 @@ export default function CrmTicketsPage() {
   const canApproveManager = user?.is_admin === true || normalizedPosition.includes('manager') || normalizedRole.includes('manager') || (normalizedRole === 'operation' && normalizedDivision === 'area manager');
   const canApproveMarketing = normalizedPosition.includes('marketing') || normalizedPosition.includes('director') || normalizedPosition.includes('head') || normalizedPosition.includes('vice president') || normalizedPosition === 'vp' || normalizedRole.includes('marketing') || normalizedDivision.includes('marketing') || normalizedRole.includes('director') || user?.is_admin === true;
   const canExecute = user?.is_admin === true || normalizedPosition.includes('sysadmin') || normalizedPosition.includes('system administrator') || normalizedPosition.includes('it operational') || normalizedRole.includes('it operational');
+  const selectedTicketIsCompleted = String(selectedTicketData?.ticket?.status || '').toLowerCase().includes('completed');
 
   useEffect(() => {
     if (user?.username) {
@@ -609,7 +610,11 @@ export default function CrmTicketsPage() {
     setDetailLoading(true);
     setSelectedTicketData(null);
     try {
-      const res = await fetch(`/api/crm/tickets/${id}`);
+      const res = await fetch(`/api/crm/tickets/${id}`, {
+        headers: {
+          'x-user-id': user?.id || user?.username || ''
+        }
+      });
       if (res.ok) {
         const data = await res.json();
         setSelectedTicketData(data);
@@ -1536,10 +1541,13 @@ export default function CrmTicketsPage() {
                 )}
 
                 <div className="flex flex-wrap gap-2 justify-end pt-4 border-t border-border mt-4">
-                  {/* Action Buttons with RBAC */}
-                  {((selectedTicketData.ticket.status === 'Pending Approval L1' && canApproveManager) ||
-                    (selectedTicketData.ticket.status === 'Pending Approval L2' && canApproveManager) ||
-                    (selectedTicketData.ticket.status === 'Pending Approval L3' && canApproveMarketing)) && (
+                  {/* Action Buttons with Dynamic Workflow Permissions */}
+                  {!selectedTicketIsCompleted && (selectedTicketData.permissions
+                    ? selectedTicketData.permissions.can_approve
+                    : ((selectedTicketData.ticket.status === 'Pending Approval L1' && canApproveManager) ||
+                       (selectedTicketData.ticket.status === 'Pending Approval L2' && canApproveManager) ||
+                       (selectedTicketData.ticket.status === 'Pending Approval L3' && canApproveMarketing))
+                  ) && (
                     <>
                       <button className="px-4 py-2 text-xs font-bold bg-danger text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
                         onClick={async () => {
@@ -1547,7 +1555,10 @@ export default function CrmTicketsPage() {
                           if (comments === null) return;
                           const approveResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
                             method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'x-user-id': user?.id || user?.username || ''
+                            },
                             body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'REJECT', comments })
                           });
                           if (!approveResponse.ok) {
@@ -1564,7 +1575,10 @@ export default function CrmTicketsPage() {
                           if (comments === null) return;
                           await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
                             method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'x-user-id': user?.id || user?.username || ''
+                            },
                             body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'RETURN', comments })
                           });
                           openTicketDetail(selectedTicketId);
@@ -1576,7 +1590,10 @@ export default function CrmTicketsPage() {
                           const comments = prompt("Approval Comments:") || 'Approved';
                           const approveResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
                             method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'x-user-id': user?.id || user?.username || ''
+                            },
                             body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'APPROVE', comments })
                           });
                           if (!approveResponse.ok) {
@@ -1588,6 +1605,11 @@ export default function CrmTicketsPage() {
                         }}
                       >Approve</button>
                     </>
+                  )}
+                  {!selectedTicketIsCompleted && !selectedTicketData.permissions?.can_approve && selectedTicketData.ticket.status.includes('Pending Approval') && selectedTicketData.permissions?.approve_reason && (
+                    <div className="w-full text-right text-[11px] text-foreground-muted italic py-1">
+                      ℹ️ {selectedTicketData.permissions.approve_reason}
+                    </div>
                   )}
                   {/* Action Button for Resubmit */}
                   {selectedTicketData.ticket.status === 'Need Information' &&
@@ -1615,7 +1637,10 @@ export default function CrmTicketsPage() {
                     >Edit & Resubmit Ticket</button>
                   )}
                   {/* Action Button for Execution */}
-                  {selectedTicketData.ticket.status === 'Approved' && canExecute && (
+                  {!selectedTicketIsCompleted && (selectedTicketData.permissions
+                    ? selectedTicketData.permissions.can_execute
+                    : (selectedTicketData.ticket.status === 'Approved' && canExecute)
+                  ) && (
                     <button className="px-4 py-2 text-xs font-bold bg-primary text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
                       onClick={async () => {
                         const isMerge = selectedTicketData.ticket.request_type === 'MERGE_POINTS';
@@ -1628,7 +1653,10 @@ export default function CrmTicketsPage() {
                         try {
                         const executeResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/execute`, {
                           method: 'POST',
-                          headers: {'Content-Type': 'application/json'},
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'x-user-id': user?.id || user?.username || ''
+                          },
                           body: JSON.stringify({ executor_id: currentUserNIP, executor_name: currentUserNIP, result_notes: notes })
                         });
                         const executeData = await executeResponse.json().catch(() => ({}));
@@ -1678,7 +1706,7 @@ export default function CrmTicketsPage() {
                       )}
                     </button>
                   )}
-                  {user?.is_admin && selectedTicketData.ticket.status !== 'Completed / Closed' && (
+                  {user?.is_admin && !selectedTicketIsCompleted && (
                     <button
                       onClick={async () => {
                         if (!confirm(`Hapus ticket ${selectedTicketId}? Data approval, detail, dan audit ticket akan ikut dihapus.`)) return;

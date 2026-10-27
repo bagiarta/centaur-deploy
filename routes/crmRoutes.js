@@ -49,6 +49,8 @@ router.put('/api/support/production-flags/:itemCode', productionFlagController.u
 
 // Ticket module routes
 router.get('/api/crm/tickets-dashboard', crmTicketController.getTicketDashboard);
+router.get('/api/crm/tickets/approval-config', crmTicketController.getApprovalWorkflowConfig);
+router.put('/api/crm/tickets/approval-config', crmTicketController.updateApprovalWorkflowConfig);
 router.get('/api/crm/tickets/customer-lookup', crmTicketController.lookupCustomer);
 router.get('/api/crm/tickets/billing-lookup', crmTicketController.lookupBilling);
 router.post('/api/crm/tickets', crmTicketController.createTicket);
