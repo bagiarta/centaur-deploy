@@ -246,21 +246,169 @@ async function getItDirectorRecipients(pool) {
     return [...recipients.values()];
 }
 
-function initialTicketWorkflow(requester) {
-    // L2 = Manager approval, L3 = Marketing Manager or higher approval.
-    // A manager's own level is recorded as an automatic approval and the
-    // ticket goes directly to Marketing Manager / higher.
-    if (isManagerUser(requester)) {
+function safeParseJson(value, fallback = []) {
+    if (!value) return fallback;
+    if (Array.isArray(value)) return value;
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+export async function getEffectiveWorkflowConfig(pool, requestType = 'DEFAULT') {
+    let result = null;
+    try {
+        result = await pool.request()
+            .input('key', sql.VarChar, requestType)
+            .query("SELECT TOP 1 * FROM CRM_TICKET_WORKFLOW_CONFIG WHERE config_key = @key");
+    } catch (e) {
+        console.warn('[CRM WORKFLOW] Failed reading specific config:', e.message);
+    }
+
+    if (!result || result.recordset.length === 0) {
+        try {
+            result = await pool.request()
+                .input('key', sql.VarChar, 'DEFAULT')
+                .query("SELECT TOP 1 * FROM CRM_TICKET_WORKFLOW_CONFIG WHERE config_key = @key");
+        } catch (e) {
+            console.warn('[CRM WORKFLOW] Failed reading default config:', e.message);
+        }
+    }
+
+    const row = result?.recordset?.[0] || {};
+    return {
+        config_key: row.config_key || 'DEFAULT',
+        total_levels: Math.min(Math.max(Number(row.total_levels) || 2, 1), 3),
+        level_1_name: row.level_1_name || 'Level 1 - Supervisor / Team Leader',
+        level_1_users: safeParseJson(row.level_1_users, []),
+        level_2_name: row.level_2_name || 'Level 2 - Department Head / Marketing',
+        level_2_users: safeParseJson(row.level_2_users, []),
+        level_3_name: row.level_3_name || 'Level 3 - Director / Management',
+        level_3_users: safeParseJson(row.level_3_users, []),
+        executor_users: safeParseJson(row.executor_users, []),
+        auto_skip_requester_level: row.auto_skip_requester_level !== undefined ? Boolean(row.auto_skip_requester_level) : true,
+        allow_admin_override: row.allow_admin_override !== undefined ? Boolean(row.allow_admin_override) : true,
+    };
+}
+
+function isUserInList(user, list) {
+    if (!user || !Array.isArray(list) || list.length === 0) return false;
+    const targetUsername = String(user.username || '').trim().toLowerCase();
+    const targetId = String(user.id || '').trim().toLowerCase();
+    return list.some(item => {
+        const s = String(item || '').trim().toLowerCase();
+        return s === targetUsername || s === targetId;
+    });
+}
+
+function canUserApproveTicket(actor, ticket, config) {
+    if (!actor || !ticket) {
+        return { allowed: false, reason: 'Informasi user atau ticket tidak valid.' };
+    }
+
+    // 1. Segregation of duties: requester cannot approve own ticket unless super admin override
+    const actorUsername = String(actor.username || '').trim().toLowerCase();
+    const actorId = String(actor.id || '').trim().toLowerCase();
+    const requesterId = String(ticket.requester_id || '').trim().toLowerCase();
+    if ((actorUsername === requesterId || actorId === requesterId) && !actor.is_admin) {
+        return { allowed: false, reason: 'Requester tidak dapat melakukan approval atas ticket sendiri.' };
+    }
+
+    // 2. Admin override if enabled
+    if (Boolean(actor.is_admin) && (config?.allow_admin_override ?? true)) {
+        return { allowed: true };
+    }
+
+    const level = Number(ticket.current_approval_level);
+
+    if (level === 1) {
+        if (config?.level_1_users && config.level_1_users.length > 0) {
+            const match = isUserInList(actor, config.level_1_users);
+            return {
+                allowed: match,
+                reason: match ? '' : `Hanya user yang terdaftar pada ${config.level_1_name} yang dapat menyetujui Level 1.`
+            };
+        }
         return {
-            level: 3,
-            status: 'Pending Approval L3',
+            allowed: isManagerUser(actor),
+            reason: isManagerUser(actor) ? '' : 'Hanya Manager / Team Leader yang dapat menyetujui Level 1.'
+        };
+    }
+
+    if (level === 2) {
+        if (config?.level_2_users && config.level_2_users.length > 0) {
+            const match = isUserInList(actor, config.level_2_users);
+            return {
+                allowed: match,
+                reason: match ? '' : `Hanya user yang terdaftar pada ${config.level_2_name} yang dapat menyetujui Level 2.`
+            };
+        }
+        return {
+            allowed: isManagerUser(actor),
+            reason: isManagerUser(actor) ? '' : 'Hanya Manager yang dapat menyetujui Level 2.'
+        };
+    }
+
+    if (level === 3) {
+        if (config?.level_3_users && config.level_3_users.length > 0) {
+            const match = isUserInList(actor, config.level_3_users);
+            return {
+                allowed: match,
+                reason: match ? '' : `Hanya user yang terdaftar pada ${config.level_3_name} yang dapat menyetujui Level 3.`
+            };
+        }
+        const legacyMatch = isMarketingApprover(actor) || isHigherApprover(actor);
+        return {
+            allowed: legacyMatch,
+            reason: legacyMatch ? '' : 'Hanya Marketing / Director yang dapat menyetujui Level 3.'
+        };
+    }
+
+    return { allowed: false, reason: `Ticket berada pada level approval yang tidak valid (${level}).` };
+}
+
+function canUserExecuteTicket(actor, config) {
+    if (!actor) return false;
+    if (Boolean(actor.is_admin) && (config?.allow_admin_override ?? true)) return true;
+
+    if (config?.executor_users && config.executor_users.length > 0) {
+        return isUserInList(actor, config.executor_users);
+    }
+    // Fallback to legacy check
+    return isSysadminOperational(actor);
+}
+
+function initialTicketWorkflow(requester, config) {
+    const totalLevels = config ? Math.min(Math.max(Number(config.total_levels) || 2, 1), 3) : 2;
+    const autoSkip = config ? (config.auto_skip_requester_level ?? true) : true;
+
+    let isRequesterL1 = false;
+    if (config?.level_1_users && config.level_1_users.length > 0) {
+        isRequesterL1 = isUserInList(requester, config.level_1_users);
+    } else {
+        isRequesterL1 = isManagerUser(requester);
+    }
+
+    if (isRequesterL1 && autoSkip) {
+        if (totalLevels === 1) {
+            return {
+                level: 1,
+                status: 'Approved',
+                managerAutoApproved: true
+            };
+        }
+        return {
+            level: 2,
+            status: 'Pending Approval L2',
             managerAutoApproved: true
         };
     }
 
     return {
-        level: 2,
-        status: 'Pending Approval L2',
+        level: 1,
+        status: 'Pending Approval L1',
         managerAutoApproved: false
     };
 }
@@ -728,7 +876,8 @@ export const createTicket = async (req, res) => {
     try {
         const pool = await getTicketPool();
         const requester = await getActorUser(pool, req);
-        const workflow = initialTicketWorkflow(requester);
+        const config = await getEffectiveWorkflowConfig(pool, request_type);
+        const workflow = initialTicketWorkflow(requester, config);
         const effectiveRequesterId = requester.username;
         const effectiveRequesterName = requester.full_name || requester.username;
         let normalizedDetails = details;
@@ -851,11 +1000,12 @@ export const createTicket = async (req, res) => {
                     .input('approver_name', sql.VarChar, effectiveRequesterName)
                     .input('approver_role', sql.VarChar, requester.role_name || 'Manager')
                     .input('status', sql.VarChar, 'AUTO_APPROVED')
-                    .input('comments', sql.NVarChar, 'Manager level requester: manager approval dianggap sudah terpenuhi.')
+                    .input('comments', sql.NVarChar, 'Requester level auto-skip: approval Level 1 dianggap sudah terpenuhi.')
+                    .input('approval_level', sql.Int, 1)
                     .query(`
                         INSERT INTO CRM_TICKET_APPROVALS
-                        (ticket_id, approver_id, approver_name, approver_role, status, comments)
-                        VALUES (@ticket_id, @approver_id, @approver_name, @approver_role, @status, @comments)
+                        (ticket_id, approver_id, approver_name, approver_role, status, comments, approval_level)
+                        VALUES (@ticket_id, @approver_id, @approver_name, @approver_role, @status, @comments, @approval_level)
                     `);
             }
 
@@ -983,12 +1133,28 @@ export const getTicketById = async (req, res) => {
             };
         }
 
+        let permissions = { can_approve: false, can_execute: false };
+        try {
+            const actor = await getActorUser(pool, req);
+            const config = await getEffectiveWorkflowConfig(pool, ticketRes.recordset[0].request_type);
+            const approveCheck = canUserApproveTicket(actor, ticketRes.recordset[0], config);
+            const canExec = canUserExecuteTicket(actor, config);
+            permissions = {
+                can_approve: approveCheck.allowed,
+                can_execute: canExec && ticketRes.recordset[0].status === 'Approved',
+                approve_reason: approveCheck.reason,
+                total_levels: config.total_levels,
+                level_name: config[`level_${ticketRes.recordset[0].current_approval_level}_name`] || `Level ${ticketRes.recordset[0].current_approval_level}`
+            };
+        } catch (_) {}
+
         res.json({
             ticket: ticketRes.recordset[0],
             details: detailsRes.recordset,
             approvals: approvalsRes.recordset,
             logs: logsRes.recordset,
-            merge_h2h: mergeH2h
+            merge_h2h: mergeH2h,
+            permissions
         });
     } catch (err) {
         console.error("getTicketById error:", err);
@@ -1013,26 +1179,17 @@ export const approveTicket = async (req, res) => {
         
         let ticket = ticketRes.recordset[0];
         const actor = await getActorUser(pool, req);
-        const actorIsRequester = String(actor.username).toLowerCase() === String(ticket.requester_id || '').toLowerCase();
-        if (actorIsRequester && !actor.is_admin) {
-            return res.status(403).json({ error: 'Requester tidak dapat melakukan approval atas ticket sendiri.' });
-        }
+        const config = await getEffectiveWorkflowConfig(pool, ticket.request_type);
 
-        const canApproveCurrentLevel = Boolean(actor.is_admin) || (ticket.current_approval_level === 2
-            ? isManagerUser(actor)
-            : ticket.current_approval_level === 3
-                ? (isMarketingApprover(actor) || isHigherApprover(actor))
-                : ticket.current_approval_level === 1
-                    ? isManagerUser(actor)
-                    : false);
-        if (!canApproveCurrentLevel) {
+        const checkAuth = canUserApproveTicket(actor, ticket, config);
+        if (!checkAuth.allowed) {
             return res.status(403).json({
-                error: `User ${actor.username} (${actor.role_name || 'Unknown Role'}) tidak berwenang untuk approval level ${ticket.current_approval_level}.`
+                error: checkAuth.reason || `User ${actor.username} (${actor.role_name || 'Unknown Role'}) tidak berwenang untuk approval level ${ticket.current_approval_level}.`
             });
         }
 
         let newStatus = ticket.status;
-        let newLevel = ticket.current_approval_level;
+        let newLevel = Number(ticket.current_approval_level);
 
         if (action === 'REJECT') {
             newStatus = 'Rejected';
@@ -1040,14 +1197,12 @@ export const approveTicket = async (req, res) => {
             newStatus = 'Need Information';
             newLevel = 0; // Return to requester/helpdesk
         } else if (action === 'APPROVE') {
-            if (newLevel === 1) {
-                newLevel = 2;
-                newStatus = 'Pending Approval L2';
-            } else if (newLevel === 2) {
-                newLevel = 3;
-                newStatus = 'Pending Approval L3';
-            } else if (newLevel === 3) {
-                newLevel = 3;
+            const totalLevels = config.total_levels || 2;
+            if (newLevel < totalLevels) {
+                newLevel = newLevel + 1;
+                newStatus = `Pending Approval L${newLevel}`;
+            } else {
+                newLevel = totalLevels;
                 newStatus = 'Approved';
             }
         } else {
@@ -1084,10 +1239,11 @@ export const approveTicket = async (req, res) => {
                 .input('approver_role', sql.VarChar, actor.role_name || actor.division || 'Unknown')
                 .input('status', sql.VarChar, action)
                 .input('comments', sql.NVarChar, comments || '')
+                .input('approval_level', sql.Int, ticket.current_approval_level)
                 .query(`
                     INSERT INTO CRM_TICKET_APPROVALS 
-                    (ticket_id, approver_id, approver_name, approver_role, status, comments)
-                    VALUES (@ticket_id, @approver_id, @approver_name, @approver_role, @status, @comments)
+                    (ticket_id, approver_id, approver_name, approver_role, status, comments, approval_level)
+                    VALUES (@ticket_id, @approver_id, @approver_name, @approver_role, @status, @comments, @approval_level)
                 `);
 
             const reqLog = new sql.Request(transaction);
@@ -1149,7 +1305,8 @@ export const resubmitTicket = async (req, res) => {
         if (!isTicketRequester && !isHigherApprover(actor)) {
             return res.status(403).json({ error: 'Hanya requester atau administrator yang dapat melakukan resubmit ticket.' });
         }
-        const workflow = initialTicketWorkflow(actor);
+        const config = await getEffectiveWorkflowConfig(pool, request_type);
+        const workflow = initialTicketWorkflow(actor, config);
         
         // Validate Billing Number (transaction_ref) uniqueness, excluding current ticket
         if (request_type === 'POINT_ADJUSTMENT' && normalizedDetails && normalizedDetails.length > 0) {
@@ -1213,11 +1370,12 @@ export const resubmitTicket = async (req, res) => {
                     .input('approver_name', sql.VarChar, actor.full_name || actor.username)
                     .input('approver_role', sql.VarChar, actor.role_name || 'Manager')
                     .input('status', sql.VarChar, 'AUTO_APPROVED')
-                    .input('comments', sql.NVarChar, 'Manager level requester: manager approval dianggap sudah terpenuhi saat resubmit.')
+                    .input('comments', sql.NVarChar, 'Requester level auto-skip: approval Level 1 dianggap sudah terpenuhi saat resubmit.')
+                    .input('approval_level', sql.Int, 1)
                     .query(`
                         INSERT INTO CRM_TICKET_APPROVALS
-                        (ticket_id, approver_id, approver_name, approver_role, status, comments)
-                        VALUES (@ticket_id, @approver_id, @approver_name, @approver_role, @status, @comments)
+                        (ticket_id, approver_id, approver_name, approver_role, status, comments, approval_level)
+                        VALUES (@ticket_id, @approver_id, @approver_name, @approver_role, @status, @comments, @approval_level)
                     `);
             }
 
@@ -1338,9 +1496,6 @@ export const executeTicket = async (req, res) => {
     try {
         const pool = await getTicketPool();
         const executor = await getActorUser(pool, req);
-        if (!isSysadminOperational(executor)) {
-            return res.status(403).json({ error: 'Execute ticket hanya dapat dilakukan oleh user IT OPERATIONAL (Sysadmin Operational).' });
-        }
 
         // 1. Fetch ticket and details
         const ticketRes = await pool.request()
@@ -1351,6 +1506,11 @@ export const executeTicket = async (req, res) => {
             return res.status(404).json({ error: "Ticket not found" });
         }
         const ticket = ticketRes.recordset[0];
+
+        const config = await getEffectiveWorkflowConfig(pool, ticket.request_type);
+        if (!canUserExecuteTicket(executor, config)) {
+            return res.status(403).json({ error: 'Execute ticket hanya dapat dilakukan oleh user yang terdaftar dalam akses eksekusi CRM (Executors).' });
+        }
 
         if (ticket.status !== 'Approved') {
             return res.status(409).json({ error: `Ticket belum siap dieksekusi. Status saat ini: ${ticket.status}.` });
@@ -1858,5 +2018,101 @@ export const lookupBilling = async (req, res) => {
         res.status(500).json({ error: 'Gagal membaca net value billing dari pepito_ho.', details: err.message });
     } finally {
         if (hoPool) await hoPool.close().catch(() => {});
+    }
+};
+
+export const getApprovalWorkflowConfig = async (req, res) => {
+    try {
+        const pool = await getTicketPool();
+        const config = await getEffectiveWorkflowConfig(pool, 'DEFAULT');
+
+        const usersRes = await pool.request().query(`
+            SELECT u.id, u.username, u.full_name, u.division, u.position, r.name AS role_name
+            FROM Users u
+            LEFT JOIN Roles r ON r.id = u.role_id
+            ORDER BY u.full_name ASC, u.username ASC
+        `);
+
+        const rolesRes = await pool.request().query(`
+            SELECT id, name FROM Roles ORDER BY name ASC
+        `);
+
+        res.json({
+            success: true,
+            config,
+            users: usersRes.recordset,
+            roles: rolesRes.recordset
+        });
+    } catch (err) {
+        console.error('getApprovalWorkflowConfig error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+export const updateApprovalWorkflowConfig = async (req, res) => {
+    try {
+        const pool = await getTicketPool();
+        const actor = await getActorUser(pool, req);
+        if (!actor.is_admin) {
+            return res.status(403).json({ error: 'Hanya Administrator yang berwenang mengubah konfigurasi workflow approval.' });
+        }
+
+        const {
+            config_key = 'DEFAULT',
+            total_levels = 2,
+            level_1_name = 'Level 1 - Supervisor / Team Leader',
+            level_1_users = [],
+            level_2_name = 'Level 2 - Department Head / Marketing',
+            level_2_users = [],
+            level_3_name = 'Level 3 - Director / Management',
+            level_3_users = [],
+            executor_users = [],
+            auto_skip_requester_level = true,
+            allow_admin_override = true
+        } = req.body;
+
+        const safeLevels = Math.min(Math.max(Number(total_levels) || 2, 1), 3);
+
+        await pool.request()
+            .input('config_key', sql.VarChar, config_key)
+            .input('total_levels', sql.Int, safeLevels)
+            .input('level_1_name', sql.NVarChar, level_1_name)
+            .input('level_1_users', sql.NVarChar, JSON.stringify(level_1_users || []))
+            .input('level_2_name', sql.NVarChar, level_2_name)
+            .input('level_2_users', sql.NVarChar, JSON.stringify(level_2_users || []))
+            .input('level_3_name', sql.NVarChar, level_3_name)
+            .input('level_3_users', sql.NVarChar, JSON.stringify(level_3_users || []))
+            .input('executor_users', sql.NVarChar, JSON.stringify(executor_users || []))
+            .input('auto_skip_requester_level', sql.Bit, auto_skip_requester_level ? 1 : 0)
+            .input('allow_admin_override', sql.Bit, allow_admin_override ? 1 : 0)
+            .input('updated_by', sql.VarChar, actor.username)
+            .query(`
+                MERGE CRM_TICKET_WORKFLOW_CONFIG AS target
+                USING (SELECT @config_key AS config_key) AS source
+                ON target.config_key = source.config_key
+                WHEN MATCHED THEN UPDATE SET
+                    total_levels = @total_levels,
+                    level_1_name = @level_1_name,
+                    level_1_users = @level_1_users,
+                    level_2_name = @level_2_name,
+                    level_2_users = @level_2_users,
+                    level_3_name = @level_3_name,
+                    level_3_users = @level_3_users,
+                    executor_users = @executor_users,
+                    auto_skip_requester_level = @auto_skip_requester_level,
+                    allow_admin_override = @allow_admin_override,
+                    updated_by = @updated_by,
+                    updated_at = GETDATE()
+                WHEN NOT MATCHED THEN INSERT
+                    (config_key, total_levels, level_1_name, level_1_users, level_2_name, level_2_users, level_3_name, level_3_users, executor_users, auto_skip_requester_level, allow_admin_override, updated_by, updated_at)
+                VALUES
+                    (@config_key, @total_levels, @level_1_name, @level_1_users, @level_2_name, @level_2_users, @level_3_name, @level_3_users, @executor_users, @auto_skip_requester_level, @allow_admin_override, @updated_by, GETDATE());
+            `);
+
+        const updatedConfig = await getEffectiveWorkflowConfig(pool, config_key);
+        res.json({ success: true, config: updatedConfig });
+    } catch (err) {
+        console.error('updateApprovalWorkflowConfig error:', err);
+        res.status(500).json({ error: err.message });
     }
 };

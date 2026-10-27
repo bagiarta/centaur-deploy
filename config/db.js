@@ -800,8 +800,10 @@ export async function initDb() {
     }
 
     console.log('✅ Database fully initialized (DBWH_8529)');
+    return pool;
   } catch (err) {
     console.error('❌ Database Connection Failed! Bad Config: ', err);
+    throw err;
   }
 }
 
@@ -981,10 +983,53 @@ async function seedData(pool) {
     IF NOT EXISTS (SELECT 1 FROM SystemConfigs WHERE [key] = 'CRM_IT_DIRECTOR_USER_IDS')
       INSERT INTO SystemConfigs ([key], [value]) VALUES ('CRM_IT_DIRECTOR_USER_IDS', '')
   `);
+
+  // CRM Ticket Workflow Configuration Table & Defaults
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='CRM_TICKET_WORKFLOW_CONFIG' AND xtype='U')
+    CREATE TABLE CRM_TICKET_WORKFLOW_CONFIG (
+        config_key VARCHAR(50) PRIMARY KEY,
+        total_levels INT NOT NULL DEFAULT 2,
+        level_1_name NVARCHAR(100) DEFAULT 'Level 1 - Supervisor / Team Leader',
+        level_1_users NVARCHAR(MAX) DEFAULT '[]',
+        level_2_name NVARCHAR(100) DEFAULT 'Level 2 - Department Head / Marketing',
+        level_2_users NVARCHAR(MAX) DEFAULT '[]',
+        level_3_name NVARCHAR(100) DEFAULT 'Level 3 - Director / Management',
+        level_3_users NVARCHAR(MAX) DEFAULT '[]',
+        executor_users NVARCHAR(MAX) DEFAULT '[]',
+        auto_skip_requester_level BIT DEFAULT 1,
+        allow_admin_override BIT DEFAULT 1,
+        updated_by VARCHAR(100) NULL,
+        updated_at DATETIME DEFAULT GETDATE()
+    );
+
+    IF NOT EXISTS (SELECT 1 FROM CRM_TICKET_WORKFLOW_CONFIG WHERE config_key = 'DEFAULT')
+    BEGIN
+        INSERT INTO CRM_TICKET_WORKFLOW_CONFIG (
+            config_key, total_levels,
+            level_1_name, level_1_users,
+            level_2_name, level_2_users,
+            level_3_name, level_3_users,
+            executor_users, auto_skip_requester_level, allow_admin_override
+        ) VALUES (
+            'DEFAULT', 2,
+            'Level 1 - Supervisor / Team Leader', '[]',
+            'Level 2 - Department Head / Marketing', '[]',
+            'Level 3 - Director / Management', '[]',
+            '[]', 1, 1
+        );
+    END
+
+    IF EXISTS (SELECT * FROM sysobjects WHERE name='CRM_TICKET_APPROVALS' AND xtype='U')
+    BEGIN
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('CRM_TICKET_APPROVALS') AND name = 'approval_level')
+            ALTER TABLE CRM_TICKET_APPROVALS ADD approval_level INT NULL;
+    END
+  `);
+
   // Purge any orphaned logs/targets before starting
   console.log('Purging orphaned data...');
   try {
-    const pool = await poolPromise;
     await pool.request().query(`
       DELETE FROM ActivityLog 
       WHERE action LIKE 'Command %' AND user = 'system'
@@ -1000,4 +1045,6 @@ async function seedData(pool) {
   } catch (err) {
     console.error("Purging error:", err.message);
   }
+
+  return pool;
 }

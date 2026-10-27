@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Server, Shield, Download, Package, Bell, Send, CheckCircle, AlertCircle, RefreshCw, Palette, Layout, Sidebar as SidebarIcon, Chrome, RotateCcw, Bot, Save, Trash2, PencilLine, Eye, Calendar, Edit2, Phone, Users, ShieldCheck, Play, X } from "lucide-react";
+import { Server, Shield, Download, Package, Bell, Send, CheckCircle, AlertCircle, RefreshCw, Palette, Layout, Sidebar as SidebarIcon, Chrome, RotateCcw, Bot, Save, Trash2, PencilLine, Eye, Calendar, Edit2, Phone, Users, ShieldCheck, Play, X, UserCheck, Layers, Check } from "lucide-react";
 import { PageHeader, SectionCard } from "@/components/ui-enterprise";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -237,7 +237,42 @@ const applyThemePreview = (theme: ThemeSettings) => {
 export default function SettingsPage() {
   const { user } = useAuth();
   const userKey = user?.id || user?.username;
-  const [activeTab, setActiveTab] = useState<"system" | "appearance" | "notifications" | "assistant">("system");
+  const [activeTab, setActiveTab] = useState<"system" | "appearance" | "notifications" | "assistant" | "crm_workflow">(() => {
+    const tabParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get("tab") : null;
+    if (tabParam === "crm_workflow" || tabParam === "appearance" || tabParam === "notifications" || tabParam === "assistant") {
+      return tabParam as any;
+    }
+    return "system";
+  });
+  const [crmConfig, setCrmConfig] = useState<{
+    config_key: string;
+    total_levels: number;
+    level_1_name: string;
+    level_1_users: string[];
+    level_2_name: string;
+    level_2_users: string[];
+    level_3_name: string;
+    level_3_users: string[];
+    executor_users: string[];
+    auto_skip_requester_level: boolean;
+    allow_admin_override: boolean;
+  }>({
+    config_key: 'DEFAULT',
+    total_levels: 2,
+    level_1_name: 'Level 1 - Supervisor / Team Leader',
+    level_1_users: [],
+    level_2_name: 'Level 2 - Department Head / Marketing',
+    level_2_users: [],
+    level_3_name: 'Level 3 - Director / Management',
+    level_3_users: [],
+    executor_users: [],
+    auto_skip_requester_level: true,
+    allow_admin_override: true
+  });
+  const [crmUsers, setCrmUsers] = useState<any[]>([]);
+  const [loadingCrmConfig, setLoadingCrmConfig] = useState(false);
+  const [savingCrmConfig, setSavingCrmConfig] = useState(false);
+  const [crmConfigLoaded, setCrmConfigLoaded] = useState(false);
   const [notifSettings, setNotifSettings] = useState({
     webhook_url: "",
     whatsapp_token: "",
@@ -812,6 +847,76 @@ export default function SettingsPage() {
   }, [activeTab, userKey, user?.is_admin]);
 
   useEffect(() => {
+    if (activeTab === "crm_workflow" && !crmConfigLoaded) {
+      void fetchCrmApprovalConfig();
+    }
+  }, [activeTab, crmConfigLoaded]);
+
+  const fetchCrmApprovalConfig = async () => {
+    setLoadingCrmConfig(true);
+    try {
+      const res = await fetch('/api/crm/tickets/approval-config', {
+        headers: {
+          'x-user-id': user?.id || user?.username || ''
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCrmConfig(data.config);
+        setCrmUsers(data.users || []);
+        setCrmConfigLoaded(true);
+      } else {
+        toast.error(data.error || 'Gagal memuat konfigurasi approval CRM.');
+      }
+    } catch (err: any) {
+      toast.error(`Gagal memuat konfigurasi approval CRM: ${err.message}`);
+    } finally {
+      setLoadingCrmConfig(false);
+    }
+  };
+
+  const handleSaveCrmApprovalConfig = async () => {
+    setSavingCrmConfig(true);
+    try {
+      const res = await fetch('/api/crm/tickets/approval-config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user?.id || user?.username || ''
+        },
+        body: JSON.stringify(crmConfig)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCrmConfig(data.config);
+        toast.success('Konfigurasi Level Approval & Eksekusi CRM berhasil disimpan!');
+      } else {
+        toast.error(data.error || 'Gagal menyimpan konfigurasi approval CRM.');
+      }
+    } catch (err: any) {
+      toast.error(`Error menyimpan konfigurasi approval CRM: ${err.message}`);
+    } finally {
+      setSavingCrmConfig(false);
+    }
+  };
+
+  const handleAddUserToConfig = (field: 'level_1_users' | 'level_2_users' | 'level_3_users' | 'executor_users', username: string) => {
+    if (!username) return;
+    setCrmConfig(prev => {
+      const current = prev[field] || [];
+      if (current.includes(username)) return prev;
+      return { ...prev, [field]: [...current, username] };
+    });
+  };
+
+  const handleRemoveUserFromConfig = (field: 'level_1_users' | 'level_2_users' | 'level_3_users' | 'executor_users', username: string) => {
+    setCrmConfig(prev => ({
+      ...prev,
+      [field]: (prev[field] || []).filter(u => u !== username)
+    }));
+  };
+
+  useEffect(() => {
     if (!selectedKeywordId) return;
     const exists = assistantKeywords.some((keyword) => keyword.id === selectedKeywordId);
     if (!exists) {
@@ -917,6 +1022,7 @@ export default function SettingsPage() {
             { id: "appearance", label: "Appearance & Theme", icon: <Palette size={16} /> },
             { id: "notifications", label: "Notifications & Alerts", icon: <Bell size={16} /> },
             { id: "assistant", label: "Assistant & Keywords", icon: <Bot size={16} /> },
+            { id: "crm_workflow", label: "CRM Approvals", icon: <ShieldCheck size={16} /> },
           ].map(tab => (
             <button
               key={tab.id}
@@ -2034,6 +2140,477 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 </div>
+              </SectionCard>
+            </div>
+          )}
+
+          {activeTab === "crm_workflow" && (
+            <div className="space-y-6 animate-fade-in">
+              <SectionCard
+                title="CRM Ticket Approval & Execution Control"
+                subtitle="Konfigurasi tingkatan approval berjenjang, daftar user approver per level, dan hak akses eksekusi tiket CRM"
+                actions={
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={fetchCrmApprovalConfig}
+                      disabled={loadingCrmConfig || savingCrmConfig}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-xs font-bold text-foreground-muted hover:text-foreground hover:bg-surface-raised transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn("w-3.5 h-3.5", loadingCrmConfig && "animate-spin")} />
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveCrmApprovalConfig}
+                      disabled={savingCrmConfig || loadingCrmConfig}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-glow hover:brightness-110 transition-all disabled:opacity-50"
+                    >
+                      <Save className={cn("w-3.5 h-3.5", savingCrmConfig && "animate-spin")} />
+                      {savingCrmConfig ? "Menyimpan..." : "Simpan Konfigurasi"}
+                    </button>
+                  </div>
+                }
+              >
+                {loadingCrmConfig ? (
+                  <div className="p-12 flex flex-col items-center justify-center gap-3">
+                    <RefreshCw className="w-8 h-8 animate-spin text-primary" />
+                    <p className="text-sm font-semibold text-foreground-muted">Memuat konfigurasi approval CRM...</p>
+                  </div>
+                ) : (
+                  <div className="p-6 space-y-8">
+                    {/* 1. Tingkatan Approval (Total Levels) */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
+                            <Layers className="w-4 h-4 text-primary" />
+                            Jumlah Tingkatan Approval
+                          </h3>
+                          <p className="text-xs text-foreground-muted">
+                            Pilih berapa tahapan persetujuan yang harus dilalui sebelum tiket dapat dieksekusi.
+                          </p>
+                        </div>
+                        <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-primary/10 text-primary border border-primary/20">
+                          {crmConfig.total_levels} Tingkat Aktif
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                        {[
+                          {
+                            levels: 1,
+                            title: "1 Tingkat (Single Level)",
+                            desc: "Hanya butuh 1 kali persetujuan langsung menjadi Approved.",
+                            badge: "Cepat / Low Risk",
+                            flow: "Requester ➔ Level 1 ➔ Approved"
+                          },
+                          {
+                            levels: 2,
+                            title: "2 Tingkat (Standard)",
+                            desc: "Persetujuan berjenjang Supervisor lalu Department Head / Marketing.",
+                            badge: "Rekomendasi",
+                            flow: "Requester ➔ L1 ➔ L2 ➔ Approved"
+                          },
+                          {
+                            levels: 3,
+                            title: "3 Tingkat (Strict / Multi-Tier)",
+                            desc: "Persetujuan lengkap hingga level Direktur / Manajemen puncak.",
+                            badge: "Risiko Tinggi",
+                            flow: "Requester ➔ L1 ➔ L2 ➔ L3 ➔ Approved"
+                          }
+                        ].map(opt => {
+                          const isSelected = crmConfig.total_levels === opt.levels;
+                          return (
+                            <div
+                              key={opt.levels}
+                              onClick={() => setCrmConfig(prev => ({ ...prev, total_levels: opt.levels }))}
+                              className={cn(
+                                "p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between gap-3 text-left",
+                                isSelected
+                                  ? "bg-primary/10 border-primary ring-2 ring-primary/20 shadow-md"
+                                  : "bg-surface/50 border-border hover:bg-surface-raised hover:border-border-muted"
+                              )}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-surface border border-border text-foreground-muted">
+                                    {opt.badge}
+                                  </span>
+                                  <h4 className="font-bold text-sm text-foreground mt-2">{opt.title}</h4>
+                                </div>
+                                <div className={cn(
+                                  "w-5 h-5 rounded-full flex items-center justify-center border",
+                                  isSelected ? "bg-primary border-primary text-primary-foreground" : "border-border text-transparent"
+                                )}>
+                                  <Check className="w-3 h-3" />
+                                </div>
+                              </div>
+                              <p className="text-xs text-foreground-muted leading-relaxed">{opt.desc}</p>
+                              <div className="pt-2 border-t border-border/50 text-[11px] font-mono font-semibold text-primary">
+                                {opt.flow}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 2. Daftar User Approver per Level */}
+                    <div className="space-y-6 pt-4 border-t border-border">
+                      <div>
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
+                          <Users className="w-4 h-4 text-info" />
+                          Daftar User Approver per Tingkatan
+                        </h3>
+                        <p className="text-xs text-foreground-muted">
+                          Tentukan user-user spesifik yang memiliki kewenangan menyetujui, menolak, atau mengembalikan tiket pada masing-masing tingkatan.
+                        </p>
+                      </div>
+
+                      <div className="space-y-5">
+                        {/* Level 1 Card */}
+                        <div className="p-4 rounded-xl border border-border bg-surface/30 space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-500 font-bold text-xs flex items-center justify-center">1</span>
+                              <input
+                                type="text"
+                                value={crmConfig.level_1_name}
+                                onChange={e => setCrmConfig(prev => ({ ...prev, level_1_name: e.target.value }))}
+                                placeholder="Nama Level 1"
+                                className="font-bold text-sm bg-transparent border-b border-dashed border-border hover:border-primary focus:border-primary outline-none text-foreground px-1 py-0.5"
+                              />
+                            </div>
+                            <span className="text-[11px] text-foreground-muted font-medium">
+                              {crmConfig.level_1_users.length} user terdaftar
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-[1fr,auto] gap-3 items-center">
+                            <select
+                              defaultValue=""
+                              onChange={e => {
+                                if (e.target.value) {
+                                  handleAddUserToConfig('level_1_users', e.target.value);
+                                  e.target.value = '';
+                                }
+                              }}
+                              className="bg-background border border-border rounded-xl px-3 py-2 text-xs font-medium text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                            >
+                              <option value="">+ Tambah User untuk Level 1...</option>
+                              {crmUsers
+                                .filter(u => !(crmConfig.level_1_users || []).includes(u.username))
+                                .map(u => (
+                                  <option key={u.id || u.username} value={u.username}>
+                                    {u.full_name ? `${u.full_name} (${u.username})` : u.username} {u.position ? `— ${u.position}` : ''} {u.role_name ? `[${u.role_name}]` : ''}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+
+                          {crmConfig.level_1_users && crmConfig.level_1_users.length > 0 ? (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {crmConfig.level_1_users.map(uname => {
+                                const matchedUser = crmUsers.find(u => u.username === uname || u.id === uname);
+                                return (
+                                  <span
+                                    key={uname}
+                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background border border-border text-xs text-foreground font-medium shadow-sm"
+                                  >
+                                    <UserCheck className="w-3.5 h-3.5 text-blue-500" />
+                                    <span>{matchedUser?.full_name || uname}</span>
+                                    <span className="text-[10px] text-foreground-muted font-mono">@{uname}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveUserFromConfig('level_1_users', uname)}
+                                      className="text-foreground-muted hover:text-danger ml-1 transition-colors"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-amber-500/90 italic bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5">
+                              ⚠️ Belum ada user spesifik. Sistem akan menggunakan izin role default (Role/Jabatan Manager).
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Level 2 Card (if total_levels >= 2) */}
+                        {crmConfig.total_levels >= 2 && (
+                          <div className="p-4 rounded-xl border border-border bg-surface/30 space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-500 font-bold text-xs flex items-center justify-center">2</span>
+                                <input
+                                  type="text"
+                                  value={crmConfig.level_2_name}
+                                  onChange={e => setCrmConfig(prev => ({ ...prev, level_2_name: e.target.value }))}
+                                  placeholder="Nama Level 2"
+                                  className="font-bold text-sm bg-transparent border-b border-dashed border-border hover:border-primary focus:border-primary outline-none text-foreground px-1 py-0.5"
+                                />
+                              </div>
+                              <span className="text-[11px] text-foreground-muted font-medium">
+                                {crmConfig.level_2_users.length} user terdaftar
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-[1fr,auto] gap-3 items-center">
+                              <select
+                                defaultValue=""
+                                onChange={e => {
+                                  if (e.target.value) {
+                                    handleAddUserToConfig('level_2_users', e.target.value);
+                                    e.target.value = '';
+                                  }
+                                }}
+                                className="bg-background border border-border rounded-xl px-3 py-2 text-xs font-medium text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                              >
+                                <option value="">+ Tambah User untuk Level 2...</option>
+                                {crmUsers
+                                  .filter(u => !(crmConfig.level_2_users || []).includes(u.username))
+                                  .map(u => (
+                                    <option key={u.id || u.username} value={u.username}>
+                                      {u.full_name ? `${u.full_name} (${u.username})` : u.username} {u.position ? `— ${u.position}` : ''} {u.role_name ? `[${u.role_name}]` : ''}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+
+                            {crmConfig.level_2_users && crmConfig.level_2_users.length > 0 ? (
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {crmConfig.level_2_users.map(uname => {
+                                  const matchedUser = crmUsers.find(u => u.username === uname || u.id === uname);
+                                  return (
+                                    <span
+                                      key={uname}
+                                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background border border-border text-xs text-foreground font-medium shadow-sm"
+                                    >
+                                      <UserCheck className="w-3.5 h-3.5 text-purple-500" />
+                                      <span>{matchedUser?.full_name || uname}</span>
+                                      <span className="text-[10px] text-foreground-muted font-mono">@{uname}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveUserFromConfig('level_2_users', uname)}
+                                        className="text-foreground-muted hover:text-danger ml-1 transition-colors"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-amber-500/90 italic bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5">
+                                ⚠️ Belum ada user spesifik. Sistem akan menggunakan izin role default (Role/Jabatan Manager).
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Level 3 Card (if total_levels >= 3) */}
+                        {crmConfig.total_levels >= 3 && (
+                          <div className="p-4 rounded-xl border border-border bg-surface/30 space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-500 font-bold text-xs flex items-center justify-center">3</span>
+                                <input
+                                  type="text"
+                                  value={crmConfig.level_3_name}
+                                  onChange={e => setCrmConfig(prev => ({ ...prev, level_3_name: e.target.value }))}
+                                  placeholder="Nama Level 3"
+                                  className="font-bold text-sm bg-transparent border-b border-dashed border-border hover:border-primary focus:border-primary outline-none text-foreground px-1 py-0.5"
+                                />
+                              </div>
+                              <span className="text-[11px] text-foreground-muted font-medium">
+                                {crmConfig.level_3_users.length} user terdaftar
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-[1fr,auto] gap-3 items-center">
+                              <select
+                                defaultValue=""
+                                onChange={e => {
+                                  if (e.target.value) {
+                                    handleAddUserToConfig('level_3_users', e.target.value);
+                                    e.target.value = '';
+                                  }
+                                }}
+                                className="bg-background border border-border rounded-xl px-3 py-2 text-xs font-medium text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                              >
+                                <option value="">+ Tambah User untuk Level 3...</option>
+                                {crmUsers
+                                  .filter(u => !(crmConfig.level_3_users || []).includes(u.username))
+                                  .map(u => (
+                                    <option key={u.id || u.username} value={u.username}>
+                                      {u.full_name ? `${u.full_name} (${u.username})` : u.username} {u.position ? `— ${u.position}` : ''} {u.role_name ? `[${u.role_name}]` : ''}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+
+                            {crmConfig.level_3_users && crmConfig.level_3_users.length > 0 ? (
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {crmConfig.level_3_users.map(uname => {
+                                  const matchedUser = crmUsers.find(u => u.username === uname || u.id === uname);
+                                  return (
+                                    <span
+                                      key={uname}
+                                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background border border-border text-xs text-foreground font-medium shadow-sm"
+                                    >
+                                      <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
+                                      <span>{matchedUser?.full_name || uname}</span>
+                                      <span className="text-[10px] text-foreground-muted font-mono">@{uname}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveUserFromConfig('level_3_users', uname)}
+                                        className="text-foreground-muted hover:text-danger ml-1 transition-colors"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-amber-500/90 italic bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5">
+                                ⚠️ Belum ada user spesifik. Sistem akan menggunakan izin role default (Marketing Manager / Director).
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 3. Akses Eksekusi (Executors) */}
+                    <div className="space-y-4 pt-4 border-t border-border">
+                      <div>
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-success" />
+                          Akses Eksekusi Tiket (Executors)
+                        </h3>
+                        <p className="text-xs text-foreground-muted">
+                          Tentukan user mana saja yang berhak menekan tombol <strong>Execute Ticket</strong> saat status tiket sudah disetujui (Approved).
+                        </p>
+                      </div>
+
+                      <div className="p-4 rounded-xl border border-border bg-surface/30 space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr,auto] gap-3 items-center">
+                          <select
+                            defaultValue=""
+                            onChange={e => {
+                              if (e.target.value) {
+                                handleAddUserToConfig('executor_users', e.target.value);
+                                e.target.value = '';
+                              }
+                            }}
+                            className="bg-background border border-border rounded-xl px-3 py-2 text-xs font-medium text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                          >
+                            <option value="">+ Tambah User Pelaksana Eksekusi...</option>
+                            {crmUsers
+                              .filter(u => !(crmConfig.executor_users || []).includes(u.username))
+                              .map(u => (
+                                <option key={u.id || u.username} value={u.username}>
+                                  {u.full_name ? `${u.full_name} (${u.username})` : u.username} {u.position ? `— ${u.position}` : ''} {u.role_name ? `[${u.role_name}]` : ''}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+
+                        {crmConfig.executor_users && crmConfig.executor_users.length > 0 ? (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {crmConfig.executor_users.map(uname => {
+                              const matchedUser = crmUsers.find(u => u.username === uname || u.id === uname);
+                              return (
+                                <span
+                                  key={uname}
+                                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background border border-border text-xs text-foreground font-medium shadow-sm"
+                                >
+                                  <ShieldCheck className="w-3.5 h-3.5 text-success" />
+                                  <span>{matchedUser?.full_name || uname}</span>
+                                  <span className="text-[10px] text-foreground-muted font-mono">@{uname}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveUserFromConfig('executor_users', uname)}
+                                    className="text-foreground-muted hover:text-danger ml-1 transition-colors"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-amber-500/90 italic bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5">
+                            ⚠️ Belum ada user spesifik. Sistem akan menggunakan izin role default (IT Operational / Sysadmin).
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 4. Kebijakan & Keamanan Workflow */}
+                    <div className="space-y-4 pt-4 border-t border-border">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">
+                        Kebijakan & Keamanan Workflow
+                      </h3>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label className="flex items-start gap-3 p-4 rounded-xl border border-border bg-surface/30 cursor-pointer hover:bg-surface-raised transition-all">
+                          <input
+                            type="checkbox"
+                            checked={crmConfig.auto_skip_requester_level}
+                            onChange={e => setCrmConfig(prev => ({ ...prev, auto_skip_requester_level: e.target.checked }))}
+                            className="mt-1 w-4 h-4 accent-primary rounded cursor-pointer"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-foreground">Auto-Skip Level 1 untuk Requester Berwenang</p>
+                            <p className="text-xs text-foreground-muted leading-relaxed mt-0.5">
+                              Jika pembuat tiket (requester) adalah user yang terdaftar sebagai approver Level 1, sistem otomatis menganggap Level 1 disetujui dan langsung naik ke level berikutnya.
+                            </p>
+                          </div>
+                        </label>
+
+                        <label className="flex items-start gap-3 p-4 rounded-xl border border-border bg-surface/30 cursor-pointer hover:bg-surface-raised transition-all">
+                          <input
+                            type="checkbox"
+                            checked={crmConfig.allow_admin_override}
+                            onChange={e => setCrmConfig(prev => ({ ...prev, allow_admin_override: e.target.checked }))}
+                            className="mt-1 w-4 h-4 accent-primary rounded cursor-pointer"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-foreground">Super Administrator Override</p>
+                            <p className="text-xs text-foreground-muted leading-relaxed mt-0.5">
+                              Memberi hak darurat kepada Super Administrator untuk menyetujui seluruh tingkatan level dan melakukan eksekusi tiket kapan saja.
+                            </p>
+                          </div>
+                        </label>
+                      </div>
+
+                      <div className="p-3.5 bg-info/10 border border-info/20 rounded-xl flex items-center gap-3 text-xs text-info">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>
+                          <strong>Segregation of Duties:</strong> Pembuat tiket (requester) dilarang menyetujui tiket buatannya sendiri di seluruh level persetujuan.
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Bottom Save Action */}
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleSaveCrmApprovalConfig}
+                        disabled={savingCrmConfig || loadingCrmConfig}
+                        className="flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground text-sm font-bold shadow-glow hover:brightness-110 transition-all disabled:opacity-50"
+                      >
+                        <Save className={cn("w-4 h-4", savingCrmConfig && "animate-spin")} />
+                        {savingCrmConfig ? "Menyimpan Konfigurasi..." : "Simpan Konfigurasi Workflow"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </SectionCard>
             </div>
           )}
