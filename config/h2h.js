@@ -13,7 +13,7 @@ export const h2hConfig = {
   verifySsl: process.env.H2H_VERIFY_SSL === 'true'
 };
 
-const h2hDnsFallback = new dns.Resolver();
+const h2hDnsFallback = new dns.promises.Resolver();
 h2hDnsFallback.setServers(
   (process.env.H2H_DNS_SERVERS || '8.8.8.8,1.1.1.1')
     .split(',')

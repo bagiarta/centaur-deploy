@@ -30,6 +30,8 @@ async function createTables() {
           ALTER TABLE CRM_TICKETS ADD customer_name VARCHAR(150);
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('CRM_TICKETS') AND name = 'mobile_no')
           ALTER TABLE CRM_TICKETS ADD mobile_no VARCHAR(50);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('CRM_TICKETS') AND name = 'snapshot_data')
+          ALTER TABLE CRM_TICKETS ADD snapshot_data NVARCHAR(MAX);
 
       IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='CRM_TICKET_DETAILS' and xtype='U')
       CREATE TABLE CRM_TICKET_DETAILS (

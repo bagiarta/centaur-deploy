@@ -53,6 +53,14 @@ function findH2hMetric(value, keys) {
     return null;
 }
 
+function safeParsePoints(val) {
+    if (typeof val === 'number') return isNaN(val) ? 0 : Math.round(val);
+    if (!val) return 0;
+    const cleaned = String(val).replace(/pts/gi, '').replace(/[+,\s]/g, '');
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : Math.round(num);
+}
+
 async function getH2hMemberData(memberIdentifier) {
     if (!h2hConfig.baseUrl || !memberIdentifier) {
         throw new Error('Konfigurasi H2H atau nomor member tidak tersedia.');
@@ -303,7 +311,71 @@ function isUserInList(user, list) {
     });
 }
 
-function canUserApproveTicket(actor, ticket, config) {
+async function getUserFullNameMap(pool) {
+    const res = await pool.request().query(`
+        SELECT u.id, u.username, u.full_name, r.name as role_name, u.division, u.position
+        FROM USERS u
+        LEFT JOIN ROLES r ON u.role_id = r.id
+    `);
+    const map = new Map();
+    const allUsers = res.recordset;
+    for (const u of allUsers) {
+        const name = u.full_name || u.username;
+        if (u.username) map.set(u.username.toLowerCase(), name);
+        if (u.id) map.set(u.id.toLowerCase(), name);
+        if (u.full_name) map.set(u.full_name.toLowerCase(), name);
+    }
+    return { map, allUsers };
+}
+
+function getPendingApproverNames(ticket, config, userMapData) {
+    if (!ticket.status || !ticket.status.includes('Pending Approval')) {
+        return null;
+    }
+    const { map, allUsers } = userMapData || { map: new Map(), allUsers: [] };
+    const level = Number(ticket.current_approval_level || 1);
+    const configuredUsers = config?.[`level_${level}_users`];
+    
+    if (Array.isArray(configuredUsers) && configuredUsers.length > 0) {
+        const names = configuredUsers
+            .map(u => map.get(String(u).trim().toLowerCase()) || u)
+            .filter(Boolean);
+        if (names.length > 0) {
+            return names.join(', ');
+        }
+    }
+
+    // Fallback if no specific users configured: find users by role/position for this level
+    if (level === 1 || level === 2) {
+        const managers = allUsers
+            .filter(u => {
+                const pos = String(u.position || '').toLowerCase();
+                const role = String(u.role_name || '').toLowerCase();
+                const div = String(u.division || '').toLowerCase();
+                return pos.includes('manager') || role.includes('manager') || (role === 'operation' && div.includes('manager'));
+            })
+            .map(u => u.full_name || u.username);
+        if (managers.length > 0) {
+            return managers.slice(0, 3).join(', ');
+        }
+    } else if (level === 3) {
+        const marketing = allUsers
+            .filter(u => {
+                const pos = String(u.position || '').toLowerCase();
+                const role = String(u.role_name || '').toLowerCase();
+                const div = String(u.division || '').toLowerCase();
+                return pos.includes('marketing') || pos.includes('director') || role.includes('marketing') || div.includes('marketing');
+            })
+            .map(u => u.full_name || u.username);
+        if (marketing.length > 0) {
+            return marketing.slice(0, 3).join(', ');
+        }
+    }
+
+    return null;
+}
+
+function canUserApproveTicket(actor, ticket, config, pendingApproverName) {
     if (!actor || !ticket) {
         return { allowed: false, reason: 'Informasi user atau ticket tidak valid.' };
     }
@@ -322,18 +394,21 @@ function canUserApproveTicket(actor, ticket, config) {
     }
 
     const level = Number(ticket.current_approval_level);
+    const waitingReason = pendingApproverName 
+        ? `Menunggu approval dari: ${pendingApproverName}.`
+        : 'Menunggu approval dari approver terkait.';
 
     if (level === 1) {
         if (config?.level_1_users && config.level_1_users.length > 0) {
             const match = isUserInList(actor, config.level_1_users);
             return {
                 allowed: match,
-                reason: match ? '' : `Hanya user yang terdaftar pada ${config.level_1_name} yang dapat menyetujui Level 1.`
+                reason: match ? '' : waitingReason
             };
         }
         return {
             allowed: isManagerUser(actor),
-            reason: isManagerUser(actor) ? '' : 'Hanya Manager / Team Leader yang dapat menyetujui Level 1.'
+            reason: isManagerUser(actor) ? '' : waitingReason
         };
     }
 
@@ -342,12 +417,12 @@ function canUserApproveTicket(actor, ticket, config) {
             const match = isUserInList(actor, config.level_2_users);
             return {
                 allowed: match,
-                reason: match ? '' : `Hanya user yang terdaftar pada ${config.level_2_name} yang dapat menyetujui Level 2.`
+                reason: match ? '' : waitingReason
             };
         }
         return {
             allowed: isManagerUser(actor),
-            reason: isManagerUser(actor) ? '' : 'Hanya Manager yang dapat menyetujui Level 2.'
+            reason: isManagerUser(actor) ? '' : waitingReason
         };
     }
 
@@ -356,17 +431,17 @@ function canUserApproveTicket(actor, ticket, config) {
             const match = isUserInList(actor, config.level_3_users);
             return {
                 allowed: match,
-                reason: match ? '' : `Hanya user yang terdaftar pada ${config.level_3_name} yang dapat menyetujui Level 3.`
+                reason: match ? '' : waitingReason
             };
         }
         const legacyMatch = isMarketingApprover(actor) || isHigherApprover(actor);
         return {
             allowed: legacyMatch,
-            reason: legacyMatch ? '' : 'Hanya Marketing / Director yang dapat menyetujui Level 3.'
+            reason: legacyMatch ? '' : waitingReason
         };
     }
 
-    return { allowed: false, reason: `Ticket berada pada level approval yang tidak valid (${level}).` };
+    return { allowed: false, reason: 'Ticket berada pada status yang tidak memerlukan approval.' };
 }
 
 function canUserExecuteTicket(actor, config) {
@@ -694,41 +769,114 @@ async function resolveOrgTargetPool(orgCd) {
 async function pushStagedAdjustment(pool, ticketId) {
     const staged = await pool.request()
         .input('ticket_id', sql.VarChar, ticketId)
-        .query(`SELECT TOP 1 * FROM CRM_TICKET_QUEUE_TEMP WHERE ticket_id = @ticket_id AND sync_status <> 'SYNCED'`);
+        .query(`SELECT TOP 1 * FROM CRM_TICKET_QUEUE_TEMP WHERE ticket_id = @ticket_id AND ISNULL(sync_status, 'PENDING') <> 'SYNCED'`);
     const row = staged.recordset[0];
     if (!row) return null;
 
     const targetPool = await resolveOrgTargetPool(row.rl_itq_org_cd);
+    let alreadyExisted = false;
+    let alreadySynced = false;
+    let existingQueue = null;
+
     try {
-        const exists = await targetPool.request()
-            .input('bill_no', sql.VarChar, row.rl_itq_bill_no)
-            .query(`SELECT TOP 1 1 AS found FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK) WHERE RLITQ_INTEG_CODE = '110' AND RLITQ_BILL_NO = @bill_no`);
-        if (exists.recordset.length === 0) {
+        const billNoClean = String(row.rl_itq_bill_no || '').trim();
+        // Validasi keberadaan bill_no pada antrean server target agar tidak terjadi duplikasi
+        const existsResult = await targetPool.request()
+            .input('bill_no', sql.VarChar, billNoClean)
+            .query(`
+                SELECT TOP 1 
+                    RLITQ_BILL_NO AS bill_no,
+                    RLITQ_ORG_CD AS org_cd,
+                    RLITQ_INTEG_CODE AS integ_code,
+                    PROCESSED_FLAG AS processed_flag,
+                    EXTRA_INFO_1 AS extra_info_1,
+                    TXN_TIMESTAMP AS txn_timestamp
+                FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK)
+                WHERE LTRIM(RTRIM(RLITQ_BILL_NO)) = @bill_no
+                ORDER BY CASE
+                    WHEN ISNULL(PROCESSED_FLAG, 0) = 1 AND UPPER(LTRIM(RTRIM(ISNULL(EXTRA_INFO_1, '')))) LIKE '%OK%' THEN 0
+                    WHEN ISNULL(PROCESSED_FLAG, 0) = -1 AND UPPER(LTRIM(RTRIM(ISNULL(EXTRA_INFO_1, '')))) LIKE '%DUPLICATE%' THEN 0
+                    ELSE 1
+                END, TXN_TIMESTAMP DESC
+            `);
+
+        if (existsResult.recordset.length > 0) {
+            alreadyExisted = true;
+            existingQueue = existsResult.recordset[0];
+            const flag = Number(existingQueue.processed_flag);
+            const extra = String(existingQueue.extra_info_1 || '').trim().toUpperCase();
+            alreadySynced = (flag === 1 && extra.includes('OK')) || (flag === -1 && extra.includes('DUPLICATE'));
+            console.log(`[CRM QUEUE] Bill ${billNoClean} sudah ada di server target (org_cd: ${row.rl_itq_org_cd}, flag: ${flag}, extra: ${extra || '-'}). Insert queue dilewati.`);
+        } else {
+            // Jika belum ada, lakukan insert dengan pengaman atomik IF NOT EXISTS
             await targetPool.request()
                 .input('integ_code', sql.VarChar, row.rl_itq_integ_code)
                 .input('txn_type', sql.VarChar, row.rl_itq_txn_type)
                 .input('org_cd', sql.VarChar, row.rl_itq_org_cd)
-                .input('bill_no', sql.VarChar, row.rl_itq_bill_no)
+                .input('bill_no', sql.VarChar, billNoClean)
                 .input('processed_flag', sql.Int, 0)
                 .input('card_no', sql.VarChar, row.rl_itq_card_no)
                 .input('opening_points', sql.Decimal(18, 2), row.rl_itq_opening_points || 0)
                 .query(`
-                    INSERT INTO RXL_LOYALTY_INTEG_TRANS_QUEUE
-                    (RLITQ_INTEG_CODE, RLITQ_TXN_TYPE, RLITQ_ORG_CD, RLITQ_BILL_NO,
-                     PROCESSED_FLAG, TXN_TIMESTAMP, TRANSMITION_TYPE, RLITQ_CARD_NO,
-                     RLITQ_OPENING_POINTS, EXTRA_INFO_1, EXCHANGE_RATE)
-                    VALUES (@integ_code, @txn_type, @org_cd, @bill_no, @processed_flag,
-                            GETDATE(), 'O', @card_no, @opening_points, '', 1)
+                    IF NOT EXISTS (
+                        SELECT 1 FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK)
+                        WHERE LTRIM(RTRIM(RLITQ_BILL_NO)) = @bill_no
+                    )
+                    BEGIN
+                        INSERT INTO RXL_LOYALTY_INTEG_TRANS_QUEUE
+                        (RLITQ_INTEG_CODE, RLITQ_TXN_TYPE, RLITQ_ORG_CD, RLITQ_BILL_NO,
+                         PROCESSED_FLAG, TXN_TIMESTAMP, TRANSMITION_TYPE, RLITQ_CARD_NO,
+                         RLITQ_OPENING_POINTS, EXTRA_INFO_1, EXCHANGE_RATE)
+                        VALUES (@integ_code, @txn_type, @org_cd, @bill_no, @processed_flag,
+                                GETDATE(), 'O', @card_no, @opening_points, '', 1);
+                    END
                 `);
+            console.log(`[CRM QUEUE] Bill ${billNoClean} berhasil di-insert ke server target (org_cd: ${row.rl_itq_org_cd}).`);
         }
     } finally {
         await targetPool.close().catch(() => {});
     }
 
-    await pool.request()
-        .input('ticket_id', sql.VarChar, ticketId)
-        .query(`UPDATE CRM_TICKET_QUEUE_TEMP SET sync_status = 'PENDING', processed_flag = 0, sync_error = NULL, synced_at = NULL, updated_at = GETDATE() WHERE ticket_id = @ticket_id`);
-    return row;
+    if (alreadySynced && existingQueue) {
+        await pool.request()
+            .input('ticket_id', sql.VarChar, ticketId)
+            .input('flag', sql.Int, Number(existingQueue.processed_flag))
+            .input('extra', sql.VarChar, existingQueue.extra_info_1 || '')
+            .query(`
+                UPDATE CRM_TICKET_QUEUE_TEMP 
+                SET sync_status = 'SYNCED', 
+                    processed_flag = @flag, 
+                    extra_info_1 = @extra, 
+                    sync_error = NULL, 
+                    synced_at = GETDATE(), 
+                    updated_at = GETDATE() 
+                WHERE ticket_id = @ticket_id
+            `);
+    } else {
+        const flagVal = existingQueue ? Number(existingQueue.processed_flag) : 0;
+        const extraVal = existingQueue ? (existingQueue.extra_info_1 || '') : '';
+        await pool.request()
+            .input('ticket_id', sql.VarChar, ticketId)
+            .input('flag', sql.Int, isNaN(flagVal) ? 0 : flagVal)
+            .input('extra', sql.VarChar, extraVal)
+            .query(`
+                UPDATE CRM_TICKET_QUEUE_TEMP 
+                SET sync_status = 'PENDING', 
+                    processed_flag = @flag, 
+                    extra_info_1 = @extra,
+                    sync_error = NULL, 
+                    synced_at = NULL, 
+                    updated_at = GETDATE() 
+                WHERE ticket_id = @ticket_id
+            `);
+    }
+
+    return {
+        ...row,
+        already_existed: alreadyExisted,
+        already_synced: alreadySynced,
+        existing_queue: existingQueue
+    };
 }
 
 let crmPendingSyncJobStarted = false;
@@ -766,12 +914,13 @@ export async function syncPendingAdjustmentTickets() {
             let targetPool;
             try {
                 targetPool = await resolveOrgTargetPool(row.rl_itq_org_cd);
+                const billNoClean = String(row.rl_itq_bill_no || '').trim();
                 const result = await targetPool.request()
-                    .input('bill_no', sql.VarChar, row.rl_itq_bill_no)
+                    .input('bill_no', sql.VarChar, billNoClean)
                     .query(`
                         SELECT TOP 1 PROCESSED_FLAG AS processed_flag, EXTRA_INFO_1 AS extra_info_1
                         FROM RXL_LOYALTY_INTEG_TRANS_QUEUE WITH (NOLOCK)
-                        WHERE RLITQ_INTEG_CODE = '110' AND RLITQ_BILL_NO = @bill_no
+                        WHERE LTRIM(RTRIM(RLITQ_BILL_NO)) = @bill_no
                         ORDER BY CASE
                             WHEN ISNULL(PROCESSED_FLAG, 0) = 1
                                  AND UPPER(LTRIM(RTRIM(ISNULL(EXTRA_INFO_1, '')))) LIKE '%OK%' THEN 0
@@ -846,15 +995,18 @@ async function logValidationFailure(pool, ticketId, executorId, executorName, de
     }
 }
 
+// Active Ticket Creations in-flight lock to prevent concurrent duplicate submissions
+const activeTicketCreations = new Set();
+
 // Generates unique Ticket ID: TKT-YYMMDD-XXX
-async function generateTicketId(pool) {
+async function generateTicketId(runner) {
     const today = new Date();
     const prefix = 'TKT-' + today.toISOString().slice(2, 10).replace(/-/g, '') + '-';
     
-    const result = await pool.request()
+    const result = await runner.request()
         .input('prefix', sql.VarChar, prefix + '%')
         .query(`
-            SELECT TOP 1 ticket_id FROM CRM_TICKETS 
+            SELECT TOP 1 ticket_id FROM CRM_TICKETS WITH (UPDLOCK, HOLDLOCK)
             WHERE ticket_id LIKE @prefix 
             ORDER BY ticket_id DESC
         `);
@@ -872,6 +1024,34 @@ export const createTicket = async (req, res) => {
         requester_id, requester_name, unit_branch, request_type, 
         priority, customer_id, customer_name, mobile_no, details 
     } = req.body;
+
+    if (!customer_id || !request_type) {
+        return res.status(400).json({ error: 'customer_id and request_type are required' });
+    }
+
+    const userId = req.headers['x-user-id'] || requester_id || 'anonymous';
+    const targetRef = details?.[0]?.transaction_ref ? String(details[0].transaction_ref).trim() : '';
+    const billingRef = (request_type === 'POINT_ADJUSTMENT' && targetRef) ? targetRef : '';
+
+    const lockKeys = [
+        `user:${userId}`,
+        `customer:${request_type}:${customer_id}`,
+        ...(request_type === 'MERGE_POINTS' && targetRef ? [`target:MERGE_POINTS:${targetRef}`] : []),
+        ...(billingRef ? [`billing:${billingRef}`] : [])
+    ];
+
+    // Check if another identical / related ticket creation is already in-flight
+    for (const key of lockKeys) {
+        if (activeTicketCreations.has(key)) {
+            return res.status(429).json({
+                error: 'Permintaan pembuatan tiket sedang diproses. Mohon tunggu dan jangan klik submit berulang kali.'
+            });
+        }
+    }
+
+    for (const key of lockKeys) {
+        activeTicketCreations.add(key);
+    }
     
     try {
         const pool = await getTicketPool();
@@ -881,6 +1061,26 @@ export const createTicket = async (req, res) => {
         const effectiveRequesterId = requester.username;
         const effectiveRequesterName = requester.full_name || requester.username;
         let normalizedDetails = details;
+
+        // Anti-duplicate debounce: check if a ticket for this customer & type was created within the last 15 seconds
+        const recentTicketCheck = await pool.request()
+            .input('customer_id', sql.VarChar, customer_id)
+            .input('request_type', sql.VarChar, request_type)
+            .query(`
+                SELECT TOP 1 ticket_id, created_at, status
+                FROM CRM_TICKETS
+                WHERE customer_id = @customer_id
+                  AND request_type = @request_type
+                  AND DATEDIFF(second, created_at, GETDATE()) < 15
+                ORDER BY created_at DESC
+            `);
+
+        if (recentTicketCheck.recordset.length > 0) {
+            const recent = recentTicketCheck.recordset[0];
+            return res.status(409).json({
+                error: `Tiket serupa (${recent.ticket_id}) baru saja dibuat beberapa detik yang lalu. Mohon tunggu sebelum membuat tiket baru.`
+            });
+        }
 
         if (request_type === 'POINT_ADJUSTMENT') {
             normalizedDetails = await preparePointAdjustmentDetails(details);
@@ -909,6 +1109,27 @@ export const createTicket = async (req, res) => {
                     error: 'card_no tidak dapat diubah.'
                 });
             }
+
+            // Check if there's already an active (uncompleted) DATA_UPDATE ticket for this customer and field
+            const pendingUpdate = await pool.request()
+                .input('customer_id', sql.VarChar, customer_id)
+                .input('field_name', sql.VarChar, detail.field_name)
+                .query(`
+                    SELECT TOP 1 t.ticket_id, t.status
+                    FROM CRM_TICKETS t
+                    JOIN CRM_TICKET_DETAILS d ON t.ticket_id = d.ticket_id
+                    WHERE t.customer_id = @customer_id
+                      AND t.request_type = 'DATA_UPDATE'
+                      AND d.field_name = @field_name
+                      AND t.status NOT IN ('Completed / Closed', 'Completed / Sync / Closed', 'Rejected', 'Cancelled')
+                    ORDER BY t.created_at DESC
+                `);
+            if (pendingUpdate.recordset.length > 0) {
+                return res.status(409).json({
+                    error: `Sudah ada tiket aktif (${pendingUpdate.recordset[0].ticket_id}) untuk pembaruan data ${detail.field_name} pada customer ini dengan status "${pendingUpdate.recordset[0].status}".`
+                });
+            }
+
             const conflicts = await findExistingDataUpdateCustomers(detail, customer_id);
             if (conflicts.length > 0) {
                 return res.status(409).json({
@@ -948,6 +1169,23 @@ export const createTicket = async (req, res) => {
                     error: `Member sumber ${customer_id} sudah pernah diajukan dalam tiket Merge Points (${previousMerge.recordset[0].ticket_id}). Pengajuan ulang tidak diperbolehkan.`
                 });
             }
+
+            // Also check if target_member is currently an active source in another merge
+            const targetAsSource = await pool.request()
+                .input('target_member', sql.VarChar, details[0].transaction_ref)
+                .query(`
+                    SELECT TOP 1 ticket_id, status
+                    FROM CRM_TICKETS
+                    WHERE customer_id = @target_member
+                      AND request_type = 'MERGE_POINTS'
+                      AND status NOT IN ('Rejected', 'Cancelled')
+                    ORDER BY created_at DESC
+                `);
+            if (targetAsSource.recordset.length > 0) {
+                return res.status(409).json({
+                    error: `Member tujuan ${details[0].transaction_ref} sedang diajukan sebagai member sumber pada tiket lain (${targetAsSource.recordset[0].ticket_id}).`
+                });
+            }
         }
 
         let mergeH2hAtCreate = null;
@@ -964,14 +1202,38 @@ export const createTicket = async (req, res) => {
                 });
             }
         }
-
-        const ticket_id = await generateTicketId(pool);
         
         // Start transaction
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
         
         try {
+            // Re-verify inside the transaction with HOLDLOCK to guarantee serializability
+            if (request_type === 'MERGE_POINTS') {
+                const doubleCheckMerge = await new sql.Request(transaction)
+                    .input('chk_source', sql.VarChar, customer_id)
+                    .query(`
+                        SELECT TOP 1 ticket_id 
+                        FROM CRM_TICKETS WITH (UPDLOCK, HOLDLOCK)
+                        WHERE customer_id = @chk_source AND request_type = 'MERGE_POINTS'
+                    `);
+                if (doubleCheckMerge.recordset.length > 0) {
+                    throw new Error(`Member sumber ${customer_id} sudah terdaftar dalam tiket Merge Points (${doubleCheckMerge.recordset[0].ticket_id}).`);
+                }
+            } else if (request_type === 'POINT_ADJUSTMENT' && normalizedDetails?.[0]?.transaction_ref) {
+                const doubleCheckBill = await new sql.Request(transaction)
+                    .input('chk_ref', sql.VarChar, normalizedDetails[0].transaction_ref)
+                    .query(`
+                        SELECT TOP 1 ticket_id 
+                        FROM CRM_TICKET_DETAILS WITH (UPDLOCK, HOLDLOCK)
+                        WHERE transaction_ref = @chk_ref
+                    `);
+                if (doubleCheckBill.recordset.length > 0) {
+                    throw new Error(`Nomor billing ${normalizedDetails[0].transaction_ref} sudah terdaftar dalam tiket ${doubleCheckBill.recordset[0].ticket_id}.`);
+                }
+            }
+
+            const ticket_id = await generateTicketId(transaction);
             // 1. Insert Ticket into DBWH_8529
             const reqTicket = new sql.Request(transaction);
             await reqTicket
@@ -1056,6 +1318,10 @@ export const createTicket = async (req, res) => {
     } catch (err) {
         console.error("Create ticket error:", err);
         res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
+    } finally {
+        for (const key of lockKeys) {
+            activeTicketCreations.delete(key);
+        }
     }
 };
 
@@ -1078,12 +1344,97 @@ export const getTickets = async (req, res) => {
         query += " ORDER BY t.created_at DESC";
         
         const result = await request.query(query);
+        const userMapData = await getUserFullNameMap(pool);
+        const configsRes = await pool.request().query('SELECT * FROM CRM_TICKET_WORKFLOW_CONFIG');
+        const configMap = new Map();
+        for (const c of configsRes.recordset) {
+            try {
+                c.level_1_users = typeof c.level_1_users === 'string' ? JSON.parse(c.level_1_users) : (c.level_1_users || []);
+                c.level_2_users = typeof c.level_2_users === 'string' ? JSON.parse(c.level_2_users) : (c.level_2_users || []);
+                c.level_3_users = typeof c.level_3_users === 'string' ? JSON.parse(c.level_3_users) : (c.level_3_users || []);
+                c.executor_users = typeof c.executor_users === 'string' ? JSON.parse(c.executor_users) : (c.executor_users || []);
+            } catch (_) {}
+            configMap.set(c.config_key, c);
+        }
+        const defaultConfig = configMap.get('DEFAULT');
+
+        for (const t of result.recordset) {
+            if (t.requester_name) {
+                t.requester_name = userMapData.map.get(t.requester_name.toLowerCase()) || t.requester_name;
+            } else if (t.requester_id) {
+                t.requester_name = userMapData.map.get(t.requester_id.toLowerCase()) || t.requester_id;
+            }
+
+            const config = configMap.get(t.request_type) || defaultConfig;
+            const pendingName = getPendingApproverNames(t, config, userMapData);
+            t.pending_approver_name = pendingName;
+        }
+
         res.json(result.recordset);
     } catch (err) {
         console.error("getTickets error:", err);
         res.status(500).json({ error: err.message });
     }
 };
+
+function extractSnapshotFromAuditLogs(ticket, details, auditLogs) {
+    if (!ticket || ticket.request_type !== 'MERGE_POINTS') return null;
+    const detail = details?.[0];
+    const sourceCard = ticket.customer_id;
+    const targetCard = detail?.transaction_ref;
+    const pts = Number(detail?.new_value || 0);
+
+    const execLog = auditLogs?.find(l => l.action === 'EXECUTED' && l.details?.includes('Merge Points Berhasil'));
+    if (execLog && execLog.details) {
+        const text = execLog.details;
+        const sourcePtsMatch = text.match(/source\s+(\d+)\s+pts/i);
+        const targetPtsMatch = text.match(/(?:target|member tujuan:?)\s+(\d+)\s*(?:pts|poin)/i);
+        const sourceExpMatch = text.match(/Source expense=([\d.]+)/i);
+        const sourceLdMatch = text.match(/source lucky draw=([\d.]+)/i);
+        const targetExpMatch = text.match(/target expense=([\d.]+)/i);
+        const targetLdMatch = text.match(/target lucky draw=([\d.]+)/i);
+
+        const sourcePoints = sourcePtsMatch ? Number(sourcePtsMatch[1]) : Number(detail?.old_value || 0);
+        const targetPoints = targetPtsMatch ? Number(targetPtsMatch[1]) : 0;
+        const sourceExpense = sourceExpMatch ? Number(sourceExpMatch[1]) : 0;
+        const sourceLuckyDraw = sourceLdMatch ? Number(sourceLdMatch[1]) : 0;
+        const targetExpense = targetExpMatch ? Number(targetExpMatch[1]) : 0;
+        const targetLuckyDraw = targetLdMatch ? Number(targetLdMatch[1]) : 0;
+
+        return {
+            source: {
+                card_no: sourceCard,
+                customer_name: ticket.customer_name || null,
+                current_points: sourcePoints,
+                total_expense: sourceExpense,
+                lucky_draw_points: sourceLuckyDraw
+            },
+            target: {
+                card_no: targetCard,
+                customer_name: null,
+                current_points: targetPoints,
+                total_expense: targetExpense,
+                lucky_draw_points: targetLuckyDraw
+            },
+            combined: {
+                transferred_points: pts,
+                source_points: sourcePoints,
+                target_points: targetPoints,
+                total_points: targetPoints + pts,
+                combined_points: sourcePoints + targetPoints,
+                source_expense: sourceExpense,
+                target_expense: targetExpense,
+                total_expense: sourceExpense + targetExpense,
+                source_lucky_draw: sourceLuckyDraw,
+                target_lucky_draw: targetLuckyDraw,
+                total_lucky_draw: sourceLuckyDraw + targetLuckyDraw
+            },
+            executed_at: execLog.created_at,
+            is_snapshot: true
+        };
+    }
+    return null;
+}
 
 export const getTicketById = async (req, res) => {
     const { id } = req.params;
@@ -1114,42 +1465,119 @@ export const getTicketById = async (req, res) => {
             .input('ticket_id', sql.VarChar, id)
             .query("SELECT * FROM CRM_TICKET_AUDIT_LOGS WHERE ticket_id = @ticket_id ORDER BY created_at DESC");
 
+        const userMapData = await getUserFullNameMap(pool);
+        const ticketObj = ticketRes.recordset[0];
+
+        if (ticketObj.requester_name) {
+            ticketObj.requester_name = userMapData.map.get(ticketObj.requester_name.toLowerCase()) || ticketObj.requester_name;
+        } else if (ticketObj.requester_id) {
+            ticketObj.requester_name = userMapData.map.get(ticketObj.requester_id.toLowerCase()) || ticketObj.requester_id;
+        }
+
+        const config = await getEffectiveWorkflowConfig(pool, ticketObj.request_type);
+        const pendingName = getPendingApproverNames(ticketObj, config, userMapData);
+        ticketObj.pending_approver_name = pendingName;
+
+        for (const app of approvalsRes.recordset) {
+            if (app.approver_name) {
+                app.approver_name = userMapData.map.get(app.approver_name.toLowerCase()) || app.approver_name;
+            } else if (app.approver_id) {
+                app.approver_name = userMapData.map.get(app.approver_id.toLowerCase()) || app.approver_id;
+            }
+        }
+
         let mergeH2h = null;
-        if (ticketRes.recordset[0].request_type === 'MERGE_POINTS' && detailsRes.recordset[0]) {
-            const sourceIdentifier = ticketRes.recordset[0].customer_id;
-            const targetIdentifier = detailsRes.recordset[0].transaction_ref;
-            const [sourceResult, targetResult] = await Promise.allSettled([
-                getH2hMemberSnapshot(sourceIdentifier),
-                getH2hMemberSnapshot(targetIdentifier)
-            ]);
-            mergeH2h = {
-                source: sourceResult.status === 'fulfilled' ? sourceResult.value : null,
-                target: targetResult.status === 'fulfilled' ? targetResult.value : null,
-                errors: {
-                    source: sourceResult.status === 'rejected' ? sourceResult.reason?.message : null,
-                    target: targetResult.status === 'rejected' ? targetResult.reason?.message : null
-                },
-                checked_at: new Date().toISOString()
-            };
+        if (ticketObj.request_type === 'MERGE_POINTS' && detailsRes.recordset[0]) {
+            const statusLower = String(ticketObj.status || '').toLowerCase();
+            const isClosed = statusLower.includes('completed') || statusLower.includes('closed') || statusLower.includes('reject');
+
+            if (isClosed) {
+                // Tiket sudah selesai / closed: gunakan snapshot data historis statis.
+                // Jangan panggil API H2H live agar data history tidak terus berubah dinamis.
+                let snapshot = null;
+                if (ticketObj.snapshot_data) {
+                    try {
+                        snapshot = JSON.parse(ticketObj.snapshot_data);
+                    } catch (_) {}
+                }
+                if (!snapshot) {
+                    snapshot = extractSnapshotFromAuditLogs(ticketObj, detailsRes.recordset, logsRes.recordset);
+                }
+                if (snapshot) {
+                    mergeH2h = {
+                        ...snapshot,
+                        is_snapshot: true,
+                        checked_at: snapshot.executed_at || ticketObj.closed_at || ticketObj.updated_at
+                    };
+                }
+            }
+
+            // Jika tiket BELUM close (masih aktif / pending approval / approved) ATAU belum memiliki snapshot:
+            if (!mergeH2h) {
+                const sourceIdentifier = ticketObj.customer_id;
+                const targetIdentifier = detailsRes.recordset[0].transaction_ref;
+                const [sourceResult, targetResult] = await Promise.allSettled([
+                    getH2hMemberSnapshot(sourceIdentifier),
+                    getH2hMemberSnapshot(targetIdentifier)
+                ]);
+                const source = sourceResult.status === 'fulfilled' ? sourceResult.value : null;
+                const target = targetResult.status === 'fulfilled' ? targetResult.value : null;
+
+                const sourcePoints = Number(source?.current_points ?? detailsRes.recordset[0]?.old_value ?? 0);
+                const targetPoints = Number(target?.current_points ?? 0);
+                const transferredPoints = Number(detailsRes.recordset[0]?.new_value ?? sourcePoints);
+
+                const sourceExpense = Number(source?.total_expense ?? 0);
+                const targetExpense = Number(target?.total_expense ?? 0);
+
+                const sourceLuckyDraw = Number(source?.lucky_draw_points ?? 0);
+                const targetLuckyDraw = Number(target?.lucky_draw_points ?? 0);
+
+                const combined = {
+                    source_points: sourcePoints,
+                    target_points: targetPoints,
+                    transferred_points: transferredPoints,
+                    total_points: targetPoints + transferredPoints,
+                    combined_points: sourcePoints + targetPoints,
+                    source_expense: sourceExpense,
+                    target_expense: targetExpense,
+                    total_expense: sourceExpense + targetExpense,
+                    source_lucky_draw: sourceLuckyDraw,
+                    target_lucky_draw: targetLuckyDraw,
+                    total_lucky_draw: sourceLuckyDraw + targetLuckyDraw
+                };
+
+                mergeH2h = {
+                    source,
+                    target,
+                    combined,
+                    is_snapshot: false,
+                    errors: {
+                        source: sourceResult.status === 'rejected' ? sourceResult.reason?.message : null,
+                        target: targetResult.status === 'rejected' ? targetResult.reason?.message : null
+                    },
+                    checked_at: new Date().toISOString()
+                };
+            }
         }
 
         let permissions = { can_approve: false, can_execute: false };
         try {
             const actor = await getActorUser(pool, req);
-            const config = await getEffectiveWorkflowConfig(pool, ticketRes.recordset[0].request_type);
-            const approveCheck = canUserApproveTicket(actor, ticketRes.recordset[0], config);
+            const approveCheck = canUserApproveTicket(actor, ticketObj, config, pendingName);
             const canExec = canUserExecuteTicket(actor, config);
             permissions = {
                 can_approve: approveCheck.allowed,
-                can_execute: canExec && ticketRes.recordset[0].status === 'Approved',
+                can_execute: canExec && ticketObj.status === 'Approved',
                 approve_reason: approveCheck.reason,
+                pending_approver_name: pendingName,
                 total_levels: config.total_levels,
-                level_name: config[`level_${ticketRes.recordset[0].current_approval_level}_name`] || `Level ${ticketRes.recordset[0].current_approval_level}`
+                level_name: pendingName ? `Pending: ${pendingName}` : `Pending Approval`
             };
         } catch (_) {}
 
         res.json({
-            ticket: ticketRes.recordset[0],
+            ticket: ticketObj,
             details: detailsRes.recordset,
             approvals: approvalsRes.recordset,
             logs: logsRes.recordset,
@@ -1178,13 +1606,15 @@ export const approveTicket = async (req, res) => {
         }
         
         let ticket = ticketRes.recordset[0];
+        const userMapData = await getUserFullNameMap(pool);
         const actor = await getActorUser(pool, req);
         const config = await getEffectiveWorkflowConfig(pool, ticket.request_type);
+        const pendingName = getPendingApproverNames(ticket, config, userMapData);
 
-        const checkAuth = canUserApproveTicket(actor, ticket, config);
+        const checkAuth = canUserApproveTicket(actor, ticket, config, pendingName);
         if (!checkAuth.allowed) {
             return res.status(403).json({
-                error: checkAuth.reason || `User ${actor.username} (${actor.role_name || 'Unknown Role'}) tidak berwenang untuk approval level ${ticket.current_approval_level}.`
+                error: checkAuth.reason || `Menunggu approval dari: ${pendingName || 'approver terkait'}.`
             });
         }
 
@@ -1523,6 +1953,7 @@ export const executeTicket = async (req, res) => {
 
         let executionNotes = `Executed. Notes: ${result_notes || '-'}`;
         let executionSyncPending = false;
+        let executedSnapshotJson = null;
 
         // 2. Perform live customer updates based on request_type
         if (ticket.request_type === 'MERGE_POINTS' && details.length > 0) {
@@ -1623,6 +2054,38 @@ export const executeTicket = async (req, res) => {
 
                     executionNotes = `Merge Points Berhasil: ${pts} poin dipindahkan dari ${sourceCard} ke ${targetCard}. Kartu lama ${sourceCard} telah dinonaktifkan (Status: Inactive). Validasi H2H: source ${sourceH2h.current_points} pts, target ${targetH2h.current_points} pts (minimum ${pts}). Source expense=${sourceH2h.total_expense}, source lucky draw=${sourceH2h.lucky_draw_points}; target expense=${targetH2h.total_expense}, target lucky draw=${targetH2h.lucky_draw_points}. Notes: ${result_notes || '-'}`;
                     executionNotes += ` H2H checked at ${new Date().toISOString()}.`;
+
+                    executedSnapshotJson = JSON.stringify({
+                        source: {
+                            card_no: sourceCard,
+                            customer_name: ticket.customer_name || sourceH2h.customer_name || null,
+                            current_points: sourceH2h.current_points,
+                            total_expense: sourceH2h.total_expense,
+                            lucky_draw_points: sourceH2h.lucky_draw_points
+                        },
+                        target: {
+                            card_no: targetCard,
+                            customer_name: targetH2h.customer_name || null,
+                            current_points: targetH2h.current_points,
+                            total_expense: targetH2h.total_expense,
+                            lucky_draw_points: targetH2h.lucky_draw_points
+                        },
+                        combined: {
+                            transferred_points: pts,
+                            source_points: sourceH2h.current_points,
+                            target_points: targetH2h.current_points,
+                            total_points: targetH2h.current_points + pts,
+                            combined_points: sourceH2h.current_points + targetH2h.current_points,
+                            source_expense: sourceH2h.total_expense,
+                            target_expense: targetH2h.total_expense,
+                            total_expense: sourceH2h.total_expense + targetH2h.total_expense,
+                            source_lucky_draw: sourceH2h.lucky_draw_points,
+                            target_lucky_draw: targetH2h.lucky_draw_points,
+                            total_lucky_draw: sourceH2h.lucky_draw_points + targetH2h.lucky_draw_points
+                        },
+                        executed_at: new Date().toISOString(),
+                        is_snapshot: true
+                    });
                 } catch (e55) {
                     console.error("Failed to execute Merge Points in DBWH_8555:", e55);
                     throw e55;
@@ -1645,7 +2108,7 @@ export const executeTicket = async (req, res) => {
             try {
                 const stagedResult = await pool.request()
                     .input('ticket_id', sql.VarChar, id)
-                    .query(`SELECT TOP 1 * FROM CRM_TICKET_QUEUE_TEMP WHERE ticket_id = @ticket_id AND sync_status <> 'SYNCED'`);
+                    .query(`SELECT TOP 1 * FROM CRM_TICKET_QUEUE_TEMP WHERE ticket_id = @ticket_id AND ISNULL(sync_status, 'PENDING') <> 'SYNCED'`);
                 stagedAdjustment = stagedResult.recordset[0] || null;
                 const billPool = await getCustomerLookupPool();
                 const billResult = await billPool.request()
@@ -1688,35 +2151,30 @@ export const executeTicket = async (req, res) => {
                 });
             }
 
+            const oldPts = safeParsePoints(detail.old_value);
+            const newPts = safeParsePoints(detail.new_value);
+            const targetLatestPoints = oldPts + newPts;
+
             const memberIdentifier = ticket.mobile_no || ticket.customer_id;
-            let h2hPoints;
+            let h2hPoints = null;
             try {
-                // H2H is the source of truth for the resulting point balance.
                 h2hPoints = await getH2hMemberPoints(memberIdentifier);
             } catch (h2hError) {
-                console.error("H2H point lookup failed:", h2hError);
-                await logValidationFailure(
-                    pool, id, executor_id, executor_name,
-                    `POINT_ADJUSTMENT H2H point lookup error. Member=${memberIdentifier}, error=${h2hError.message}`
-                );
-                return res.status(502).json({
-                    error: 'Pengambilan jumlah point dari H2H gagal. Update tidak dilakukan.',
-                    details: h2hError.message
-                });
+                console.warn("H2H point lookup note:", h2hError.message);
             }
 
             try {
                 const p55 = await getCustomerLookupPool();
                 await p55.request()
                     .input('card', sql.VarChar, ticket.customer_id)
-                    .input('h2hPoints', sql.Int, h2hPoints)
+                    .input('targetPoints', sql.Int, targetLatestPoints)
                     .query(`
                         UPDATE RXL_LOYALID_CUSTOMER_MST
-                        SET LATEST_POINT = @h2hPoints,
+                        SET LATEST_POINT = @targetPoints,
                             UPDATED_AT = GETDATE()
                         WHERE RLICM_CARD_NO = @card OR RLICM_MOBILE_NO = @card
                     `);
-                executionNotes = `Point Adjustment Berhasil: LATEST_POINT pada ${ticket.customer_id} disesuaikan ke point H2H (${h2hPoints}). Notes: ${result_notes || '-'}`;
+                executionNotes = `Point Adjustment Berhasil: LATEST_POINT pada ${ticket.customer_id} disesuaikan menjadi ${targetLatestPoints} (${oldPts} + ${newPts} pts).${h2hPoints !== null ? ` (Snapshot H2H: ${h2hPoints} pts)` : ''} Notes: ${result_notes || '-'}`;
             } catch (e55) {
                 console.error("Failed to execute Point Adjustment in DBWH_8555:", e55);
                 throw e55;
@@ -1734,9 +2192,17 @@ export const executeTicket = async (req, res) => {
                             SET rl_itq_card_no = @card_no, updated_at = GETDATE()
                             WHERE ticket_id = @ticket_id
                         `);
-                    await pushStagedAdjustment(pool, id);
-                    executionSyncPending = true;
-                    executionNotes += ' Temporary queue berhasil dikirim ke server tujuan berdasarkan org_cd.';
+                    const pushResult = await pushStagedAdjustment(pool, id);
+                    if (pushResult?.already_synced) {
+                        executionSyncPending = false;
+                        executionNotes += ` Queue pada server target dilewati karena bill_no ${adjustmentBillNo} sudah ada dan telah tersinkronisasi (flag=${pushResult.existing_queue?.processed_flag}, extra=${pushResult.existing_queue?.extra_info_1 || '-'}).`;
+                    } else if (pushResult?.already_existed) {
+                        executionSyncPending = true;
+                        executionNotes += ` Queue pada server target dilewati karena bill_no ${adjustmentBillNo} sudah ada di antrean server target (status: pending, flag=${pushResult.existing_queue?.processed_flag ?? 0}).`;
+                    } else {
+                        executionSyncPending = true;
+                        executionNotes += ' Temporary queue berhasil dikirim ke server tujuan berdasarkan org_cd.';
+                    }
                 } catch (queueError) {
                     await logValidationFailure(pool, id, executor_id, executor_name, `POINT_ADJUSTMENT temporary queue push failed. bill_no=${adjustmentBillNo}, error=${queueError.message}`);
                     return res.status(queueError.statusCode || 502).json({
@@ -1836,9 +2302,13 @@ export const executeTicket = async (req, res) => {
             await reqUpdate
                 .input('ticket_id', sql.VarChar, id)
                 .input('status', sql.VarChar, executionSyncPending ? 'Synchronization Pending' : 'Completed / Closed')
+                .input('snapshot_data', sql.NVarChar, executedSnapshotJson)
                 .query(`
                     UPDATE CRM_TICKETS 
-                    SET status = @status, updated_at = GETDATE(), closed_at = CASE WHEN @status = 'Completed / Closed' THEN GETDATE() ELSE NULL END
+                    SET status = @status, 
+                        snapshot_data = ISNULL(@snapshot_data, snapshot_data),
+                        updated_at = GETDATE(), 
+                        closed_at = CASE WHEN @status = 'Completed / Closed' THEN GETDATE() ELSE NULL END
                     WHERE ticket_id = @ticket_id
                 `);
                 

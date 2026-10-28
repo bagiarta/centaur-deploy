@@ -3,7 +3,7 @@ import {
   Ticket, CheckCircle2, XCircle, AlertTriangle, Clock, 
   Search, Info, Plus, ChevronRight, User as UserIcon,
   ShieldCheck, CheckCheck, MapPin, Phone, Mail, CreditCard, Coins, Calendar,
-  ArrowRightLeft
+  ArrowRightLeft, Loader2
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -23,9 +23,11 @@ type Ticket = {
   reason?: string;
   customer_name?: string;
   mobile_no?: string;
+  pending_approver_name?: string | null;
+  pending_approvers?: string[];
 };
 
-const renderStatusBadge = (status: string, level?: number) => {
+const renderStatusBadge = (status: string, level?: number, pendingApproverName?: string | null) => {
   if (status === 'Approved') {
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shadow-sm">
@@ -62,10 +64,20 @@ const renderStatusBadge = (status: string, level?: number) => {
     );
   }
 
+  if (status.includes('Pending Approval') || status.toLowerCase().includes('pending')) {
+    const displayName = pendingApproverName ? `Pending: ${pendingApproverName}` : 'Pending Approval';
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-warning/10 text-warning border border-warning/20 shadow-sm" title={displayName}>
+        <Clock className="w-3.5 h-3.5 shrink-0" />
+        <span className="truncate max-w-[240px]">{displayName}</span>
+      </span>
+    );
+  }
+
   return (
     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-warning/10 text-warning border border-warning/20 shadow-sm">
       <Clock className="w-3.5 h-3.5" />
-      {status} {status.includes('Approval') && level ? `(L${level})` : ''}
+      {status}
     </span>
   );
 };
@@ -117,19 +129,21 @@ export default function CrmTicketsPage() {
   const [selectedTicketData, setSelectedTicketData] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [executeLoading, setExecuteLoading] = useState(false);
+  const isExecuteLoadingRef = useRef(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const isActionLoadingRef = useRef(false);
+  const [submittingTicket, setSubmittingTicket] = useState(false);
+  const isSubmittingTicketRef = useRef(false);
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [stores, setStores] = useState<any[]>([]);
   const { user } = useAuth();
   const currentUserRole = user?.role_name || '';
   const currentUserPosition = user?.position || '';
   const currentUserNIP = user?.username || '';
-  const normalizedRole = currentUserRole.toLowerCase();
-  const normalizedPosition = currentUserPosition.toLowerCase();
-  const normalizedDivision = (user?.division || '').toLowerCase();
-  const canApproveManager = user?.is_admin === true || normalizedPosition.includes('manager') || normalizedRole.includes('manager') || (normalizedRole === 'operation' && normalizedDivision === 'area manager');
-  const canApproveMarketing = normalizedPosition.includes('marketing') || normalizedPosition.includes('director') || normalizedPosition.includes('head') || normalizedPosition.includes('vice president') || normalizedPosition === 'vp' || normalizedRole.includes('marketing') || normalizedDivision.includes('marketing') || normalizedRole.includes('director') || user?.is_admin === true;
-  const canExecute = user?.is_admin === true || normalizedPosition.includes('sysadmin') || normalizedPosition.includes('system administrator') || normalizedPosition.includes('it operational') || normalizedRole.includes('it operational');
-  const selectedTicketIsCompleted = String(selectedTicketData?.ticket?.status || '').toLowerCase().includes('completed');
+  const selectedTicketStatus = String(selectedTicketData?.ticket?.status || '');
+  const selectedTicketIsApprovalPending = selectedTicketStatus.startsWith('Pending Approval');
+  const selectedTicketIsSynchronizationPending = selectedTicketStatus === 'Synchronization Pending';
+  const selectedTicketIsCompleted = selectedTicketStatus.toLowerCase().includes('completed');
 
   useEffect(() => {
     if (user?.username) {
@@ -505,6 +519,7 @@ export default function CrmTicketsPage() {
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingTicketRef.current) return;
     if (!formData.customer_id) return;
     try {
       let url = '/api/crm/tickets';
@@ -547,6 +562,9 @@ export default function CrmTicketsPage() {
         };
       }
 
+      isSubmittingTicketRef.current = true;
+      setSubmittingTicket(true);
+
       let bodyData = { 
         requester_id: currentUserNIP || 'REQ-001', 
         ...formData,
@@ -560,7 +578,10 @@ export default function CrmTicketsPage() {
 
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': user?.id || user?.username || ''
+        },
         body: JSON.stringify(bodyData)
       });
       if (res.ok) {
@@ -578,9 +599,12 @@ export default function CrmTicketsPage() {
         }
         alert(errorData.error || 'Failed to submit ticket');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Error saving ticket');
+      alert(err?.message || 'Error saving ticket');
+    } finally {
+      isSubmittingTicketRef.current = false;
+      setSubmittingTicket(false);
     }
   };
 
@@ -767,10 +791,17 @@ export default function CrmTicketsPage() {
                       {renderRequestTypeBadge(t.request_type)}
                     </td>
                     <td className="px-6 py-4 text-xs font-medium">{t.customer_id}</td>
-                    <td className="px-6 py-4 text-xs">{t.customer_name || '-'}</td>
+                    <td className="px-6 py-4 text-xs">
+                      <div className="font-medium text-foreground">{t.customer_name || '-'}</div>
+                      {t.requester_name && (
+                        <div className="text-[10px] text-foreground-muted truncate" title={`Requester: ${t.requester_name}`}>
+                          Oleh: {t.requester_name}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-xs font-mono">{t.mobile_no || '-'}</td>
                     <td className="px-6 py-4">
-                      {renderStatusBadge(t.status, t.current_approval_level)}
+                      {renderStatusBadge(t.status, t.current_approval_level, t.pending_approver_name)}
                     </td>
                     <td className="px-6 py-4 text-xs font-medium max-w-[150px] truncate" title={t.reason || '-'}>
                       {t.reason || '-'}
@@ -792,9 +823,19 @@ export default function CrmTicketsPage() {
       {/* Create Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsCreateModalOpen(false)} />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !submittingTicket && setIsCreateModalOpen(false)} />
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-surface border border-border rounded-2xl shadow-2xl p-6">
-            <h3 className="font-bold text-lg mb-4">{editingTicketId ? `Resubmit Ticket ${editingTicketId}` : 'Create New Ticket'}</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg">{editingTicketId ? `Resubmit Ticket ${editingTicketId}` : 'Create New Ticket'}</h3>
+              <button
+                type="button"
+                disabled={submittingTicket}
+                onClick={() => setIsCreateModalOpen(false)}
+                className="p-1 rounded-lg text-foreground-muted hover:text-foreground disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              >
+                ✕
+              </button>
+            </div>
             
             {/* Search Customer */}
             <div className="mb-4 p-4 bg-surface-raised rounded-xl border border-border">
@@ -924,17 +965,22 @@ export default function CrmTicketsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-warning/5 rounded-xl border border-warning/20">
                   <div>
                     <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-bold text-warning">Points to Adjust</label>
+                      <label className="text-xs font-bold text-success flex items-center gap-1">
+                        <Coins className="w-3.5 h-3.5 text-warning" /> Points to Adjust (+New Value)
+                      </label>
                       {customerDetails?.current_points !== undefined && (
                         <span className="text-[10px] text-foreground-muted">Saldo Saat Ini: <b className="text-foreground">{customerDetails.current_points} pts</b></span>
                       )}
                     </div>
-                    <input required type="number" className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary"
-                      placeholder="Otomatis dari net value billing"
-                      readOnly
-                      value={formData.details[0].new_value} onChange={e => {
-                        const nd = [...formData.details]; nd[0].new_value = e.target.value; setFormData({...formData, details: nd});
-                      }} />
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-sm font-bold text-success select-none">+</span>
+                      <input required type="number" className="w-full bg-surface border border-border rounded-lg pl-7 pr-3 py-2 text-sm font-mono font-bold text-success focus:outline-none focus:border-primary"
+                        placeholder="0"
+                        readOnly
+                        value={formData.details[0].new_value} onChange={e => {
+                          const nd = [...formData.details]; nd[0].new_value = e.target.value; setFormData({...formData, details: nd});
+                        }} />
+                    </div>
                     <p className="text-[10px] text-foreground-muted mt-1">Rumus: FLOOR(net value / 50.000), tanpa desimal.</p>
                   </div>
                   <div>
@@ -969,7 +1015,7 @@ export default function CrmTicketsPage() {
                     </div>
                     <div className="p-3 rounded-lg bg-surface border border-warning/20">
                       <span className="block text-[10px] uppercase font-bold text-foreground-muted">Point Dihitung</span>
-                      <span className="text-sm font-bold text-warning">{billingData ? `${billingData.points} pts` : '-'}</span>
+                      <span className="text-sm font-bold text-success font-mono">{billingData ? `+${billingData.points} pts` : '-'}</span>
                     </div>
                     <div className="p-3 rounded-lg bg-surface border border-warning/20">
                       <span className="block text-[10px] uppercase font-bold text-foreground-muted">Store</span>
@@ -981,6 +1027,18 @@ export default function CrmTicketsPage() {
                       )}
                     </div>
                   </div>
+                  {billingData && customerDetails && (
+                    <div className="md:col-span-2 p-3 bg-success/10 border border-success/30 rounded-xl flex items-center justify-between text-xs">
+                      <span className="text-foreground-muted font-medium">Simulasi Saldo Akhir:</span>
+                      <span className="font-mono font-bold text-foreground flex items-center gap-1.5">
+                        <span className="text-foreground-muted">{customerDetails.current_points} pts (Awal)</span>
+                        <span className="text-foreground-muted font-normal">+</span>
+                        <span className="text-success font-bold">{billingData.points} pts (Tambahan)</span>
+                        <span className="text-foreground-muted font-normal">=</span>
+                        <span className="text-primary font-extrabold text-sm font-mono">{(Number(customerDetails.current_points || 0) + Number(billingData.points || 0)).toLocaleString('id-ID')} pts</span>
+                      </span>
+                    </div>
+                  )}
                   <div className="md:col-span-2">
                     <label className="block text-xs font-bold mb-1 text-warning">Attachment (Photo Billing)</label>
                     {formData.details[0].attachment_url ? (
@@ -1253,6 +1311,63 @@ export default function CrmTicketsPage() {
                       </div>
                     </div>
 
+                    {/* Detail Akumulasi & Penjumlahan Merge (Poin, Total Expense, Lucky Draw) */}
+                    {targetCustomerDetails && (
+                      <div className="p-3.5 bg-teal-500/10 border border-teal-500/30 rounded-xl space-y-3">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-teal-500/20">
+                          <span className="text-xs font-bold text-teal-700 dark:text-teal-300 flex items-center gap-1.5 uppercase tracking-wide">
+                            <Coins className="w-4 h-4 text-warning" />
+                            Detail Penjumlahan Hasil Merge (Poin, Expense & Lucky Draw)
+                          </span>
+                          <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-teal-500/20 text-teal-800 dark:text-teal-200 font-bold">
+                            Live Simulation
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {/* 1. Detail Poin yang Dijumlahkan */}
+                          <div className="p-3 bg-surface rounded-xl border border-teal-500/25 shadow-sm space-y-1">
+                            <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                              Poin Dijumlahkan
+                            </span>
+                            <div className="text-base font-mono font-extrabold text-teal-600 dark:text-teal-400 flex items-baseline gap-1">
+                              <Coins className="w-3.5 h-3.5 text-warning inline" />
+                              <span>{((Number(targetCustomerDetails.current_points ?? 0) + (Number(pointsToTransfer) || 0))).toLocaleString('id-ID')} pts</span>
+                            </div>
+                            <div className="text-[10px] text-foreground-muted border-t border-border/50 pt-1 mt-1">
+                              <span className="text-teal-600 font-semibold">{(Number(pointsToTransfer) || 0).toLocaleString('id-ID')} pts</span> (Pindah) + <span className="font-semibold">{(Number(targetCustomerDetails.current_points ?? 0)).toLocaleString('id-ID')} pts</span> (Baru)
+                            </div>
+                          </div>
+
+                          {/* 2. Total Expense yang Dijumlahkan */}
+                          <div className="p-3 bg-surface rounded-xl border border-teal-500/25 shadow-sm space-y-1">
+                            <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                              Total Expense Dijumlahkan
+                            </span>
+                            <div className="text-base font-mono font-extrabold text-foreground">
+                              Rp {new Intl.NumberFormat('id-ID').format((Number(customerDetails?.total_expense ?? 0) + Number(targetCustomerDetails.total_expense ?? 0)))}
+                            </div>
+                            <div className="text-[10px] text-foreground-muted border-t border-border/50 pt-1 mt-1 truncate">
+                              <span>Rp {new Intl.NumberFormat('id-ID').format(Number(customerDetails?.total_expense ?? 0))}</span> (Lama) + <span>Rp {new Intl.NumberFormat('id-ID').format(Number(targetCustomerDetails.total_expense ?? 0))}</span> (Baru)
+                            </div>
+                          </div>
+
+                          {/* 3. Total Lucky Draw yang Dijumlahkan */}
+                          <div className="p-3 bg-surface rounded-xl border border-teal-500/25 shadow-sm space-y-1">
+                            <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                              Total Lucky Draw Dijumlahkan
+                            </span>
+                            <div className="text-base font-mono font-extrabold text-warning">
+                              {(Number(customerDetails?.lucky_draw_points ?? 0) + Number(targetCustomerDetails.lucky_draw_points ?? 0)).toLocaleString('id-ID')} pts
+                            </div>
+                            <div className="text-[10px] text-foreground-muted border-t border-border/50 pt-1 mt-1">
+                              <span>{(Number(customerDetails?.lucky_draw_points ?? 0)).toLocaleString('id-ID')} pts</span> (Lama) + <span>{(Number(targetCustomerDetails.lucky_draw_points ?? 0)).toLocaleString('id-ID')} pts</span> (Baru)
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="p-2.5 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                       <span>
@@ -1292,16 +1407,31 @@ export default function CrmTicketsPage() {
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t border-border mt-4">
-                <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 text-sm font-bold text-foreground-muted hover:text-foreground">Cancel</button>
+                <button 
+                  type="button" 
+                  disabled={submittingTicket}
+                  onClick={() => setIsCreateModalOpen(false)} 
+                  className="px-4 py-2 text-sm font-bold text-foreground-muted hover:text-foreground disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Cancel
+                </button>
                 <button
                   type="submit"
                   disabled={
+                    submittingTicket ||
                     !formData.customer_id ||
                     (formData.request_type === 'POINT_ADJUSTMENT' && (!billingData || billingData.can_submit === false))
                   }
-                  className="px-6 py-2 text-sm font-bold bg-primary text-white rounded-lg shadow-sm hover:bg-primary/90 disabled:opacity-50"
+                  className="px-6 py-2 text-sm font-bold bg-primary text-white rounded-lg shadow-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none flex items-center gap-2"
                 >
-                  Submit Ticket
+                  {submittingTicket ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>{editingTicketId ? 'Menyimpan...' : 'Memproses...'}</span>
+                    </>
+                  ) : (
+                    editingTicketId ? 'Resubmit Ticket' : 'Submit Ticket'
+                  )}
                 </button>
               </div>
             </form>
@@ -1324,7 +1454,11 @@ export default function CrmTicketsPage() {
                   <div className="text-xs text-foreground-muted mt-1 flex items-center gap-2">
                     <span>{new Date(selectedTicketData.ticket.created_at).toLocaleString()}</span>
                     <span>•</span>
-                    {renderStatusBadge(selectedTicketData.ticket.status, selectedTicketData.ticket.current_approval_level)}
+                    {renderStatusBadge(
+                      selectedTicketData.ticket.status, 
+                      selectedTicketData.ticket.current_approval_level,
+                      selectedTicketData.permissions?.pending_approver_name || selectedTicketData.ticket.pending_approver_name
+                    )}
                   </div>
                 )}
               </div>
@@ -1395,26 +1529,124 @@ export default function CrmTicketsPage() {
                     </div>
 
                     {selectedTicketData.merge_h2h && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                        {[
-                          { label: 'H2H Member Lama', data: selectedTicketData.merge_h2h.source, tone: 'danger' },
-                          { label: 'H2H Member Baru', data: selectedTicketData.merge_h2h.target, tone: 'teal' }
-                        ].map(({ label, data, tone }) => (
-                          <div key={label} className="p-3 bg-surface rounded-lg border border-border">
-                            <div className={`font-bold mb-2 ${tone === 'danger' ? 'text-danger' : 'text-teal-600 dark:text-teal-400'}`}>{label} (Live)</div>
-                            {data ? (
-                              <div className="grid grid-cols-2 gap-2">
-                                <span className="text-foreground-muted">Points</span><b>{data.current_points ?? 0} pts</b>
-                                <span className="text-foreground-muted">Total Expense</span><b>Rp {new Intl.NumberFormat('id-ID').format(data.total_expense ?? 0)}</b>
-                                <span className="text-foreground-muted">Lucky Draw</span><b className="text-warning">{data.lucky_draw_points ?? 0} pts</b>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs px-1">
+                          <span className="font-bold flex items-center gap-1.5 text-foreground">
+                            <ShieldCheck className="w-4 h-4 text-primary" />
+                            {selectedTicketData.merge_h2h.is_snapshot
+                              ? 'Data Historis H2H (Snapshot Statis saat Eksekusi)'
+                              : 'Kondisi Saldo H2H (Live Real-Time)'}
+                          </span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            selectedTicketData.merge_h2h.is_snapshot
+                              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                          }`}>
+                            {selectedTicketData.merge_h2h.is_snapshot ? 'Historical Snapshot (Frozen)' : 'Live H2H'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                          {[
+                            { label: 'H2H Member Lama', data: selectedTicketData.merge_h2h.source, tone: 'danger' },
+                            { label: 'H2H Member Baru', data: selectedTicketData.merge_h2h.target, tone: 'teal' }
+                          ].map(({ label, data, tone }) => (
+                            <div key={label} className="p-3 bg-surface rounded-lg border border-border">
+                              <div className={`font-bold mb-2 flex items-center justify-between ${tone === 'danger' ? 'text-danger' : 'text-teal-600 dark:text-teal-400'}`}>
+                                <span>{label}</span>
+                                <span className="text-[10px] font-normal text-foreground-muted">
+                                  {selectedTicketData.merge_h2h.is_snapshot ? '(Snapshot)' : '(Live)'}
+                                </span>
                               </div>
-                            ) : (
-                              <span className="text-danger">{selectedTicketData.merge_h2h.errors?.[label === 'H2H Member Lama' ? 'source' : 'target'] || 'Data H2H tidak tersedia.'}</span>
-                            )}
-                          </div>
-                        ))}
+                              {data ? (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <span className="text-foreground-muted">Points</span><b>{data.current_points ?? 0} pts</b>
+                                  <span className="text-foreground-muted">Total Expense</span><b>Rp {new Intl.NumberFormat('id-ID').format(data.total_expense ?? 0)}</b>
+                                  <span className="text-foreground-muted">Lucky Draw</span><b className="text-warning">{data.lucky_draw_points ?? 0} pts</b>
+                                </div>
+                              ) : (
+                                <span className="text-danger">{selectedTicketData.merge_h2h.errors?.[label === 'H2H Member Lama' ? 'source' : 'target'] || 'Data H2H tidak tersedia.'}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
+
+                    {/* Hasil Penjumlahan / Akumulasi Gabungan Setelah Merge (Poin, Expense, Lucky Draw) */}
+                    {(() => {
+                      const sourceData = selectedTicketData.merge_h2h?.source;
+                      const targetData = selectedTicketData.merge_h2h?.target;
+                      const combined = selectedTicketData.merge_h2h?.combined;
+
+                      const sourcePts = Number(sourceData?.current_points ?? selectedTicketData.details?.[0]?.old_value ?? 0);
+                      const targetPts = Number(targetData?.current_points ?? 0);
+                      const transferPts = Number(selectedTicketData.details?.[0]?.new_value ?? sourcePts);
+                      const totalPts = combined?.total_points ?? (targetPts + transferPts);
+
+                      const sourceExp = Number(sourceData?.total_expense ?? 0);
+                      const targetExp = Number(targetData?.total_expense ?? 0);
+                      const totalExp = combined?.total_expense ?? (sourceExp + targetExp);
+
+                      const sourceLd = Number(sourceData?.lucky_draw_points ?? 0);
+                      const targetLd = Number(targetData?.lucky_draw_points ?? 0);
+                      const totalLd = combined?.total_lucky_draw ?? (sourceLd + targetLd);
+
+                      return (
+                        <div className="p-3.5 bg-teal-500/10 border border-teal-500/30 rounded-xl space-y-3">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-teal-500/20">
+                            <span className="text-xs font-bold text-teal-700 dark:text-teal-300 flex items-center gap-1.5 uppercase tracking-wide">
+                              <Coins className="w-4 h-4 text-warning" />
+                              Detail Penjumlahan Hasil Merge (Poin, Expense & Lucky Draw)
+                            </span>
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-teal-500/20 text-teal-800 dark:text-teal-200">
+                              {selectedTicketData.merge_h2h?.is_snapshot ? 'Historical Record (Frozen)' : 'Merged Totals'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            {/* 1. Detail Poin yang Dijumlahkan */}
+                            <div className="p-3 bg-surface rounded-xl border border-teal-500/25 shadow-sm space-y-1">
+                              <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                                Total Poin Dijumlahkan
+                              </span>
+                              <div className="text-base font-mono font-extrabold text-teal-600 dark:text-teal-400 flex items-baseline gap-1">
+                                <Coins className="w-3.5 h-3.5 text-warning inline" />
+                                <span>{totalPts.toLocaleString('id-ID')} pts</span>
+                              </div>
+                              <div className="text-[10px] text-foreground-muted border-t border-border/50 pt-1 mt-1">
+                                <span className="text-teal-600 font-semibold">{transferPts.toLocaleString('id-ID')} pts</span> (Pindah) + <span className="font-semibold">{targetPts.toLocaleString('id-ID')} pts</span> (Baru)
+                              </div>
+                            </div>
+
+                            {/* 2. Total Expense yang Dijumlahkan */}
+                            <div className="p-3 bg-surface rounded-xl border border-teal-500/25 shadow-sm space-y-1">
+                              <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                                Total Expense Dijumlahkan
+                              </span>
+                              <div className="text-base font-mono font-extrabold text-foreground">
+                                Rp {new Intl.NumberFormat('id-ID').format(totalExp)}
+                              </div>
+                              <div className="text-[10px] text-foreground-muted border-t border-border/50 pt-1 mt-1 truncate">
+                                <span>Rp {new Intl.NumberFormat('id-ID').format(sourceExp)}</span> (Lama) + <span>Rp {new Intl.NumberFormat('id-ID').format(targetExp)}</span> (Baru)
+                              </div>
+                            </div>
+
+                            {/* 3. Total Lucky Draw yang Dijumlahkan */}
+                            <div className="p-3 bg-surface rounded-xl border border-teal-500/25 shadow-sm space-y-1">
+                              <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                                Total Lucky Draw Dijumlahkan
+                              </span>
+                              <div className="text-base font-mono font-extrabold text-warning">
+                                {totalLd.toLocaleString('id-ID')} pts
+                              </div>
+                              <div className="text-[10px] text-foreground-muted border-t border-border/50 pt-1 mt-1">
+                                <span>{sourceLd.toLocaleString('id-ID')} pts</span> (Lama) + <span>{targetLd.toLocaleString('id-ID')} pts</span> (Baru)
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     <div className={`text-xs px-3 py-2 rounded-lg font-medium flex items-center gap-2 ${
                       selectedTicketData.ticket.status.includes('Completed')
@@ -1424,7 +1656,7 @@ export default function CrmTicketsPage() {
                       {selectedTicketData.ticket.status.includes('Completed') ? (
                         <>
                           <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
-                          <span>Poin berhasil digabungkan dan kartu lama <b>telah dinonaktifkan (Status: 0 / Inactive)</b> di database.</span>
+                          <span>Poin berhasil digabungkan dan kartu lama <b>telah dinonaktifkan (Status: 0 / Inactive)</b> di database. Data perhitungan di atas merupakan <b>snapshot historis statis</b> pada saat tiket diselesaikan (tidak berubah walau member berbelanja lagi di H2H).</span>
                         </>
                       ) : (
                         <>
@@ -1435,14 +1667,20 @@ export default function CrmTicketsPage() {
                     </div>
                   </div>
                 )}
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="p-4 bg-surface-raised rounded-xl space-y-3">
-                    <h4 className="font-bold text-sm border-b border-border pb-2">Requester Info</h4>
+                    <h4 className="font-bold text-sm border-b border-border pb-2">Requester & Approval Info</h4>
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <span className="text-foreground-muted">Name:</span> <span className="font-medium">{selectedTicketData.ticket.requester_name}</span>
+                      <span className="text-foreground-muted">Requester:</span> <span className="font-bold text-foreground">{selectedTicketData.ticket.requester_name}</span>
                       <span className="text-foreground-muted">ID:</span> <span className="font-medium">{selectedTicketData.ticket.requester_id}</span>
                       <span className="text-foreground-muted">Branch:</span> <span className="font-medium">{selectedTicketData.ticket.unit_branch}</span>
+                      {(selectedTicketData.permissions?.pending_approver_name || selectedTicketData.ticket?.pending_approver_name) && (
+                        <>
+                          <span className="text-foreground-muted">Pending Approver:</span> 
+                          <span className="font-bold text-warning">{selectedTicketData.permissions?.pending_approver_name || selectedTicketData.ticket?.pending_approver_name}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="p-4 bg-surface-raised rounded-xl space-y-3">
@@ -1467,6 +1705,64 @@ export default function CrmTicketsPage() {
 
                 <div className="space-y-3">
                   <h4 className="font-bold text-sm">Ticket Details</h4>
+                  {selectedTicketData.ticket.request_type === 'POINT_ADJUSTMENT' ? (() => {
+                    const detail = selectedTicketData.details?.[0] || {};
+                    const oldPoints = Number(String(detail.old_value ?? 0).replace(/[+,\s]/g, '')) || 0;
+                    const newPoints = Number(String(detail.new_value ?? 0).replace(/[+,\s]/g, '')) || 0;
+                    return (
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-bold text-sm">
+                            <Coins className="w-4 h-4 text-warning" />
+                            Rincian Penyesuaian Poin
+                          </div>
+                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-800 dark:text-amber-200">
+                            Old Value + New Value
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="p-3 bg-surface rounded-xl border border-amber-500/20 shadow-sm space-y-1">
+                            <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">Poin Awal</span>
+                            <div className="text-lg font-mono font-extrabold text-foreground">{oldPoints.toLocaleString('id-ID')} pts</div>
+                            <span className="text-[10px] text-foreground-muted">Saldo sebelum adjustment</span>
+                          </div>
+                          <div className="p-3 bg-surface rounded-xl border border-amber-500/20 shadow-sm space-y-1">
+                            <span className="text-[10px] font-bold text-success uppercase tracking-wider block">Poin Ditambahkan</span>
+                            <div className="text-lg font-mono font-extrabold text-success">+{newPoints.toLocaleString('id-ID')} pts</div>
+                            <span className="text-[10px] text-foreground-muted">Nilai adjustment</span>
+                          </div>
+                          <div className="p-3 bg-primary/5 rounded-xl border border-primary/30 shadow-sm space-y-1">
+                            <span className="text-[10px] font-bold text-primary uppercase tracking-wider block">Total Poin</span>
+                            <div className="text-lg font-mono font-extrabold text-primary">{(oldPoints + newPoints).toLocaleString('id-ID')} pts</div>
+                            <span className="text-[10px] text-foreground-muted">Poin setelah adjustment</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                          <div className="p-3 bg-surface rounded-lg border border-border">
+                            <span className="block text-[10px] font-bold uppercase text-foreground-muted mb-1">No Billing</span>
+                            <span className="font-mono font-bold text-teal-600">{detail.transaction_ref || '-'}</span>
+                          </div>
+                          <div className="p-3 bg-surface rounded-lg border border-border">
+                            <span className="block text-[10px] font-bold uppercase text-foreground-muted mb-1">Reason</span>
+                            <span className="text-foreground-muted">{detail.reason || '-'}</span>
+                          </div>
+                        </div>
+
+                        {detail.attachment_url && (
+                          <a
+                            href={detail.attachment_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs bg-primary/10 text-primary px-3 py-2 rounded-md border border-primary/20 hover:bg-primary/20 hover:underline font-bold"
+                          >
+                            View Attachment
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })() : (
                   <div className="bg-surface-raised rounded-xl overflow-hidden border border-border">
                     <table className="w-full text-xs">
                       <thead className="bg-surface">
@@ -1474,7 +1770,7 @@ export default function CrmTicketsPage() {
                           <th className="text-left px-4 py-2 font-bold text-foreground-muted uppercase">Field</th>
                           <th className="text-left px-4 py-2 font-bold text-foreground-muted uppercase">Old Value</th>
                           <th className="text-left px-4 py-2 font-bold text-foreground-muted uppercase">New Value</th>
-                          <th className="text-left px-4 py-2 font-bold text-foreground-muted uppercase">Reason & Attachments</th>
+                          <th className="text-left px-4 py-2 font-bold text-foreground-muted uppercase">Reason / Evidence</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/50">
@@ -1492,10 +1788,18 @@ export default function CrmTicketsPage() {
                                 )}
                               </td>
                               <td className="px-4 py-3 text-danger align-top font-mono">
-                                {isMerge ? `${d.old_value} pts (Awal)` : d.old_value}
+                                {isMerge 
+                                  ? `${d.old_value} pts (Awal)` 
+                                  : (d.field_name === 'points' || selectedTicketData.ticket.request_type === 'POINT_ADJUSTMENT')
+                                    ? `${String(d.old_value ?? 0).replace(/[+,\s]/g, '')} pts`
+                                    : d.old_value}
                               </td>
                               <td className="px-4 py-3 text-success font-bold align-top font-mono">
-                                {isMerge ? `+${d.new_value} pts (Pindah)` : d.new_value}
+                                {isMerge 
+                                  ? `+${d.new_value} pts (Pindah)` 
+                                  : (d.field_name === 'points' || selectedTicketData.ticket.request_type === 'POINT_ADJUSTMENT')
+                                    ? `+${String(d.new_value ?? 0).replace(/[+,\s]/g, '')} pts`
+                                    : d.new_value}
                               </td>
                               <td className="px-4 py-3 text-foreground-muted align-top">
                                 <div>{d.reason}</div>
@@ -1507,9 +1811,14 @@ export default function CrmTicketsPage() {
                                   </div>
                                 )}
                                 {d.attachment_url && (
-                                  <div className="mt-1 ml-1 text-[10px] bg-primary/10 text-primary px-2 py-1 rounded inline-block border border-primary/20">
-                                    <a href={d.attachment_url} target="_blank" rel="noreferrer" className="hover:underline font-bold">View Attachment</a>
-                                  </div>
+                                  <a
+                                    href={d.attachment_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-2 inline-flex items-center gap-1.5 text-[10px] bg-primary/10 text-primary px-2.5 py-1.5 rounded-md border border-primary/20 hover:bg-primary/20 hover:underline font-bold"
+                                  >
+                                    View Attachment
+                                  </a>
                                 )}
                               </td>
                             </tr>
@@ -1518,97 +1827,143 @@ export default function CrmTicketsPage() {
                       </tbody>
                     </table>
                   </div>
+                  )}
                 </div>
 
                 {selectedTicketData.approvals?.length > 0 && (
                   <div className="space-y-3">
                     <h4 className="font-bold text-sm">Approval History</h4>
                     <div className="space-y-2">
-                      {selectedTicketData.approvals.map((app: any, idx: number) => (
-                        <div key={idx} className="flex items-center gap-3 p-3 bg-surface border border-border rounded-lg text-xs">
-                          {app.status === 'APPROVE' ? <CheckCircle2 className="w-4 h-4 text-success" /> : <XCircle className="w-4 h-4 text-danger" />}
-                          <div className="flex-1">
-                            <span className="font-bold">{app.approver_name || app.approver_id}</span>
-                            <span className="mx-2 text-foreground-muted">•</span>
-                            <span className={app.status === 'APPROVE' ? 'text-success font-bold' : 'text-danger font-bold'}>{app.status}</span>
-                            {app.comments && <p className="text-foreground-muted mt-1 italic">"{app.comments}"</p>}
+                      {selectedTicketData.approvals.map((app: any, idx: number) => {
+                        const isAuto = app.status === 'AUTO_APPROVED';
+                        const isApproved = app.status === 'APPROVE' || isAuto;
+                        return (
+                          <div key={idx} className="flex items-center gap-3 p-3 bg-surface border border-border rounded-lg text-xs">
+                            {isApproved ? <CheckCircle2 className="w-4 h-4 text-success shrink-0" /> : <XCircle className="w-4 h-4 text-danger shrink-0" />}
+                            <div className="flex-1">
+                              <span className="font-bold text-foreground">{app.approver_name || app.approver_id}</span>
+                              <span className="mx-2 text-foreground-muted">•</span>
+                              <span className={isApproved ? 'text-success font-bold' : 'text-danger font-bold'}>
+                                {isAuto ? 'Auto Approved' : app.status}
+                              </span>
+                              {app.comments && <p className="text-foreground-muted mt-1 italic">"{app.comments}"</p>}
+                            </div>
+                            <span className="text-foreground-muted text-[11px]">{new Date(app.created_at).toLocaleString()}</span>
                           </div>
-                          <span className="text-foreground-muted">{new Date(app.created_at).toLocaleString()}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
                 <div className="flex flex-wrap gap-2 justify-end pt-4 border-t border-border mt-4">
                   {/* Action Buttons with Dynamic Workflow Permissions */}
-                  {!selectedTicketIsCompleted && (selectedTicketData.permissions
-                    ? selectedTicketData.permissions.can_approve
-                    : ((selectedTicketData.ticket.status === 'Pending Approval L1' && canApproveManager) ||
-                       (selectedTicketData.ticket.status === 'Pending Approval L2' && canApproveManager) ||
-                       (selectedTicketData.ticket.status === 'Pending Approval L3' && canApproveMarketing))
-                  ) && (
+                  {!selectedTicketIsCompleted && selectedTicketIsApprovalPending && selectedTicketData.permissions?.can_approve && (
                     <>
-                      <button className="px-4 py-2 text-xs font-bold bg-danger text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
+                      <button 
+                        disabled={actionLoading || executeLoading}
+                        className="px-4 py-2 text-xs font-bold bg-danger text-white rounded-lg shadow-sm hover:opacity-90 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5"
                         onClick={async () => {
+                          if (isActionLoadingRef.current) return;
                           const comments = prompt("Enter rejection reason:");
                           if (comments === null) return;
-                          const approveResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              'x-user-id': user?.id || user?.username || ''
-                            },
-                            body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'REJECT', comments })
-                          });
-                          if (!approveResponse.ok) {
-                            const errorData = await approveResponse.json().catch(() => ({}));
-                            alert(errorData.error || 'Approval gagal diproses.');
+                          isActionLoadingRef.current = true;
+                          setActionLoading(true);
+                          try {
+                            const approveResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'x-user-id': user?.id || user?.username || ''
+                              },
+                              body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'REJECT', comments })
+                            });
+                            if (!approveResponse.ok) {
+                              const errorData = await approveResponse.json().catch(() => ({}));
+                              alert(errorData.error || 'Approval gagal diproses.');
+                            }
+                            openTicketDetail(selectedTicketId);
+                            fetchTickets();
+                          } finally {
+                            isActionLoadingRef.current = false;
+                            setActionLoading(false);
                           }
-                          openTicketDetail(selectedTicketId);
-                          fetchTickets();
                         }}
-                      >Reject</button>
-                      <button className="px-4 py-2 text-xs font-bold bg-warning text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
+                      >
+                        {actionLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                        Reject
+                      </button>
+                      <button 
+                        disabled={actionLoading || executeLoading}
+                        className="px-4 py-2 text-xs font-bold bg-warning text-white rounded-lg shadow-sm hover:opacity-90 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5"
                         onClick={async () => {
+                          if (isActionLoadingRef.current) return;
                           const comments = prompt("Enter return reason:");
                           if (comments === null) return;
-                          await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              'x-user-id': user?.id || user?.username || ''
-                            },
-                            body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'RETURN', comments })
-                          });
-                          openTicketDetail(selectedTicketId);
-                          fetchTickets();
-                        }}
-                      >Return (Need Info)</button>
-                      <button className="px-4 py-2 text-xs font-bold bg-success text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
-                        onClick={async () => {
-                          const comments = prompt("Approval Comments:") || 'Approved';
-                          const approveResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              'x-user-id': user?.id || user?.username || ''
-                            },
-                            body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'APPROVE', comments })
-                          });
-                          if (!approveResponse.ok) {
-                            const errorData = await approveResponse.json().catch(() => ({}));
-                            alert(errorData.error || 'Approval gagal diproses.');
+                          isActionLoadingRef.current = true;
+                          setActionLoading(true);
+                          try {
+                            const res = await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'x-user-id': user?.id || user?.username || ''
+                              },
+                              body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'RETURN', comments })
+                            });
+                            if (!res.ok) {
+                              const errorData = await res.json().catch(() => ({}));
+                              alert(errorData.error || 'Return gagal diproses.');
+                            }
+                            openTicketDetail(selectedTicketId);
+                            fetchTickets();
+                          } finally {
+                            isActionLoadingRef.current = false;
+                            setActionLoading(false);
                           }
-                          openTicketDetail(selectedTicketId);
-                          fetchTickets();
                         }}
-                      >Approve</button>
+                      >
+                        {actionLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                        Return (Need Info)
+                      </button>
+                      <button 
+                        disabled={actionLoading || executeLoading}
+                        className="px-4 py-2 text-xs font-bold bg-success text-white rounded-lg shadow-sm hover:opacity-90 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5"
+                        onClick={async () => {
+                          if (isActionLoadingRef.current) return;
+                          const comments = prompt("Approval Comments:") || 'Approved';
+                          isActionLoadingRef.current = true;
+                          setActionLoading(true);
+                          try {
+                            const approveResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/approve`, {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'x-user-id': user?.id || user?.username || ''
+                              },
+                              body: JSON.stringify({ approver_id: currentUserNIP, approver_name: currentUserNIP, approver_role: currentUserRole, action: 'APPROVE', comments })
+                            });
+                            if (!approveResponse.ok) {
+                              const errorData = await approveResponse.json().catch(() => ({}));
+                              alert(errorData.error || 'Approval gagal diproses.');
+                            }
+                            openTicketDetail(selectedTicketId);
+                            fetchTickets();
+                          } finally {
+                            isActionLoadingRef.current = false;
+                            setActionLoading(false);
+                          }
+                        }}
+                      >
+                        {actionLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                        Approve
+                      </button>
                     </>
                   )}
-                  {!selectedTicketIsCompleted && !selectedTicketData.permissions?.can_approve && selectedTicketData.ticket.status.includes('Pending Approval') && selectedTicketData.permissions?.approve_reason && (
-                    <div className="w-full text-right text-[11px] text-foreground-muted italic py-1">
-                      ℹ️ {selectedTicketData.permissions.approve_reason}
+                  {!selectedTicketIsCompleted && selectedTicketIsApprovalPending && !selectedTicketData.permissions?.can_approve && selectedTicketData.permissions?.approve_reason && (
+                    <div className="w-full text-right text-xs text-foreground-muted py-1 flex items-center justify-end gap-1.5 font-medium">
+                      <Clock className="w-3.5 h-3.5 text-warning shrink-0" />
+                      <span>{selectedTicketData.permissions.approve_reason}</span>
                     </div>
                   )}
                   {/* Action Button for Resubmit */}
@@ -1637,18 +1992,29 @@ export default function CrmTicketsPage() {
                     >Edit & Resubmit Ticket</button>
                   )}
                   {/* Action Button for Execution */}
-                  {!selectedTicketIsCompleted && (selectedTicketData.permissions
-                    ? selectedTicketData.permissions.can_execute
-                    : (selectedTicketData.ticket.status === 'Approved' && canExecute)
-                  ) && (
-                    <button className="px-4 py-2 text-xs font-bold bg-primary text-white rounded-lg shadow-sm hover:opacity-90 flex items-center gap-2"
+                  {!selectedTicketIsCompleted && !selectedTicketIsSynchronizationPending && selectedTicketStatus === 'Approved' && selectedTicketData.permissions?.can_execute && (
+                    <button className="px-4 py-2 text-xs font-bold bg-primary text-white rounded-lg shadow-sm hover:opacity-90 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2"
+                      disabled={executeLoading || actionLoading}
                       onClick={async () => {
+                        if (isExecuteLoadingRef.current) return;
                         const isMerge = selectedTicketData.ticket.request_type === 'MERGE_POINTS';
+                        const isPointAdj = selectedTicketData.ticket.request_type === 'POINT_ADJUSTMENT';
+                        const oldPts = Number(String(selectedTicketData.details?.[0]?.old_value || 0).replace(/[+,\s]/g, '')) || 0;
+                        const newPts = Number(String(selectedTicketData.details?.[0]?.new_value || 0).replace(/[+,\s]/g, '')) || 0;
+                        const totalPts = oldPts + newPts;
                         const confirmMsg = isMerge
                           ? `⚠️ KONFIRMASI EKSEKUSI MERGE POINTS:\n\n1. Seluruh saldo ${selectedTicketData.details?.[0]?.new_value || ''} poin akan dipindahkan ke Member Baru (${selectedTicketData.details?.[0]?.transaction_ref}).\n2. KARTU MEMBER LAMA (${selectedTicketData.ticket.card_no || selectedTicketData.ticket.customer_id}) AKAN OTOMATIS DINONAKTIFKAN (STATUS: 0).\n\nMasukkan catatan eksekusi (atau tekan OK untuk melanjutkan):`
+                          : isPointAdj
+                          ? `⚠️ KONFIRMASI EKSEKUSI POINT ADJUSTMENT:\n\n1. Poin Awal (Old Value): ${oldPts} pts\n2. Poin Ditambahkan (New Value): +${newPts} pts\n3. Saldo Akhir Setelah Eksekusi (Old + New): ${totalPts.toLocaleString('id-ID')} pts\n\nMasukkan catatan eksekusi (atau tekan OK untuk melanjutkan):`
                           : "Enter execution notes:";
-                        const notes = prompt(confirmMsg, isMerge ? 'Poin digabungkan & kartu lama dinonaktifkan' : '');
+                        const defaultNotes = isMerge 
+                          ? 'Poin digabungkan & kartu lama dinonaktifkan' 
+                          : isPointAdj 
+                          ? `Point Adjustment (+${newPts} pts) menjadi ${totalPts} pts`
+                          : '';
+                        const notes = prompt(confirmMsg, defaultNotes);
                         if (notes === null) return;
+                        isExecuteLoadingRef.current = true;
                         setExecuteLoading(true);
                         try {
                         const executeResponse = await fetch(`/api/crm/tickets/${selectedTicketId}/execute`, {
@@ -1685,28 +2051,36 @@ export default function CrmTicketsPage() {
                           fetchTickets();
                           return;
                         }
-                        alert('Execute berhasil diproses.');
-                        openTicketDetail(selectedTicketId);
-                        fetchTickets();
+                        alert(`Execute berhasil diproses. Status: ${executeData.status || 'Completed / Closed'}`);
+                        await openTicketDetail(selectedTicketId);
+                        await fetchTickets();
                         } finally {
+                          isExecuteLoadingRef.current = false;
                           setExecuteLoading(false);
                         }
                       }}
-                      disabled={executeLoading}
                     >
                       {executeLoading ? (
-                        'Validating & Executing...'
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Validating & Executing...</span>
+                        </>
                       ) : selectedTicketData.ticket.request_type === 'MERGE_POINTS' ? (
                         <>
                           <ArrowRightLeft className="w-3.5 h-3.5" />
                           Execute Merge & Deactivate Old Card
+                        </>
+                      ) : selectedTicketData.ticket.request_type === 'POINT_ADJUSTMENT' ? (
+                        <>
+                          <Coins className="w-3.5 h-3.5" />
+                          Execute Point Adjustment (+{selectedTicketData.details?.[0]?.new_value ?? 0} pts)
                         </>
                       ) : (
                         'Execute Data Change'
                       )}
                     </button>
                   )}
-                  {user?.is_admin && !selectedTicketIsCompleted && (
+                  {user?.is_admin && !selectedTicketIsCompleted && !selectedTicketIsSynchronizationPending && (
                     <button
                       onClick={async () => {
                         if (!confirm(`Hapus ticket ${selectedTicketId}? Data approval, detail, dan audit ticket akan ikut dihapus.`)) return;
