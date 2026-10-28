@@ -124,9 +124,14 @@ export default function CrmTicketsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [dashboardFilter, setDashboardFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSizeOption, setPageSizeOption] = useState('10');
+  const [customPageSize, setCustomPageSize] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [selectedTicketData, setSelectedTicketData] = useState<any>(null);
+  const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [executeLoading, setExecuteLoading] = useState(false);
   const isExecuteLoadingRef = useRef(false);
@@ -483,8 +488,8 @@ export default function CrmTicketsPage() {
     }
   };
 
-  const fetchTickets = useCallback(async () => {
-    setLoading(true);
+  const fetchTickets = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const [ticketsRes, statsRes, storesRes] = await Promise.all([
         fetch("/api/crm/tickets"),
@@ -509,12 +514,28 @@ export default function CrmTicketsPage() {
     } catch (err) {
       console.error("Failed to load tickets or stats", err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     fetchTickets();
+  }, [fetchTickets]);
+
+  useEffect(() => {
+    const refreshSummary = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchTickets(false);
+      }
+    };
+
+    const intervalId = window.setInterval(refreshSummary, 15_000);
+    document.addEventListener('visibilitychange', refreshSummary);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', refreshSummary);
+    };
   }, [fetchTickets]);
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
@@ -610,6 +631,15 @@ export default function CrmTicketsPage() {
 
   const filteredTickets = useMemo(() => {
     let result = tickets;
+    if (dashboardFilter === 'pending_action') {
+      result = result.filter(t => t.status.toLowerCase().startsWith('pending approval') || t.status === 'Need Information' || t.status === 'Approved');
+    } else if (dashboardFilter === 'approved') {
+      result = result.filter(t => t.status === 'Approved');
+    } else if (dashboardFilter === 'completed') {
+      result = result.filter(t => t.status.toLowerCase().includes('completed'));
+    } else if (dashboardFilter === 'rejected') {
+      result = result.filter(t => t.status.toLowerCase().includes('rejected'));
+    }
     if (statusFilter) {
       result = result.filter(t => t.status.toLowerCase().includes(statusFilter.toLowerCase()));
     }
@@ -627,7 +657,25 @@ export default function CrmTicketsPage() {
       );
     }
     return result;
-  }, [tickets, searchTerm, statusFilter, typeFilter]);
+  }, [tickets, searchTerm, statusFilter, typeFilter, dashboardFilter]);
+
+  const pageSize = pageSizeOption === 'custom'
+    ? Math.max(1, Number.parseInt(customPageSize, 10) || 10)
+    : Number.parseInt(pageSizeOption, 10);
+  const totalPages = Math.max(1, Math.ceil(filteredTickets.length / pageSize));
+  const paginatedTickets = filteredTickets.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, typeFilter, dashboardFilter, pageSizeOption, customPageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const dashboardStatusCount = (predicate: (status: string) => boolean) =>
+    (dashboardStats?.by_status || []).reduce((total: number, row: any) =>
+      predicate(String(row.status || '')) ? total + Number(row.count || 0) : total, 0);
 
   const openTicketDetail = async (id: string) => {
     setSelectedTicketId(id);
@@ -699,32 +747,32 @@ export default function CrmTicketsPage() {
       {/* Dashboard Stats */}
       {dashboardStats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm">
+          <button type="button" onClick={() => { setDashboardFilter(''); setStatusFilter(''); }} className={`text-left bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm transition-all hover:border-primary/50 ${!dashboardFilter && !statusFilter ? 'ring-2 ring-primary/30' : ''}`}>
             <span className="text-xs text-foreground-muted font-bold uppercase tracking-wider">Total Tickets</span>
             <div className="mt-2 text-2xl font-bold">{dashboardStats.total}</div>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm border-l-4 border-l-warning">
+          </button>
+          <button type="button" onClick={() => { setDashboardFilter('pending_action'); setStatusFilter(''); }} className={`text-left bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm border-l-4 border-l-warning transition-all hover:border-warning ${dashboardFilter === 'pending_action' ? 'ring-2 ring-warning/30' : ''}`}>
             <span className="text-xs text-foreground-muted font-bold uppercase tracking-wider">Pending Action</span>
             <div className="mt-2 text-2xl font-bold text-warning">{dashboardStats.pending_action}</div>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm border-l-4 border-l-blue-500">
+          </button>
+          <button type="button" onClick={() => { setDashboardFilter('approved'); setStatusFilter(''); }} className={`text-left bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm border-l-4 border-l-blue-500 transition-all hover:border-blue-500 ${dashboardFilter === 'approved' ? 'ring-2 ring-blue-500/30' : ''}`}>
             <span className="text-xs text-foreground-muted font-bold uppercase tracking-wider">Approved</span>
             <div className="mt-2 text-2xl font-bold text-blue-500">
-              {dashboardStats.by_status?.find((s: any) => s.status === 'Approved')?.count || 0}
+              {dashboardStatusCount(status => status === 'Approved')}
             </div>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm border-l-4 border-l-emerald-500">
+          </button>
+          <button type="button" onClick={() => { setDashboardFilter('completed'); setStatusFilter(''); }} className={`text-left bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm border-l-4 border-l-emerald-500 transition-all hover:border-emerald-500 ${dashboardFilter === 'completed' ? 'ring-2 ring-emerald-500/30' : ''}`}>
             <span className="text-xs text-foreground-muted font-bold uppercase tracking-wider">Completed</span>
             <div className="mt-2 text-2xl font-bold text-emerald-500">
-              {dashboardStats.by_status?.find((s: any) => s.status.includes('Completed'))?.count || 0}
+              {dashboardStatusCount(status => status.toLowerCase().includes('completed'))}
             </div>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm border-l-4 border-l-danger">
+          </button>
+          <button type="button" onClick={() => { setDashboardFilter('rejected'); setStatusFilter(''); }} className={`text-left bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm border-l-4 border-l-danger transition-all hover:border-danger ${dashboardFilter === 'rejected' ? 'ring-2 ring-danger/30' : ''}`}>
             <span className="text-xs text-foreground-muted font-bold uppercase tracking-wider">Rejected</span>
             <div className="mt-2 text-2xl font-bold text-danger">
-              {dashboardStats.by_status?.find((s: any) => s.status.includes('Rejected'))?.count || 0}
+              {dashboardStatusCount(status => status.toLowerCase().includes('rejected'))}
             </div>
-          </div>
+          </button>
         </div>
       )}
 
@@ -744,7 +792,7 @@ export default function CrmTicketsPage() {
             <select
               className="bg-surface border border-border text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-primary transition-all font-medium"
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
+              onChange={(e) => { setTypeFilter(e.target.value); setDashboardFilter(''); }}
             >
               <option value="">All Types (Semua Tipe)</option>
               <option value="POINT_ADJUSTMENT">Point Adjustment</option>
@@ -754,7 +802,7 @@ export default function CrmTicketsPage() {
             <select
               className="bg-surface border border-border text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-primary transition-all"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => { setStatusFilter(e.target.value); setDashboardFilter(''); }}
             >
               <option value="">All Statuses</option>
               <option value="pending">Pending</option>
@@ -784,7 +832,7 @@ export default function CrmTicketsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
-                {filteredTickets.map(t => (
+                {paginatedTickets.map(t => (
                   <tr key={t.ticket_id} className="hover:bg-primary/[0.02] transition-colors cursor-pointer" onClick={() => openTicketDetail(t.ticket_id)}>
                     <td className="px-6 py-4 font-mono text-xs font-bold">{t.ticket_id}</td>
                     <td className="px-6 py-4">
@@ -817,6 +865,39 @@ export default function CrmTicketsPage() {
               </tbody>
             </table>
           )}
+        </div>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t border-border text-xs">
+          <div className="text-foreground-muted">
+            Menampilkan {filteredTickets.length === 0 ? 0 : ((currentPage - 1) * pageSize) + 1}–{Math.min(currentPage * pageSize, filteredTickets.length)} dari {filteredTickets.length} ticket
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-foreground-muted">Rows per page</label>
+            <select
+              value={pageSizeOption}
+              onChange={(e) => setPageSizeOption(e.target.value)}
+              className="bg-surface border border-border rounded-md px-2 py-1.5"
+            >
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="500">500</option>
+              <option value="custom">Custom</option>
+            </select>
+            {pageSizeOption === 'custom' && (
+              <input
+                type="number"
+                min="1"
+                value={customPageSize}
+                onChange={(e) => setCustomPageSize(e.target.value)}
+                placeholder="Rows"
+                className="w-20 bg-surface border border-border rounded-md px-2 py-1.5"
+              />
+            )}
+            <button type="button" disabled={currentPage <= 1} onClick={() => setCurrentPage(page => page - 1)} className="px-2.5 py-1.5 border border-border rounded-md disabled:opacity-40">Prev</button>
+            <span className="min-w-16 text-center">{currentPage} / {totalPages}</span>
+            <button type="button" disabled={currentPage >= totalPages} onClick={() => setCurrentPage(page => page + 1)} className="px-2.5 py-1.5 border border-border rounded-md disabled:opacity-40">Next</button>
+          </div>
         </div>
       </div>
 
@@ -1751,14 +1832,13 @@ export default function CrmTicketsPage() {
                         </div>
 
                         {detail.attachment_url && (
-                          <a
-                            href={detail.attachment_url}
-                            target="_blank"
-                            rel="noreferrer"
+                          <button
+                            type="button"
+                            onClick={() => setAttachmentPreview(detail.attachment_url)}
                             className="inline-flex items-center gap-1.5 text-xs bg-primary/10 text-primary px-3 py-2 rounded-md border border-primary/20 hover:bg-primary/20 hover:underline font-bold"
                           >
                             View Attachment
-                          </a>
+                          </button>
                         )}
                       </div>
                     );
@@ -1811,14 +1891,13 @@ export default function CrmTicketsPage() {
                                   </div>
                                 )}
                                 {d.attachment_url && (
-                                  <a
-                                    href={d.attachment_url}
-                                    target="_blank"
-                                    rel="noreferrer"
+                                  <button
+                                    type="button"
+                                    onClick={() => setAttachmentPreview(d.attachment_url)}
                                     className="mt-2 inline-flex items-center gap-1.5 text-[10px] bg-primary/10 text-primary px-2.5 py-1.5 rounded-md border border-primary/20 hover:bg-primary/20 hover:underline font-bold"
                                   >
                                     View Attachment
-                                  </a>
+                                  </button>
                                 )}
                               </td>
                             </tr>
@@ -2124,6 +2203,25 @@ export default function CrmTicketsPage() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {attachmentPreview && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setAttachmentPreview(null)} />
+          <div className="relative w-full max-w-5xl h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <h3 className="font-bold text-sm">Attachment Preview</h3>
+              <button type="button" onClick={() => setAttachmentPreview(null)} className="px-3 py-1.5 text-xs font-bold border border-border rounded-md hover:bg-surface-raised">Close</button>
+            </div>
+            <div className="flex-1 min-h-0 bg-black/5 flex items-center justify-center p-3">
+              {(/\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i.test(attachmentPreview)) ? (
+                <img src={attachmentPreview} alt="Ticket attachment" className="max-w-full max-h-full object-contain rounded-lg" />
+              ) : (
+                <iframe src={attachmentPreview} title="Ticket attachment" className="w-full h-full rounded-lg border border-border bg-white" />
+              )}
+            </div>
           </div>
         </div>
       )}
