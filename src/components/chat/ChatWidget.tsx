@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageCircle, X, Send, Plus, Users, ChevronLeft, Volume2, VolumeX, Search, Paperclip, FileText, Download, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { MessageCircle, X, Send, Plus, Users, ChevronLeft, Volume2, VolumeX, Search, Paperclip, FileText, Download, Image as ImageIcon, Trash2, FileSpreadsheet } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
@@ -42,6 +42,11 @@ function isImageType(mimeOrName?: string | null) {
   return mimeOrName.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp|svg|ico|tiff)$/i.test(mimeOrName);
 }
 
+function isSpreadsheet(mimeOrName?: string | null) {
+  if (!mimeOrName) return false;
+  return /\.(xlsx|xls|csv|xlsm|xlsb|ods)$/i.test(mimeOrName) || /sheet|excel|csv/i.test(mimeOrName);
+}
+
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -60,6 +65,9 @@ function AttachmentBubble({ url, name, type, isMine }: { url: string; name?: str
       </a>
     );
   }
+
+  const isExcel = isSpreadsheet(type || name);
+
   return (
     <a
       href={url} target="_blank" rel="noopener noreferrer" download={name || true}
@@ -70,7 +78,11 @@ function AttachmentBubble({ url, name, type, isMine }: { url: string; name?: str
           : "bg-surface border-border text-foreground"
       )}
     >
-      <FileText className="w-4 h-4 shrink-0" />
+      {isExcel ? (
+        <FileSpreadsheet className={cn("w-4 h-4 shrink-0", isMine ? "text-emerald-300" : "text-emerald-500")} />
+      ) : (
+        <FileText className="w-4 h-4 shrink-0" />
+      )}
       <span className="truncate max-w-[140px]">{name || 'Download file'}</span>
       <Download className="w-3.5 h-3.5 shrink-0 ml-auto" />
     </a>
@@ -184,9 +196,9 @@ export default function ChatWidget() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { toast.error('Max file size is 10 MB'); return; }
+    if (file.size > 50 * 1024 * 1024) { toast.error('Maksimal ukuran file adalah 50 MB'); return; }
     setAttachFile(file);
-    if (isImageType(file.type)) {
+    if (isImageType(file.type || file.name)) {
       const reader = new FileReader();
       reader.onload = ev => setAttachPreview(ev.target?.result as string);
       reader.readAsDataURL(file);
@@ -205,7 +217,7 @@ export default function ChatWidget() {
         const file = items[i].getAsFile();
         if (file) {
           e.preventDefault();
-          if (file.size > 10 * 1024 * 1024) { toast.error('Max file size is 10 MB'); return; }
+          if (file.size > 50 * 1024 * 1024) { toast.error('Maksimal ukuran file adalah 50 MB'); return; }
           setAttachFile(file);
           const reader = new FileReader();
           reader.onload = ev => setAttachPreview(ev.target?.result as string);
@@ -248,13 +260,17 @@ export default function ChatWidget() {
         const form = new FormData();
         form.append('file', attachFile);
         const res = await fetch('/api/chat/upload', { method: 'POST', headers, body: form });
-        if (!res.ok) { toast.error('Upload failed'); setIsUploading(false); return; }
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error(data.error || 'Upload file gagal');
+          setIsUploading(false);
+          return;
+        }
         attachmentUrl = data.url;
         attachmentName = data.name;
         attachmentType = data.type;
-      } catch {
-        toast.error('Upload error');
+      } catch (err: any) {
+        toast.error(err?.message || 'Upload error');
         setIsUploading(false);
         return;
       }
@@ -310,7 +326,6 @@ export default function ChatWidget() {
       {/* Hidden file input */}
       <input
         ref={fileInputRef} type="file" hidden
-        accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.svg,.tiff,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,.odp,.zip,.rar,.7z,.tar,.gz,.exe,.msi,.rpt,.xml,.json,.log,.sql"
         onChange={handleFileSelect}
       />
 
@@ -492,7 +507,11 @@ export default function ChatWidget() {
                     <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-xl px-3 py-2">
                       {attachPreview
                         ? <img src={attachPreview} alt="preview" className="w-10 h-10 rounded-lg object-cover shrink-0 border border-primary/30" />
-                        : <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0"><FileText className="w-5 h-5 text-primary" /></div>
+                        : (
+                          <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center shrink-0", isSpreadsheet(attachFile.name) ? "bg-emerald-500/20 text-emerald-500" : "bg-primary/20 text-primary")}>
+                            {isSpreadsheet(attachFile.name) ? <FileSpreadsheet className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                          </div>
+                        )
                       }
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-foreground truncate">{attachFile.name}</p>

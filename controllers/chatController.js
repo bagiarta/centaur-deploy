@@ -23,47 +23,32 @@ const chatStorage = multer.diskStorage({
   }
 });
 
-const ALLOWED_EXTENSIONS = new Set([
-  // Images
-  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.ico', '.tiff',
-  // Documents
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-  '.txt', '.csv', '.rtf', '.odt', '.ods', '.odp',
-  // Archives
-  '.zip', '.rar', '.7z', '.tar', '.gz',
-  // Executables & reports
-  '.exe', '.msi', '.rpt',
-  // Others
-  '.xml', '.json', '.log', '.sql'
-]);
-
 const chatUpload = multer({
   storage: chatStorage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
-  fileFilter: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (ALLOWED_EXTENSIONS.has(ext)) {
-      cb(null, true);
-    } else {
-      cb(new Error(`File type "${ext}" is not allowed`));
-    }
-  }
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB (all file types supported)
 });
 
 // POST /api/chat/upload
-export const uploadChatFile = [
-  chatUpload.single('file'),
-  (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+export const uploadChatFile = (req, res) => {
+  chatUpload.single('file')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'Ukuran file melebihi batas (maksimal 50 MB)' });
+      }
+      return res.status(400).json({ error: err.message || 'File upload error' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
     const url = `/uploads/chat/${req.file.filename}`;
     res.json({
       url,
       name: req.file.originalname,
-      type: req.file.mimetype,
+      type: req.file.mimetype || 'application/octet-stream',
       size: req.file.size
     });
-  }
-];
+  });
+};
 
 // GET /api/chat/users  — list all users to start a chat with
 export const getUsers = async (req, res) => {
