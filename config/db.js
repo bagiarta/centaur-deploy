@@ -412,7 +412,7 @@ export async function initDb() {
            created_at DATETIME DEFAULT GETDATE(),
            attachment_url NVARCHAR(500) NULL,
            attachment_name NVARCHAR(255) NULL,
-           attachment_type NVARCHAR(50) NULL
+           attachment_type NVARCHAR(255) NULL
        )`,
       `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='PushSubscriptions' AND xtype='U')
        CREATE TABLE PushSubscriptions (
@@ -743,13 +743,20 @@ export async function initDb() {
 
     // ChatMessages attachment columns
     const checkChatAttach = await pool.request().query(`
-      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      SELECT COLUMN_NAME, CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_NAME = 'ChatMessages' AND COLUMN_NAME IN ('attachment_url', 'attachment_name', 'attachment_type')
     `);
     const chatCols = checkChatAttach.recordset.map(c => c.COLUMN_NAME);
     if (!chatCols.includes('attachment_url'))  await pool.request().query('ALTER TABLE ChatMessages ADD attachment_url  NVARCHAR(500) NULL');
     if (!chatCols.includes('attachment_name')) await pool.request().query('ALTER TABLE ChatMessages ADD attachment_name NVARCHAR(255) NULL');
-    if (!chatCols.includes('attachment_type')) await pool.request().query('ALTER TABLE ChatMessages ADD attachment_type NVARCHAR(50)  NULL');
+    if (!chatCols.includes('attachment_type')) {
+      await pool.request().query('ALTER TABLE ChatMessages ADD attachment_type NVARCHAR(255) NULL');
+    } else {
+      const typeCol = checkChatAttach.recordset.find(c => c.COLUMN_NAME === 'attachment_type');
+      if (typeCol && typeCol.CHARACTER_MAXIMUM_LENGTH && typeCol.CHARACTER_MAXIMUM_LENGTH < 255) {
+        await pool.request().query('ALTER TABLE ChatMessages ALTER COLUMN attachment_type NVARCHAR(255) NULL');
+      }
+    }
 
     // UserTasks start_date column
     const checkStartDate = await pool.request().query(`

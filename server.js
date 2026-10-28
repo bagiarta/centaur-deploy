@@ -341,6 +341,9 @@ io.on('connection', (socket) => {
       const msgId = uuidv4();
       const now = new Date().toISOString();
       const safeContent = hasText ? content : '';
+      const safeAttachUrl  = attachmentUrl  ? String(attachmentUrl).substring(0, 500)  : null;
+      const safeAttachName = attachmentName ? String(attachmentName).substring(0, 255) : null;
+      const safeAttachType = attachmentType ? String(attachmentType).substring(0, 255) : null;
 
       // Persist to DB (with optional attachment columns)
       await pool.request()
@@ -348,9 +351,9 @@ io.on('connection', (socket) => {
         .input('cid',            sql.NVarChar, conversationId)
         .input('sid',            sql.NVarChar, senderId)
         .input('content',        sql.NVarChar, safeContent)
-        .input('attachmentUrl',  sql.NVarChar, attachmentUrl  || null)
-        .input('attachmentName', sql.NVarChar, attachmentName || null)
-        .input('attachmentType', sql.NVarChar, attachmentType || null)
+        .input('attachmentUrl',  sql.NVarChar, safeAttachUrl)
+        .input('attachmentName', sql.NVarChar, safeAttachName)
+        .input('attachmentType', sql.NVarChar, safeAttachType)
         .query(`
           INSERT INTO ChatMessages (id, conversation_id, sender_id, content, is_read, created_at, attachment_url, attachment_name, attachment_type)
           VALUES (@id, @cid, @sid, @content, 0, GETDATE(), @attachmentUrl, @attachmentName, @attachmentType)
@@ -371,9 +374,9 @@ io.on('connection', (socket) => {
         content: safeContent,
         is_read: false,
         created_at: now,
-        attachment_url:  attachmentUrl  || null,
-        attachment_name: attachmentName || null,
-        attachment_type: attachmentType || null,
+        attachment_url:  safeAttachUrl,
+        attachment_name: safeAttachName,
+        attachment_type: safeAttachType,
       };
 
       // Broadcast to all participants in the room
