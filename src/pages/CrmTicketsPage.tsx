@@ -3,8 +3,9 @@ import {
   Ticket, CheckCircle2, XCircle, AlertTriangle, Clock, 
   Search, Info, Plus, ChevronRight, User as UserIcon,
   ShieldCheck, CheckCheck, MapPin, Phone, Mail, CreditCard, Coins, Calendar,
-  ArrowRightLeft, Loader2
+  ArrowRightLeft, Loader2, RotateCcw
 } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 
 type Ticket = {
@@ -101,7 +102,7 @@ const renderRequestTypeBadge = (type: string) => {
     );
   }
 
-  if (type === 'MERGE_POINTS') {
+  if (isMergeRequestType(type)) {
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/25 shadow-sm">
         <ArrowRightLeft className="w-3.5 h-3.5 text-teal-500" />
@@ -116,6 +117,12 @@ const renderRequestTypeBadge = (type: string) => {
       {type || 'General'}
     </span>
   );
+};
+
+const isMergeRequestType = (type?: string | null) => {
+  if (!type) return false;
+  const normalized = String(type).trim().toUpperCase().replace(/[\s-]+/g, '_');
+  return normalized === 'MERGE_POINTS' || normalized === 'MERGE' || normalized.includes('MERGE');
 };
 
 export default function CrmTicketsPage() {
@@ -133,6 +140,7 @@ export default function CrmTicketsPage() {
   const [selectedTicketData, setSelectedTicketData] = useState<any>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [isRecheckingH2h, setIsRecheckingH2h] = useState(false);
   const [executeLoading, setExecuteLoading] = useState(false);
   const isExecuteLoadingRef = useRef(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -698,6 +706,51 @@ export default function CrmTicketsPage() {
     }
   };
 
+  const handleRecheckH2h = async (ticketId?: string) => {
+    const id = ticketId || selectedTicketId;
+    if (!id) return;
+    setIsRecheckingH2h(true);
+    try {
+      const res = await fetch(`/api/crm/tickets/${id}/recheck-h2h`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user?.id || user?.username || ''
+        }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || 'Gagal melakukan cek ulang H2H');
+        return;
+      }
+      if (data.merge_h2h) {
+        setSelectedTicketData((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            merge_h2h: data.merge_h2h
+          };
+        });
+      }
+      if (data.success) {
+        toast.success(data.message || 'Data live H2H berhasil diperiksa ulang');
+      } else if (data.partial) {
+        toast.warning(data.message || 'Sebagian data H2H gagal diambil');
+      } else {
+        toast.error(data.message || 'Gagal mengambil data H2H');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Terjadi kesalahan saat cek ulang H2H');
+    } finally {
+      setIsRecheckingH2h(false);
+    }
+  };
+
+  const openTicketDetailWithRecheck = async (id: string) => {
+    await openTicketDetail(id);
+    await handleRecheckH2h(id);
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto animate-in fade-in duration-500 pb-20">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -1258,10 +1311,23 @@ export default function CrmTicketsPage() {
                         <p className="font-mono text-foreground-muted text-[11px]">{customerDetails?.card_no || '-'}</p>
                         <div className="mt-2 flex items-center justify-between pt-2 border-t border-border/60">
                           <span className="text-foreground-muted text-[11px]">Saldo Poin Saat Ini:</span>
-                          <span className="font-mono font-bold text-sm text-foreground flex items-center gap-1">
-                            <Coins className="w-3.5 h-3.5 text-warning" />
-                            {customerDetails?.current_points ?? 0} pts
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-sm text-foreground flex items-center gap-1">
+                              <Coins className="w-3.5 h-3.5 text-warning" />
+                              {customerDetails?.current_points ?? 0} pts
+                            </span>
+                            {customerDetails && (
+                              <button
+                                type="button"
+                                onClick={() => handleCustomerLookup(formData.customer_id || customerDetails.card_no)}
+                                disabled={lookupLoading}
+                                className="p-1 hover:bg-surface-raised rounded text-foreground-muted hover:text-primary transition-colors"
+                                title="Cek ulang saldo live H2H member lama"
+                              >
+                                <RotateCcw className={`w-3 h-3 ${lookupLoading ? 'animate-spin' : ''}`} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 pt-2 text-[11px]">
                           <div><span className="text-foreground-muted block">Total Expense H2H</span><b>Rp {new Intl.NumberFormat('id-ID').format(customerDetails?.total_expense ?? 0)}</b></div>
@@ -1317,10 +1383,21 @@ export default function CrmTicketsPage() {
                           </div>
                           <div className="mt-2 flex items-center justify-between pt-1 border-t border-border/40">
                             <span className="text-foreground-muted text-[11px]">Saldo Poin Sekarang:</span>
-                            <span className="font-mono font-bold text-sm text-teal-600 flex items-center gap-1">
-                              <Coins className="w-3.5 h-3.5" />
-                              {targetCustomerDetails.current_points ?? 0} pts
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono font-bold text-sm text-teal-600 flex items-center gap-1">
+                                <Coins className="w-3.5 h-3.5" />
+                                {targetCustomerDetails.current_points ?? 0} pts
+                              </span>
+                              <button
+                                type="button"
+                                onClick={handleTargetCustomerLookup}
+                                disabled={targetLookupLoading}
+                                className="p-1 hover:bg-teal-500/20 rounded text-teal-600 transition-colors"
+                                title="Cek ulang saldo live H2H member baru"
+                              >
+                                <RotateCcw className={`w-3 h-3 ${targetLookupLoading ? 'animate-spin' : ''}`} />
+                              </button>
+                            </div>
                           </div>
                           <div className="grid grid-cols-2 gap-2 pt-2 text-[11px]">
                             <div><span className="text-foreground-muted block">Total Expense H2H</span><b>Rp {new Intl.NumberFormat('id-ID').format(targetCustomerDetails.total_expense ?? 0)}</b></div>
@@ -1569,7 +1646,7 @@ export default function CrmTicketsPage() {
                 )}
 
                 {/* Merge Points Informational & Deactivation Banner */}
-                {selectedTicketData.ticket.request_type === 'MERGE_POINTS' && (
+                {isMergeRequestType(selectedTicketData.ticket.request_type) && (
                   <div className="p-4 bg-teal-500/10 border border-teal-500/30 rounded-xl space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400 font-bold text-sm">
@@ -1609,23 +1686,67 @@ export default function CrmTicketsPage() {
                       </div>
                     </div>
 
-                    {selectedTicketData.merge_h2h && (
+                    {selectedTicketData.merge_h2h ? (
                       <div className="space-y-2">
-                        <div className="flex items-center justify-between text-xs px-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs px-1">
                           <span className="font-bold flex items-center gap-1.5 text-foreground">
                             <ShieldCheck className="w-4 h-4 text-primary" />
                             {selectedTicketData.merge_h2h.is_snapshot
                               ? 'Data Historis H2H (Snapshot Statis saat Eksekusi)'
                               : 'Kondisi Saldo H2H (Live Real-Time)'}
+                            {selectedTicketData.merge_h2h.checked_at && (
+                              <span className="text-[10px] font-normal text-foreground-muted ml-1">
+                                (Dicek: {new Date(selectedTicketData.merge_h2h.checked_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })})
+                              </span>
+                            )}
                           </span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            selectedTicketData.merge_h2h.is_snapshot
-                              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
-                              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                          }`}>
-                            {selectedTicketData.merge_h2h.is_snapshot ? 'Historical Snapshot (Frozen)' : 'Live H2H'}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            {!selectedTicketData.merge_h2h.is_snapshot && (
+                              <button
+                                type="button"
+                                onClick={() => handleRecheckH2h(selectedTicketData.ticket.ticket_id)}
+                                disabled={isRecheckingH2h}
+                                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-teal-600 hover:bg-teal-700 text-white shadow-sm transition-all disabled:opacity-50"
+                                title="Refresh data live H2H sekarang"
+                              >
+                                <RotateCcw className={`w-3.5 h-3.5 ${isRecheckingH2h ? 'animate-spin' : ''}`} />
+                                <span>{isRecheckingH2h ? 'Mengecek...' : 'Refresh Live'}</span>
+                              </button>
+                            )}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              selectedTicketData.merge_h2h.is_snapshot
+                                ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                            }`}>
+                              {selectedTicketData.merge_h2h.is_snapshot ? 'Historical Snapshot (Frozen)' : 'Live H2H'}
+                            </span>
+                          </div>
                         </div>
+
+                        {(selectedTicketData.merge_h2h.errors?.source || selectedTicketData.merge_h2h.errors?.target) && (
+                          <div className="p-3 bg-danger/10 border border-danger/30 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2 text-danger">
+                              <AlertTriangle className="w-4 h-4 shrink-0" />
+                              <div>
+                                <span className="font-bold block">Peringatan: Gagal Mengambil Data Live H2H</span>
+                                <span className="text-[11px] opacity-90">
+                                  {selectedTicketData.merge_h2h.errors?.source && <span><b>Member Lama:</b> {selectedTicketData.merge_h2h.errors.source}. </span>}
+                                  {selectedTicketData.merge_h2h.errors?.target && <span><b>Member Baru:</b> {selectedTicketData.merge_h2h.errors.target}. </span>}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRecheckH2h(selectedTicketData.ticket.ticket_id)}
+                              disabled={isRecheckingH2h}
+                              className="px-3 py-1 bg-danger hover:bg-danger/90 text-white font-bold rounded text-xs shrink-0 flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                            >
+                              <RotateCcw className={`w-3.5 h-3.5 ${isRecheckingH2h ? 'animate-spin' : ''}`} />
+                              <span>Cek Ulang H2H</span>
+                            </button>
+                          </div>
+                        )}
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                           {[
                             { label: 'H2H Member Lama', data: selectedTicketData.merge_h2h.source, tone: 'danger' },
@@ -1650,6 +1771,27 @@ export default function CrmTicketsPage() {
                             </div>
                           ))}
                         </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+                            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                            Data Live H2H Belum Berhasil Dimuat
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRecheckH2h(selectedTicketData.ticket.ticket_id)}
+                            disabled={isRecheckingH2h}
+                            className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                          >
+                            <RotateCcw className={`w-3.5 h-3.5 ${isRecheckingH2h ? 'animate-spin' : ''}`} />
+                            <span>{isRecheckingH2h ? 'Mengecek H2H...' : 'Cek Ulang Live H2H'}</span>
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-foreground-muted">
+                          Koneksi ke server H2H mengalami kendala atau timeout saat tiket ini dibuka. Silakan klik tombol <b>Cek Ulang Live H2H</b> untuk mencoba kembali.
+                        </p>
                       </div>
                     )}
 
