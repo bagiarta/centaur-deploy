@@ -2586,3 +2586,96 @@ export const updateApprovalWorkflowConfig = async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 };
+
+export const recheckTicketH2h = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const pool = await getTicketPool();
+        const ticketRes = await pool.request()
+            .input('ticket_id', sql.VarChar, id)
+            .query("SELECT * FROM CRM_TICKETS WHERE ticket_id = @ticket_id");
+
+        if (ticketRes.recordset.length === 0) {
+            return res.status(404).json({ error: "Ticket not found" });
+        }
+
+        const ticket = ticketRes.recordset[0];
+        if (ticket.request_type !== 'MERGE_POINTS') {
+            return res.status(400).json({ error: "Pemeriksaan ulang H2H hanya berlaku untuk ticket bertipe MERGE_POINTS" });
+        }
+
+        const detailsRes = await pool.request()
+            .input('ticket_id', sql.VarChar, id)
+            .query("SELECT * FROM CRM_TICKET_DETAILS WHERE ticket_id = @ticket_id");
+
+        if (detailsRes.recordset.length === 0) {
+            return res.status(400).json({ error: "Detail ticket tidak ditemukan" });
+        }
+
+        const sourceIdentifier = ticket.customer_id;
+        const targetIdentifier = detailsRes.recordset[0].transaction_ref;
+
+        if (!sourceIdentifier || !targetIdentifier) {
+            return res.status(400).json({ error: "Nomor kartu sumber atau tujuan tidak lengkap pada ticket ini" });
+        }
+
+        const [sourceResult, targetResult] = await Promise.allSettled([
+            getH2hMemberSnapshot(sourceIdentifier),
+            getH2hMemberSnapshot(targetIdentifier)
+        ]);
+
+        const source = sourceResult.status === 'fulfilled' ? sourceResult.value : null;
+        const target = targetResult.status === 'fulfilled' ? targetResult.value : null;
+
+        const sourcePoints = Number(source?.current_points ?? detailsRes.recordset[0]?.old_value ?? 0);
+        const targetPoints = Number(target?.current_points ?? 0);
+        const transferredPoints = Number(detailsRes.recordset[0]?.new_value ?? sourcePoints);
+
+        const sourceExpense = Number(source?.total_expense ?? 0);
+        const targetExpense = Number(target?.total_expense ?? 0);
+
+        const sourceLuckyDraw = Number(source?.lucky_draw_points ?? 0);
+        const targetLuckyDraw = Number(target?.lucky_draw_points ?? 0);
+
+        const combined = {
+            source_points: sourcePoints,
+            target_points: targetPoints,
+            transferred_points: transferredPoints,
+            total_points: targetPoints + transferredPoints,
+            combined_points: sourcePoints + targetPoints,
+            source_expense: sourceExpense,
+            target_expense: targetExpense,
+            total_expense: sourceExpense + targetExpense,
+            source_lucky_draw: sourceLuckyDraw,
+            target_lucky_draw: targetLuckyDraw,
+            total_lucky_draw: sourceLuckyDraw + targetLuckyDraw
+        };
+
+        const mergeH2h = {
+            source,
+            target,
+            combined,
+            is_snapshot: false,
+            errors: {
+                source: sourceResult.status === 'rejected' ? (sourceResult.reason?.message || 'Gagal memuat data H2H member lama') : null,
+                target: targetResult.status === 'rejected' ? (targetResult.reason?.message || 'Gagal memuat data H2H member baru') : null
+            },
+            checked_at: new Date().toISOString()
+        };
+
+        const hasSourceError = sourceResult.status === 'rejected';
+        const hasTargetError = targetResult.status === 'rejected';
+
+        res.json({
+            success: !hasSourceError && !hasTargetError,
+            partial: (hasSourceError && !hasTargetError) || (!hasSourceError && hasTargetError),
+            merge_h2h: mergeH2h,
+            message: (!hasSourceError && !hasTargetError)
+                ? 'Data live H2H berhasil diperiksa ulang'
+                : `Pemeriksaan H2H mengalami kendala: ${[mergeH2h.errors.source && `Sumber: ${mergeH2h.errors.source}`, mergeH2h.errors.target && `Tujuan: ${mergeH2h.errors.target}`].filter(Boolean).join(' | ')}`
+        });
+    } catch (err) {
+        console.error('recheckTicketH2h error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};

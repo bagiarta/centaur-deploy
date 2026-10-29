@@ -56,6 +56,8 @@ router.get('/api/crm/tickets/billing-lookup', crmTicketController.lookupBilling)
 router.post('/api/crm/tickets', crmTicketController.createTicket);
 router.get('/api/crm/tickets', crmTicketController.getTickets);
 router.get('/api/crm/tickets/:id', crmTicketController.getTicketById);
+router.post('/api/crm/tickets/:id/recheck-h2h', crmTicketController.recheckTicketH2h);
+router.get('/api/crm/tickets/:id/recheck-h2h', crmTicketController.recheckTicketH2h);
 router.post('/api/crm/tickets/:id/approve', crmTicketController.approveTicket);
 router.post('/api/crm/tickets/:id/resubmit', crmTicketController.resubmitTicket);
 router.delete('/api/crm/tickets/:id', crmTicketController.deleteTicket);
