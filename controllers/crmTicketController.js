@@ -1572,7 +1572,7 @@ export const getTicketById = async (req, res) => {
                 approve_reason: approveCheck.reason,
                 pending_approver_name: pendingName,
                 total_levels: config.total_levels,
-                level_name: pendingName ? `Pending: ${pendingName}` : `Pending Approval`
+                level_name: pendingName ? `Pending: ${pendingName}` : (ticketObj.status.includes('Pending Approval') ? 'Pending Approval' : ticketObj.status)
             };
         } catch (_) {}
 

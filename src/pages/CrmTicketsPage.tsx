@@ -3,7 +3,7 @@ import {
   Ticket, CheckCircle2, XCircle, AlertTriangle, Clock, 
   Search, Info, Plus, ChevronRight, User as UserIcon,
   ShieldCheck, CheckCheck, MapPin, Phone, Mail, CreditCard, Coins, Calendar,
-  ArrowRightLeft, Loader2, RotateCcw
+  ArrowRightLeft, Loader2, RotateCcw, RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
@@ -29,6 +29,16 @@ type Ticket = {
 };
 
 const renderStatusBadge = (status: string, level?: number, pendingApproverName?: string | null) => {
+  // 1. Status Selesai / Closed (termasuk 'Completed / Closed' dan 'Completed / Sync / Closed')
+  if (status.includes('Completed') || status.includes('Closed')) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-sm">
+        <CheckCheck className="w-3.5 h-3.5 text-emerald-500" />
+        {status}
+      </span>
+    );
+  }
+
   if (status === 'Approved') {
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shadow-sm">
@@ -38,11 +48,12 @@ const renderStatusBadge = (status: string, level?: number, pendingApproverName?:
     );
   }
 
-  if (status.includes('Completed')) {
+  // 2. Status sinkronisasi ke server toko (hanya jika aktif menunggu: Synchronization Pending)
+  if (status === 'Synchronization Pending' || (status.toLowerCase().includes('sync') && status.toLowerCase().includes('pending'))) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-sm">
-        <CheckCheck className="w-3.5 h-3.5 text-emerald-500" />
-        {status}
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/25 shadow-sm" title="Menunggu sinkronisasi antrean ke server target">
+        <RefreshCw className="w-3.5 h-3.5 text-purple-500 animate-spin" />
+        Pending Synchronize
       </span>
     );
   }
@@ -65,8 +76,9 @@ const renderStatusBadge = (status: string, level?: number, pendingApproverName?:
     );
   }
 
-  if (status.includes('Pending Approval') || status.toLowerCase().includes('pending')) {
-    const displayName = pendingApproverName ? `Pending: ${pendingApproverName}` : 'Pending Approval';
+  // 3. Status persetujuan bertingkat (Pending Approval)
+  if (status.includes('Pending Approval') || status.startsWith('Pending Approval')) {
+    const displayName = pendingApproverName ? `Pending: ${pendingApproverName}` : (status || 'Pending Approval');
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-warning/10 text-warning border border-warning/20 shadow-sm" title={displayName}>
         <Clock className="w-3.5 h-3.5 shrink-0" />
@@ -154,9 +166,9 @@ export default function CrmTicketsPage() {
   const currentUserPosition = user?.position || '';
   const currentUserNIP = user?.username || '';
   const selectedTicketStatus = String(selectedTicketData?.ticket?.status || '');
+  const selectedTicketIsCompleted = selectedTicketStatus.toLowerCase().includes('completed') || selectedTicketStatus.toLowerCase().includes('closed');
   const selectedTicketIsApprovalPending = selectedTicketStatus.startsWith('Pending Approval');
-  const selectedTicketIsSynchronizationPending = selectedTicketStatus === 'Synchronization Pending';
-  const selectedTicketIsCompleted = selectedTicketStatus.toLowerCase().includes('completed');
+  const selectedTicketIsSynchronizationPending = !selectedTicketIsCompleted && (selectedTicketStatus === 'Synchronization Pending' || (selectedTicketStatus.toLowerCase().includes('sync') && selectedTicketStatus.toLowerCase().includes('pending')));
 
   useEffect(() => {
     if (user?.username) {
@@ -649,7 +661,11 @@ export default function CrmTicketsPage() {
       result = result.filter(t => t.status.toLowerCase().includes('rejected'));
     }
     if (statusFilter) {
-      result = result.filter(t => t.status.toLowerCase().includes(statusFilter.toLowerCase()));
+      if (statusFilter === 'synchronization pending') {
+        result = result.filter(t => !t.status.toLowerCase().includes('completed') && (t.status === 'Synchronization Pending' || (t.status.toLowerCase().includes('sync') && t.status.toLowerCase().includes('pending'))));
+      } else {
+        result = result.filter(t => t.status.toLowerCase().includes(statusFilter.toLowerCase()));
+      }
     }
     if (typeFilter) {
       result = result.filter(t => t.request_type.toLowerCase() === typeFilter.toLowerCase());
@@ -853,12 +869,13 @@ export default function CrmTicketsPage() {
               <option value="MERGE_POINTS">Merge Points</option>
             </select>
             <select
-              className="bg-surface border border-border text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-primary transition-all"
+              className="bg-surface border border-border text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-primary transition-all font-medium"
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setDashboardFilter(''); }}
             >
-              <option value="">All Statuses</option>
-              <option value="pending">Pending</option>
+              <option value="">All Statuses (Semua Status)</option>
+              <option value="pending approval">Pending Approval</option>
+              <option value="synchronization pending">Pending Synchronize</option>
               <option value="need information">Need Information</option>
               <option value="approved">Approved</option>
               <option value="rejected">Rejected</option>
@@ -1645,6 +1662,19 @@ export default function CrmTicketsPage() {
                   </div>
                 )}
 
+                {/* Synchronization Pending Banner */}
+                {selectedTicketIsSynchronizationPending && (
+                  <div className="p-4 bg-purple-500/10 border-l-4 border-purple-500 rounded-r-xl space-y-1">
+                    <h4 className="font-bold text-purple-600 dark:text-purple-400 text-sm flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin text-purple-500" />
+                      Tiket Telah Dieksekusi - Menunggu Sinkronisasi (Pending Synchronize)
+                    </h4>
+                    <p className="text-xs text-foreground-muted">
+                      Tiket telah berhasil dieksekusi oleh Ops Admin dan antrean transaksi (queue) telah dikirimkan ke server toko/tujuan. Sistem sedang menunggu konfirmasi sinkronisasi dari scheduler otomatis untuk menyelesaikan tiket.
+                    </p>
+                  </div>
+                )}
+
                 {/* Merge Points Informational & Deactivation Banner */}
                 {isMergeRequestType(selectedTicketData.ticket.request_type) && (
                   <div className="p-4 bg-teal-500/10 border border-teal-500/30 rounded-xl space-y-3">
@@ -1898,12 +1928,20 @@ export default function CrmTicketsPage() {
                       <span className="text-foreground-muted">Requester:</span> <span className="font-bold text-foreground">{selectedTicketData.ticket.requester_name}</span>
                       <span className="text-foreground-muted">ID:</span> <span className="font-medium">{selectedTicketData.ticket.requester_id}</span>
                       <span className="text-foreground-muted">Branch:</span> <span className="font-medium">{selectedTicketData.ticket.unit_branch}</span>
-                      {(selectedTicketData.permissions?.pending_approver_name || selectedTicketData.ticket?.pending_approver_name) && (
+                      {selectedTicketIsSynchronizationPending ? (
+                        <>
+                          <span className="text-foreground-muted">Status Eksekusi:</span> 
+                          <span className="font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            Pending Synchronize
+                          </span>
+                        </>
+                      ) : (selectedTicketIsApprovalPending && (selectedTicketData.permissions?.pending_approver_name || selectedTicketData.ticket?.pending_approver_name)) ? (
                         <>
                           <span className="text-foreground-muted">Pending Approver:</span> 
                           <span className="font-bold text-warning">{selectedTicketData.permissions?.pending_approver_name || selectedTicketData.ticket?.pending_approver_name}</span>
                         </>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                   <div className="p-4 bg-surface-raised rounded-xl space-y-3">
