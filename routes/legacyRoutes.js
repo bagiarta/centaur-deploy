@@ -2641,11 +2641,30 @@ async function sendWhatsapp(message, options = {}) {
       hostname: 'api.fonnte.com', path: '/send', method: 'POST',
       headers: { 'Authorization': settings.whatsapp_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
     };
-    const req = https.request(requestOptions);
-    req.on('error', (err) => { console.error('[WHATSAPP] Request Error:', err.message); });
-    req.write(payload);
-    req.end();
-    console.log(`[WHATSAPP] Message sent to: ${targets}`);
+    const doSend = () => new Promise((resolve, reject) => {
+      const req = https.request(requestOptions, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          console.log(`[WHATSAPP] Sent to: ${targets} (Status: ${res.statusCode})`);
+          resolve({ statusCode: res.statusCode, body });
+        });
+      });
+      req.on('error', (err) => reject(err));
+      req.setTimeout(15000, () => {
+        req.destroy(new Error('Fonnte request timeout'));
+      });
+      req.write(payload);
+      req.end();
+    });
+
+    try {
+      await doSend();
+    } catch (sendErr) {
+      console.warn(`[WHATSAPP] Attempt 1 failed (${sendErr.message}), retrying in 3s...`);
+      await new Promise(r => setTimeout(r, 3000));
+      await doSend();
+    }
   } catch (err) {
     console.error('[WHATSAPP] Error:', err.message);
   }
