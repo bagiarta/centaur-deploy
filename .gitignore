@@ -7,7 +7,6 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-
 node_modules
 dist
 dist-ssr
@@ -23,7 +22,26 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
 *.env
+
+# SSL Keys, Certificates & Credentials
+*.key
+*.pem
+*.pfx
+*.p12
+*.pkcs12
+config/ssl/*.key
+config/ssl/*.pem
+
+# Temporary files & debug dumps
+tmp/
+temp/
+*.tmp
 
 # Custom directories
 uploads/

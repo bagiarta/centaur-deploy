@@ -75,10 +75,10 @@ async function migrate() {
   // 2. Connect to DBWH_8555
   console.log('Connecting to DBWH_8555...');
   const pool55 = new sql.ConnectionPool({
-    user: 'DBWH_8555',
-    password: 'DBWH_8555',
-    server: '192.168.85.55',
-    database: 'DBWH_8555',
+    user: process.env.CRM_DB_USER || 'DBWH_8555',
+    password: process.env.CRM_DB_PASS || '',
+    server: process.env.CRM_DB_SERVER || '192.168.85.55',
+    database: process.env.CRM_DB_NAME || 'DBWH_8555',
     options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true }
   });
   await pool55.connect();
