@@ -2679,3 +2679,139 @@ export const recheckTicketH2h = async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 };
+
+export async function getPendingCrmTickets(pool) {
+    if (!pool) {
+        pool = await getTicketPool();
+    }
+    const userMapData = await getUserFullNameMap(pool);
+    const configsRes = await pool.request().query('SELECT * FROM CRM_TICKET_WORKFLOW_CONFIG');
+    const configMap = new Map();
+    for (const c of configsRes.recordset) {
+        try {
+            c.level_1_users = typeof c.level_1_users === 'string' ? JSON.parse(c.level_1_users) : (c.level_1_users || []);
+            c.level_2_users = typeof c.level_2_users === 'string' ? JSON.parse(c.level_2_users) : (c.level_2_users || []);
+            c.level_3_users = typeof c.level_3_users === 'string' ? JSON.parse(c.level_3_users) : (c.level_3_users || []);
+            c.executor_users = typeof c.executor_users === 'string' ? JSON.parse(c.executor_users) : (c.executor_users || []);
+        } catch (_) {}
+        configMap.set(c.config_key, c);
+    }
+    const defaultConfig = configMap.get('DEFAULT');
+
+    const query = `
+        SELECT t.*, 
+               (SELECT TOP 1 reason FROM CRM_TICKET_DETAILS d WHERE d.ticket_id = t.ticket_id) as reason,
+               (SELECT TOP 1 field_name FROM CRM_TICKET_DETAILS d WHERE d.ticket_id = t.ticket_id) as field_name,
+               (SELECT TOP 1 old_value FROM CRM_TICKET_DETAILS d WHERE d.ticket_id = t.ticket_id) as old_value,
+               (SELECT TOP 1 new_value FROM CRM_TICKET_DETAILS d WHERE d.ticket_id = t.ticket_id) as new_value,
+               (SELECT TOP 1 transaction_ref FROM CRM_TICKET_DETAILS d WHERE d.ticket_id = t.ticket_id) as transaction_ref
+        FROM CRM_TICKETS t
+        WHERE t.status NOT IN ('Completed / Closed', 'Completed / Sync / Closed', 'Rejected', 'Cancelled')
+        ORDER BY 
+            CASE 
+                WHEN t.status LIKE 'Pending Approval%' THEN 1
+                WHEN t.status = 'Approved' THEN 2
+                WHEN t.status = 'Synchronization Pending' THEN 3
+                WHEN t.status = 'Need Information' THEN 4
+                ELSE 5
+            END ASC, t.created_at ASC
+    `;
+    const result = await pool.request().query(query);
+    const tickets = result.recordset;
+
+    for (const t of tickets) {
+        if (t.requester_name) {
+            t.requester_name = userMapData.map.get(t.requester_name.toLowerCase()) || t.requester_name;
+        } else if (t.requester_id) {
+            t.requester_name = userMapData.map.get(t.requester_id.toLowerCase()) || t.requester_id;
+        }
+
+        const config = configMap.get(t.request_type) || defaultConfig;
+        t.pending_approver_name = getPendingApproverNames(t, config, userMapData);
+        t.workflow_config = config;
+    }
+
+    return tickets;
+}
+
+export async function formatPendingCrmTicketsSummary(pool) {
+    const crmTickets = await getPendingCrmTickets(pool);
+
+    let section = `─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ \n`;
+    section += `💳 *CRM TICKETS (PENDING)*\n`;
+    section += `Total Pending: *${crmTickets.length}* ticket(s)\n\n`;
+
+    if (crmTickets.length === 0) {
+        section += `✅ Tidak ada ticket CRM yang pending saat ini.\n\n`;
+        return section;
+    }
+
+    const typeLabels = {
+        POINT_ADJUSTMENT: 'Point Adjustment',
+        DATA_UPDATE: 'Data Update',
+        MERGE_POINTS: 'Merge Points'
+    };
+
+    for (const t of crmTickets) {
+        const typeLabel = typeLabels[t.request_type] || t.request_type;
+        let statusEmoji = '⏳';
+        let actionNote = '';
+
+        if (t.status.includes('Pending Approval')) {
+            statusEmoji = '⏳';
+            if (t.pending_approver_name) {
+                actionNote = `Waiting Approval: *${t.pending_approver_name}*`;
+            } else {
+                actionNote = `Waiting Approval: *Level ${t.current_approval_level}*`;
+            }
+        } else if (t.status === 'Approved') {
+            statusEmoji = '⚡';
+            actionNote = `Next Action: *Siap Eksekusi (Ops Admin)*`;
+        } else if (t.status === 'Synchronization Pending' || t.status.toLowerCase().includes('sync')) {
+            statusEmoji = '🔄';
+            actionNote = `Next Action: *Menunggu Konfirmasi Sinkronisasi Toko*`;
+        } else if (t.status === 'Need Information') {
+            statusEmoji = '⚠️';
+            actionNote = `Next Action: *Menunggu Revisi / Info dari Requester*`;
+        } else {
+            statusEmoji = '📋';
+            actionNote = `Status: *${t.status}*`;
+        }
+
+        section += `${statusEmoji} *[${t.ticket_id}]* ${typeLabel}\n`;
+        section += `   • Status: _${t.status}_\n`;
+
+        if (t.request_type === 'MERGE_POINTS') {
+            section += `   • Member Sumber: ${t.customer_name || '-'} (${t.customer_id})\n`;
+            if (t.transaction_ref) {
+                section += `   • Member Tujuan: ${t.transaction_ref}\n`;
+            }
+            if (t.new_value) {
+                section += `   • Poin Ditransfer: *${t.new_value} pts*\n`;
+            }
+        } else if (t.request_type === 'POINT_ADJUSTMENT') {
+            section += `   • Member: ${t.customer_name || '-'} (${t.customer_id})\n`;
+            const pts = Number(t.new_value);
+            const ptsStr = !isNaN(pts) && pts >= 0 ? `+${pts}` : `${t.new_value}`;
+            section += `   • Penyesuaian: *${ptsStr} pts*`;
+            if (t.transaction_ref) section += ` (Ref: ${t.transaction_ref})`;
+            section += `\n`;
+        } else if (t.request_type === 'DATA_UPDATE') {
+            section += `   • Member: ${t.customer_name || '-'} (${t.customer_id})\n`;
+            section += `   • Ubah: ${t.field_name || 'Data'} ("${t.old_value || '-'}" ➔ *"${t.new_value || '-'}"*)\n`;
+        } else {
+            section += `   • Member: ${t.customer_name || '-'} (${t.customer_id})\n`;
+        }
+
+        section += `   • Requester: ${t.requester_name || t.requester_id} (${t.unit_branch || 'HQ'})\n`;
+        if (actionNote) {
+            section += `   • ${actionNote}\n`;
+        }
+        if (t.reason) {
+            section += `   • Alasan: _${t.reason.trim()}_\n`;
+        }
+        section += `\n`;
+    }
+
+    return section;
+}

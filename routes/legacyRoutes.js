@@ -24,6 +24,7 @@ const { runSync: runItemSalesSync } = require('../scripts/sync_dev_item_sales_me
 import { poolPromise, dbConfig, initDb } from '../config/db.js';
 import { h2hConfig, getH2hToken } from '../config/h2h.js';
 import { getCurrentTimestamp, getCurrentTimeHHMM, getISOTimestamp } from '../utils/timeUtils.js';
+import { formatPendingCrmTicketsSummary } from '../controllers/crmTicketController.js';
 
 let devEtlLogs = [];
 let devEtlRunning = false;
@@ -3150,6 +3151,11 @@ async function sendDailyOutstandingTicketsNotification(options = {}) {
     let summary = `\uD83C\uDFAB\uFE0F *DAILY OUTSTANDING TICKETS SUMMARY*\n`;
     summary += `_Date: ${new Date().toLocaleDateString('id-ID')}_\n\n`;
 
+    // ── 1. IT HELPDESK TICKETS ──
+    summary += `─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ \n`;
+    summary += `🛠️ *IT HELPDESK TICKETS*\n`;
+    summary += `Total Outstanding: *${tickets.length}* ticket(s)\n\n`;
+
     for (const ticket of tickets) {
       // Resolve Manual Targets
       const manualHosts = (ticket.manual_hostnames || '')
@@ -3194,7 +3200,18 @@ async function sendDailyOutstandingTicketsNotification(options = {}) {
     }
 
     if (tickets.length === 0) {
-      summary += `\u2705 Tidak ada ticket yang outstanding saat ini.\n\n`;
+      summary += `✅ Tidak ada ticket Helpdesk yang outstanding saat ini.\n\n`;
+    }
+
+    // ── 2. CRM PENDING TICKETS ──
+    try {
+      const crmSection = await formatPendingCrmTicketsSummary(pool);
+      summary += crmSection;
+    } catch (crmErr) {
+      console.error('[REPORT] Pending CRM Tickets summary error (non-fatal):', crmErr.message);
+      summary += `─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ \n`;
+      summary += `💳 *CRM TICKETS (PENDING)*\n`;
+      summary += `⚠️ Gagal memuat daftar ticket CRM: ${crmErr.message}\n\n`;
     }
 
     // \u2500€\u2500€ 3. LOYAL CRM SYNC STATUS (HOSERVER) â€” 2 Hari \u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€\u2500€
