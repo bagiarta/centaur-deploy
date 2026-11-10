@@ -263,7 +263,16 @@ app.get('/api/ssl/cert', (req, res) => {
 });
 
 app.get('/api/ssl/installer', (req, res) => {
-  const host = req.headers.host || '192.168.85.55:3001';
+  const caPath = path.join(sslDir, 'centaur-ca.crt');
+  let certLines = '';
+  if (fs.existsSync(caPath)) {
+    const certContent = fs.readFileSync(caPath, 'utf8').trim();
+    certLines = certContent.split(/\r?\n/).map(line => `echo ${line}`).join('\r\n');
+  }
+
+  const host = req.headers.host || '192.168.85.30:3001';
+  const downloadHost = host.replace(':3002', ':3001');
+
   const batContent = `@echo off
 setlocal
 echo ===================================================
@@ -271,9 +280,7 @@ echo Memasang Sertifikat SSL Centaur Deploy ke Windows
 echo ===================================================
 echo Meminta akses Administrator...
 net session >nul 2>&1
-if %errorLevel% == 0 (
-    echo Akses Administrator dikonfirmasi.
-) else (
+if %errorLevel% neq 0 (
     echo GAGAL: Skrip ini harus dijalankan sebagai Administrator!
     echo Silakan tutup jendela ini, lalu Klik Kanan file Install-Cert.bat 
     echo dan pilih "Run as Administrator".
@@ -282,21 +289,31 @@ if %errorLevel% == 0 (
 )
 
 cd /d "%~dp0"
-echo Mengunduh sertifikat dari server...
-powershell -Command "[Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (New-Object Net.WebClient).DownloadFile('https://${host}/api/ssl/cert', 'centaur-ca.crt')"
+echo Menyiapkan sertifikat SSL Centaur Deploy...
 
-if exist "centaur-ca.crt" (
-    echo Sertifikat ditemukan, memasang ke Trusted Root...
-    certutil -addstore -f "Root" centaur-ca.crt
+(
+${certLines}
+) > "%TEMP%\\centaur-ca.crt"
+
+if not exist "%TEMP%\\centaur-ca.crt" (
+    echo Mengunduh sertifikat dari server cadangan...
+    powershell -Command "[Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (New-Object Net.WebClient).DownloadFile('http://${downloadHost}/api/ssl/cert', '%TEMP%\\centaur-ca.crt')"
+)
+
+if exist "%TEMP%\\centaur-ca.crt" (
+    echo Memasang ke Trusted Root Certification Authorities...
+    certutil -addstore -f "Root" "%TEMP%\\centaur-ca.crt"
+    del "%TEMP%\\centaur-ca.crt" >nul 2>&1
     echo.
     echo ===================================================
     echo SUKSES! Sertifikat berhasil dipasang.
-    echo Silakan tutup semua jendela browser (Chrome/Edge),
-    echo lalu buka kembali halaman Centaur Deploy.
+    echo Silakan tutup semua jendela browser (Chrome / Edge),
+    echo lalu buka kembali halaman Centaur Deploy di:
+    echo https://192.168.85.30:3002
     echo ===================================================
     pause
 ) else (
-    echo GAGAL: Sertifikat tidak ditemukan atau gagal diunduh.
+    echo GAGAL: Sertifikat tidak ditemukan atau gagal dipasang.
     pause
 )
 `;

@@ -47,8 +47,8 @@ const DOWNLOADS = [
   },
   {
     name: "SSL Certificate (Local CA)",
-    version: "1.0",
-    description: "Install Local Root CA on client machines to remove 'Not Secure' browser warnings.",
+    version: "2.0",
+    description: "Install Local Root CA on client machines to remove 'Not Secure' browser warnings and enable full HTTPS access.",
     icon: <ShieldCheck className="w-6 h-6" />,
     color: "text-amber-500",
     bg: "bg-amber-500/10",
@@ -1071,14 +1071,35 @@ export default function SettingsPage() {
                           ))}
                         </ul>
                       </div>
-                      <a
-                        href={`/${pkg.file}`}
-                        download
-                        className={`w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-semibold transition-all ${pkg.color} ${pkg.bg} border ${pkg.border} hover:brightness-125`}
-                      >
-                        <Download className="w-4 h-4" />
-                        Download {pkg.file.split(".").pop()?.toUpperCase()}
-                      </a>
+                      {pkg.file === "api/ssl/installer" ? (
+                        <div className="flex flex-col gap-2">
+                          <a
+                            href="/api/ssl/installer"
+                            download="Install-Cert.bat"
+                            className={`w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-semibold transition-all ${pkg.color} ${pkg.bg} border ${pkg.border} hover:brightness-125`}
+                          >
+                            <Download className="w-4 h-4" />
+                            Download Auto-Installer (.bat)
+                          </a>
+                          <a
+                            href="/api/ssl/cert"
+                            download="centaur-ca.crt"
+                            className="w-full flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-medium text-foreground-muted bg-surface hover:text-foreground border border-border transition-all"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Download Cert Only (.crt)
+                          </a>
+                        </div>
+                      ) : (
+                        <a
+                          href={`/${pkg.file}`}
+                          download
+                          className={`w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-semibold transition-all ${pkg.color} ${pkg.bg} border ${pkg.border} hover:brightness-125`}
+                        >
+                          <Download className="w-4 h-4" />
+                          Download {pkg.file.split(".").pop()?.toUpperCase()}
+                        </a>
+                      )}
                     </div>
                   ))}
                 </div>
